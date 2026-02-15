@@ -5,9 +5,10 @@ import { toolDefinitions, handleToolCall } from './tools.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 
 const server = new McpServer({
-  name: 'agenticmail',
+  name: 'AgenticMail',
   version: '0.2.26',
-});
+  description: 'Email infrastructure for AI agents — by Ope Olatunji (https://github.com/ope-olatunji)',
+} as any);
 
 // Register tools
 for (const tool of toolDefinitions) {

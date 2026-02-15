@@ -62,6 +62,11 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   const app = express();
 
   // Global middleware
+  app.disable('x-powered-by'); // Remove default Express header
+  app.use((_req, res, next) => {
+    res.setHeader('X-Powered-By', 'AgenticMail');
+    next();
+  });
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(

@@ -16,6 +16,8 @@ function getLocalIp(): string {
   return '127.0.0.1';
 }
 
+const VERSION = '0.2.26';
+
 const { app, context } = createApp();
 const { port, host } = context.config.api;
 
@@ -23,8 +25,15 @@ let scheduledTimer: ReturnType<typeof setInterval> | null = null;
 
 const server = app.listen(port, host, async () => {
   const displayHost = host === '127.0.0.1' || host === '0.0.0.0' ? getLocalIp() : host;
-  console.log(`🚀 AgenticMail API running at http://${displayHost}:${port}`);
-  console.log(`   Health: http://${displayHost}:${port}/api/agenticmail/health`);
+  console.log('');
+  console.log('  ╔══════════════════════════════════════════╗');
+  console.log('  ║           AgenticMail v' + VERSION.padEnd(18) + '║');
+  console.log('  ║     Built by Ope Olatunji                ║');
+  console.log('  ║     https://github.com/ope-olatunji      ║');
+  console.log('  ╚══════════════════════════════════════════╝');
+  console.log('');
+  console.log(`  🚀 API: http://${displayHost}:${port}`);
+  console.log(`  ❤️  Health: http://${displayHost}:${port}/api/agenticmail/health`);
 
   // Start scheduled email sender
   scheduledTimer = startScheduledSender(context.db, context.accountManager, context.config, context.gatewayManager);
