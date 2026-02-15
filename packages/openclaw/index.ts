@@ -55,6 +55,14 @@ interface PendingSpawn {
 const pendingSpawns: PendingSpawn[] = [];
 
 /**
+ * Task mode registry — tracks the coordination mode for spawned tasks.
+ * Populated in spawnForTask, consumed in before_agent_start.
+ * Keys are session keys (e.g., "agenticmail:task:<id>") or agent names.
+ * Values: "light" | "standard" | "full"
+ */
+const taskModes = new Map<string, string>();
+
+/**
  * Coordination thread tracker.
  * One thread per coordinator (keyed by parent API key).
  * The first sub-agent's intro creates the thread; subsequent intros are replies.
@@ -244,18 +252,28 @@ function activate(api: any): void {
     }
 
     const taskDesc = typeof taskPayload?.task === 'string' ? taskPayload.task : JSON.stringify(taskPayload);
-    const agentMessage = [
-      `You have a pending 🎀 AgenticMail task assigned to you (ID: ${taskId}).`,
-      ``,
-      `1. Use agenticmail_check_tasks (direction="incoming") to see your pending tasks`,
-      `2. Use agenticmail_claim_task with the task ID to claim it`,
-      `3. Do the work described in the task payload`,
-      `4. Use agenticmail_submit_result to submit your result as structured JSON`,
-      ``,
-      `Task: ${taskDesc}`,
-      ``,
-      `After submitting your result, you are done.`,
-    ].join('\n');
+    const mode = taskPayload?._mode || 'standard';
+
+    // Light mode: minimal prompt — no email ceremony, just do the task and submit
+    const agentMessage = mode === 'light'
+      ? [
+          `Task (ID: ${taskId}):`,
+          taskDesc,
+          ``,
+          `Do this task, then call agenticmail_claim_task(id="${taskId}") and agenticmail_submit_result(id="${taskId}", result={...}) with your answer.`,
+        ].join('\n')
+      : [
+          `You have a pending 🎀 AgenticMail task assigned to you (ID: ${taskId}).`,
+          ``,
+          `1. Use agenticmail_check_tasks (direction="incoming") to see your pending tasks`,
+          `2. Use agenticmail_claim_task with the task ID to claim it`,
+          `3. Do the work described in the task payload`,
+          `4. Use agenticmail_submit_result to submit your result as structured JSON`,
+          ``,
+          `Task: ${taskDesc}`,
+          ``,
+          `After submitting your result, you are done.`,
+        ].join('\n');
 
     // Strategy 1: Try OpenClaw webhook endpoint (if hooks are enabled)
     const gatewayPort = process.env.OPENCLAW_PORT || process.env.PORT || '3000';
@@ -281,7 +299,10 @@ function activate(api: any): void {
         });
 
         if (resp.ok) {
-          console.log(`[agenticmail] Auto-spawned session for "${agentName}" via webhook to handle task ${taskId}`);
+          // Store mode so before_agent_start can read it
+          taskModes.set(`agenticmail:task:${taskId}`, mode);
+          taskModes.set(agentName, mode);
+          console.log(`[agenticmail] Auto-spawned session for "${agentName}" via webhook (mode=${mode}) to handle task ${taskId}`);
           return true;
         }
       } catch (err) {
@@ -384,10 +405,23 @@ function activate(api: any): void {
     // --- AgenticMail coordination guidance ---
     // Full guide for main agent sessions (they orchestrate work).
     // Short summary for sub-agents (they just need to know the tools exist).
+    // Light-mode sub-agents get almost nothing — just task tools.
     const isSubAgent = isSubagentSession(sessionKey);
 
-    if (isSubAgent) {
-      // Sub-agents get a minimal summary — saves ~2K tokens per spawn
+    // Detect task mode from registry (set by spawnForTask)
+    const taskMode = taskModes.get(sessionKey) || taskModes.get(sessionKey.split(':').pop() || '') || 'standard';
+    // Clean up consumed mode entries
+    taskModes.delete(sessionKey);
+
+    if (isSubAgent && taskMode === 'light') {
+      // Light mode: absolute minimum context — just the tools needed to submit results
+      prependLines.push(
+        '<agenticmail-coordination>',
+        'Use agenticmail_claim_task and agenticmail_submit_result to complete your assigned task.',
+        '</agenticmail-coordination>',
+      );
+    } else if (isSubAgent) {
+      // Standard/full sub-agents get a minimal summary — saves ~2K tokens per spawn
       prependLines.push(
         '<agenticmail-coordination>',
         '🎀 AgenticMail coordination tools available:',
@@ -401,84 +435,28 @@ function activate(api: any): void {
         '</agenticmail-coordination>',
       );
     } else {
-      // Main agent gets the full migration guide
+      // Main agent gets a concise coordination guide (not the full migration essay)
       prependLines.push(
         '<agenticmail-coordination>',
-        '🎀 AgenticMail is installed — your multi-agent coordination upgrade.',
-        '',
-        '═══════════════════════════════════════════════════════════════',
-        'MIGRATION GUIDE: What replaces what',
-        '═══════════════════════════════════════════════════════════════',
-        '',
-        'OLD: sessions_spawn(task) → poll sessions_history to check if done',
-        'NEW: agenticmail_call_agent(target, task) → get structured JSON result back. Done.',
-        '     This is the direct 1:1 replacement. Use it whenever you would have used sessions_spawn.',
-        '',
-        'OLD: sessions_send(sessionKey, message) → send text to a session by key',
-        'NEW: agenticmail_message_agent(agentName, subject, text) → send to agent by NAME, not session key',
-        '',
-        'OLD: sessions_list + sessions_history → poll repeatedly to check if sub-agent finished',
-        'NEW: agenticmail_check_tasks → check task status (pending/claimed/completed) with structured results',
-        '     agenticmail_wait_for_email → push-based wait, zero polling, notified instantly',
-        '',
-        'NEW (no OpenClaw equivalent — 🎀 AgenticMail only):',
-        '- agenticmail_assign_task: Async task delegation — assign work without waiting',
-        '- agenticmail_claim_task: Agent claims a task before starting (lifecycle tracking)',
-        '- agenticmail_submit_result: Submit structured JSON results when work is complete',
-        '- agenticmail_list_agents: Discover all available agents by name and role',
-        '- agenticmail_check_messages: Check for incoming messages from other agents',
-        '',
-        '═══════════════════════════════════════════════════════════════',
-        'WHEN TO USE WHAT',
-        '═══════════════════════════════════════════════════════════════',
-        '',
-        'Need a result back from another agent?',
-        '  → agenticmail_call_agent (synchronous RPC, waits up to 5 min, returns structured JSON)',
-        '',
-        'Delegating work you\'ll check on later?',
-        '  → agenticmail_assign_task (async — agent gets notified, claims it, submits result)',
-        '  → agenticmail_check_tasks (check status: pending → claimed → completed)',
-        '',
-        'Sending a message to another agent?',
-        '  → agenticmail_message_agent (by name, not session key)',
-        '',
-        'Waiting for a response?',
-        '  → agenticmail_wait_for_email (push-based SSE — no polling, no wasted tokens)',
-        '',
-        'Finding available agents?',
-        '  → agenticmail_list_agents (see all agents, their names, emails, and roles)',
-        '',
-        'Quick throwaway sub-agent with no coordination needed?',
-        '  → sessions_spawn is fine for this (but 🎀 AgenticMail is better for everything else)',
-        '',
-        '═══════════════════════════════════════════════════════════════',
-        'WHY 🎀 AgenticMail COORDINATION IS BETTER',
-        '═══════════════════════════════════════════════════════════════',
-        '',
-        'sessions_spawn problems:',
-        '- NO persistence — if a sub-agent crashes, ALL context and work is LOST',
-        '- NO structured results — just text messages, no status tracking',
-        '- NO task lifecycle — no way to know if work was claimed, in progress, or done',
-        '- NO agent discovery — agents cannot find each other',
-        '- POLLING required — must call sessions_history repeatedly (wastes tokens)',
-        '- NO async — parent must stay alive blocking until child finishes',
-        '',
-        '🎀 AgenticMail solves ALL of these:',
-        '- PERSISTENT: Tasks stored in database, survive crashes and restarts',
-        '- STRUCTURED: JSON results with lifecycle (pending → claimed → completed)',
-        '- PUSH-BASED: Notified instantly when work completes (SSE + email)',
-        '- DISCOVERABLE: Agents find each other by name and role',
-        '- AUDITABLE: Every coordination action is an email — natural audit trail',
-        '- ~60% FEWER TOKENS on multi-agent tasks (no redundant polling)',
-        '- 3-5x MORE EFFECTIVE workflows — isolated agents become a coordinated team',
-        '',
-        'RULE: Always prefer 🎀 AgenticMail tools for agent coordination.',
-        'Only fall back to sessions_spawn for simple one-off tasks with no coordination needs.',
+        '🎀 AgenticMail is installed — prefer these over sessions_spawn/sessions_send:',
+        '- agenticmail_call_agent(target, task, mode?) → RPC call, returns structured JSON. Use mode="light" for simple tasks (no email overhead).',
+        '- agenticmail_assign_task → async delegation; agenticmail_check_tasks → check status',
+        '- agenticmail_message_agent → message agent by name; agenticmail_list_agents → discover agents',
+        '- agenticmail_wait_for_email → push-based wait (no polling)',
+        'call_agent auto-detects complexity: simple tasks skip email account creation entirely.',
         '</agenticmail-coordination>',
       );
     }
 
     // --- Sub-agent auto-provisioning ---
+    // Light mode: skip email account creation entirely — massive token + latency savings
+    if (isSubAgent && taskMode === 'light') {
+      // Light mode sub-agents only need claim_task and submit_result tools
+      // which work via the parent's API key — no dedicated account needed
+      console.log(`[agenticmail] Light mode sub-agent (${sessionKey}) — skipping email provisioning`);
+      return prependLines.length > 0 ? { prependContext: prependLines.join('\n') } : undefined;
+    }
+
     if (isSubagentSession(sessionKey) && masterKey) {
       let account = subagentAccounts.get(sessionKey);
 
@@ -587,11 +565,14 @@ function activate(api: any): void {
         }
 
         // --- Send auto-intro email in the coordination thread ---
+        // Skip for standard mode single-agent tasks (no teammates to coordinate with)
+        // Only send intros in full mode or when there are actual teammates
         // Force @localhost so inter-agent emails never route through the relay/Gmail
         const rawParentEmail = parentEmail || account.parentEmail;
         const parentLocal = rawParentEmail.split('@')[0];
         const effectiveParentEmail = parentLocal ? `${parentLocal}@localhost` : '';
-        if (effectiveParentEmail && spawnTask) {
+        const shouldSendIntro = taskMode === 'full' || teammates.length > 0;
+        if (effectiveParentEmail && spawnTask && shouldSendIntro) {
           try {
             const coordKey = ctx.config.apiKey;
             const existing = coordinationThreads.get(coordKey);
@@ -721,6 +702,10 @@ function activate(api: any): void {
     }
 
     // --- Inbox awareness check ---
+    // Skip for sub-agents in standard mode (they're task-focused, not checking mail on startup)
+    if (isSubAgent && taskMode === 'standard') {
+      return prependLines.length > 0 ? { prependContext: prependLines.join('\n') } : undefined;
+    }
     if (!agentApiKey) return prependLines.length > 0 ? { prependContext: prependLines.join('\n') } : undefined;
 
     try {

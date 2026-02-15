@@ -1916,18 +1916,35 @@ export function registerTools(
   });
 
   reg('agenticmail_call_agent', {
-    description: 'Synchronous RPC call to another agent. Assigns a task, notifies the target (via SSE push + email), and polls for the result. Auto-spawns an agent session if none is active. Times out after the specified duration.',
+    description: 'Synchronous RPC call to another agent. Assigns a task, notifies the target (via SSE push + email), and polls for the result. Auto-spawns an agent session if none is active. Times out after the specified duration. Use mode="light" for simple tasks (no email account, minimal overhead) or mode="full" for complex multi-agent coordination. Default auto-detects based on task complexity.',
     parameters: {
       target: { type: 'string', required: true, description: 'Name of the agent to call' },
       task: { type: 'string', required: true, description: 'Task description' },
       payload: { type: 'object', description: 'Additional data for the task' },
       timeout: { type: 'number', description: 'Max seconds to wait (default: 180, max: 300)' },
+      mode: { type: 'string', description: '"light" (no email, minimal context — for simple tasks), "standard" (email but trimmed context), "full" (all coordination features). Default: auto-detect from task complexity.' },
     },
     handler: async (params: any) => {
       try {
         const c = await ctxForParams(ctx, params);
         const timeoutSec = Math.min(Math.max(Number(params.timeout) || 180, 5), 300);
-        const taskPayload = { task: params.task, ...(params.payload || {}) };
+
+        // --- Auto-detect mode from task complexity ---
+        const taskText = (params.task || '').toLowerCase();
+        let mode: string = params.mode || 'auto';
+        if (mode === 'auto') {
+          // Heavy signals: mentions of email, agents, coordination, search, web, file ops
+          const heavyPattern = /\b(email|send.*to|forward|reply|agent|coordinate|search|web|browse|file|read|write|upload|download|install|deploy|multi.?step|research|analyze|report)\b/i;
+          if (taskText.length < 150 && !heavyPattern.test(taskText)) {
+            mode = 'light';
+          } else if (heavyPattern.test(taskText) && taskText.length > 300) {
+            mode = 'full';
+          } else {
+            mode = 'standard';
+          }
+        }
+
+        const taskPayload = { task: params.task, _mode: mode, ...(params.payload || {}) };
 
         // Step 1: Create the task (quick request — returns immediately)
         const created = await apiRequest(c, 'POST', '/tasks/assign', {
@@ -1953,15 +1970,15 @@ export function registerTools(
           try {
             const task = await apiRequest(c, 'GET', `/tasks/${taskId}`);
             if (task?.status === 'completed') {
-              return { taskId, status: 'completed', result: task.result };
+              return { taskId, status: 'completed', mode, result: task.result };
             }
             if (task?.status === 'failed') {
-              return { taskId, status: 'failed', error: task.error };
+              return { taskId, status: 'failed', mode, error: task.error };
             }
           } catch { /* poll error — retry on next cycle */ }
         }
 
-        return { taskId, status: 'timeout', message: `Task not completed within ${timeoutSec}s. Check with agenticmail_check_tasks.` };
+        return { taskId, status: 'timeout', mode, message: `Task not completed within ${timeoutSec}s. Check with agenticmail_check_tasks.` };
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });
