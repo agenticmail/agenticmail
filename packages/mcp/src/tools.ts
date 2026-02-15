@@ -382,7 +382,7 @@ export const toolDefinitions = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        cloudflareToken: { type: 'string', description: 'Cloudflare API token with Zone, DNS, Tunnel, and Registrar permissions' },
+        cloudflareToken: { type: 'string', description: 'Cloudflare API token (Zone>Zone>Read, Zone>DNS>Edit, Zone>Email Routing Rules>Edit, Account>Cloudflare Tunnel>Edit, Account>Workers Scripts>Edit; optional: Account>Registrar: Domains>Edit for domain purchase)' },
         cloudflareAccountId: { type: 'string', description: 'Cloudflare account ID' },
         domain: { type: 'string', description: 'Domain to use (if already owned)' },
         purchase: {

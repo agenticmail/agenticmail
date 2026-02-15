@@ -43,7 +43,7 @@ export function createGatewayRoutes(gatewayManager: GatewayManager): Router {
           fromAddress: 'agentname@yourdomain.com',
           requirements: [
             'A Cloudflare account (free tier works)',
-            'A Cloudflare API token with Zone:Edit, DNS:Edit, Worker:Edit, Email Routing:Edit permissions',
+            'A Cloudflare API token (see tokenPermissions below for exact settings)',
             'A domain name (can purchase during setup, ~$10/yr for .com)',
             'A Gmail account + app password for outbound relay (recommended)',
           ],
@@ -63,6 +63,24 @@ export function createGatewayRoutes(gatewayManager: GatewayManager): Router {
           ],
           howToGetCloudflareToken: 'https://dash.cloudflare.com/profile/api-tokens → Create Token → Custom Token',
           howToGetAccountId: 'https://dash.cloudflare.com → click any site → right sidebar shows Account ID',
+          tokenPermissions: {
+            instructions: 'Go to https://dash.cloudflare.com/profile/api-tokens → Create Token → Custom Token (Get started)',
+            zone: [
+              { permission: 'Zone > Zone > Read', reason: 'Look up zone ID for your domain' },
+              { permission: 'Zone > DNS > Edit', reason: 'Create/manage DNS records (SPF, DKIM, DMARC, CNAME)' },
+              { permission: 'Zone > Email Routing Rules > Edit', reason: 'Enable Email Routing and set catch-all rule to worker' },
+            ],
+            account: [
+              { permission: 'Account > Cloudflare Tunnel > Edit', reason: 'Create and configure tunnel for inbound SMTP' },
+              { permission: 'Account > Workers Scripts > Edit', reason: 'Deploy the inbound email worker' },
+              { permission: 'Account > Account Settings > Read', reason: 'Verify account access' },
+            ],
+            optional: [
+              { permission: 'Account > Registrar: Domains > Edit', reason: 'Only needed if purchasing a domain via the tool (optional)' },
+            ],
+            zoneResources: 'Include > All zones (or specific zone if you prefer)',
+            accountResources: 'Include > your account',
+          },
           domainPurchase: {
             note: 'Cloudflare API only supports READ access for registrar — domains must be purchased manually.',
             options: [
