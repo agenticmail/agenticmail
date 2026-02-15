@@ -60,6 +60,9 @@
     "ai-agent",
     "mcp"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "author": "Ope Olatunji",
   "license": "MIT"
 }

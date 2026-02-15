@@ -63,6 +63,32 @@ export function createGatewayRoutes(gatewayManager: GatewayManager): Router {
           ],
           howToGetCloudflareToken: 'https://dash.cloudflare.com/profile/api-tokens → Create Token → Custom Token',
           howToGetAccountId: 'https://dash.cloudflare.com → click any site → right sidebar shows Account ID',
+          paymentMethod: {
+            note: 'A payment method is required in Cloudflare to purchase domains (~$10/yr for .com)',
+            options: [
+              {
+                option: 'A',
+                label: 'Add payment method yourself (recommended)',
+                url: 'https://dash.cloudflare.com/?to=/:account/billing',
+                steps: [
+                  'Open the link above (or go to Cloudflare Dashboard → Manage Account → Billing)',
+                  'Click "Payment Info" or "Add payment method"',
+                  'Enter your card details (prepaid debit cards with limits work fine)',
+                  'Click Save',
+                ],
+              },
+              {
+                option: 'B',
+                label: 'Let your AI agent do it via browser',
+                steps: [
+                  'Log into Cloudflare in your browser',
+                  'Ask your agent to navigate to the billing page and add the payment method',
+                  'The agent will use browser automation to fill in the form',
+                  'You will see the card details on screen before confirming',
+                ],
+              },
+            ],
+          },
           pros: ['Professional emails (agent@yourdomain.com)', 'Full DKIM/SPF/DMARC', 'Multiple agents with unique addresses', 'Better deliverability'],
           cons: ['Requires Cloudflare account', 'Domain costs ~$10/yr', 'More setup steps', 'Gmail alias step needed for outbound'],
         },

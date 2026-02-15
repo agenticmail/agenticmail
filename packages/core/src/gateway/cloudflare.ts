@@ -79,11 +79,46 @@ export class CloudflareClient {
   }
 
   async checkAvailability(domain: string): Promise<CloudflareDomainAvailability> {
-    const resp = await this.request<CloudflareDomainAvailability>(
+    const resp = await this.request<any>(
       'GET',
       `/accounts/${this.accountId}/registrar/domains/${encodeURIComponent(domain)}`,
     );
-    return resp.result;
+    const result = resp.result ?? {};
+
+    // Cloudflare Registrar GET endpoint returns different shapes:
+    // - For registered domains (yours): { name, status, ... }
+    // - For not-yet-registered domains: { name, supported_tld }
+    // We detect availability by checking if the domain has registration fields
+    const hasRegistration = !!(result.current_registrar || result.registry_statuses || result.locked);
+    const isYours = result.current_registrar === 'Cloudflare' || result.current_registrar === 'cloudflare';
+
+    // If the domain has registration data and it's not ours, it's taken
+    // If it only has supported_tld, we need to do a whois check
+    let available = false;
+    if (result.supported_tld && !hasRegistration) {
+      // Supported TLD but no registration info — likely available
+      // Do a whois check to confirm
+      try {
+        const { execSync } = await import('node:child_process');
+        const whoisOutput = execSync(`whois ${domain}`, { timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }).toString().toLowerCase();
+        available = whoisOutput.includes('domain not found') ||
+                    whoisOutput.includes('no match') ||
+                    whoisOutput.includes('not found') ||
+                    whoisOutput.includes('no data found') ||
+                    whoisOutput.includes('status: free') ||
+                    whoisOutput.includes('no entries found');
+      } catch {
+        // whois failed, assume unavailable
+        available = false;
+      }
+    }
+
+    return {
+      name: result.name ?? domain,
+      available,
+      premium: result.premium ?? false,
+      price: result.price,
+    };
   }
 
   async purchaseDomain(domain: string, autoRenew = true): Promise<{ domain: string; status: string }> {

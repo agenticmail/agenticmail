@@ -53,6 +53,9 @@
     "agenticmail",
     "model-context-protocol"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "author": "Ope Olatunji",
   "license": "MIT"
 }
