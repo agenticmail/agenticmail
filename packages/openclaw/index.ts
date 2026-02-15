@@ -219,6 +219,10 @@ function activate(api: any): void {
       const gatewayPort = fullConfig?.gateway?.port ?? fullConfig?.api?.port ?? fullConfig?.port;
       if (gatewayPort) process.env.OPENCLAW_PORT = String(gatewayPort);
     }
+    // Read light-mode model from plugin config (e.g. "anthropic/claude-sonnet-4-20250514")
+    const lightModel = pluginConfig.lightModel ?? fullConfig?.agents?.defaults?.subagents?.model;
+    if (lightModel) process.env.AGENTICMAIL_LIGHT_MODEL = String(lightModel);
+
   } catch { /* ignore — hooks just won't auto-spawn */ }
 
   if (!ctx.config.apiKey && !ctx.config.masterKey) {
@@ -294,6 +298,8 @@ function activate(api: any): void {
             sessionKey: `agenticmail:task:${taskId}`,
             deliver: false,
             timeoutSeconds: 240,
+            // Light tasks use a cheaper/faster model if available
+            ...(mode === 'light' ? { model: process.env.AGENTICMAIL_LIGHT_MODEL || undefined } : {}),
           }),
           signal: AbortSignal.timeout(5_000),
         });

@@ -1057,6 +1057,25 @@ function mergePluginConfig(
     };
   }
 
+  // --- Optimize sub-agent sessions for AgenticMail ---
+  // Sub-agents spawned via sessions_spawn don't need heavy tools.
+  // This reduces tool descriptions in their system prompt.
+  // Note: tools.subagents.tools config (top-level), not agents.defaults.subagents.
+  if (!existing?.tools?.subagents?.tools) {
+    result.tools = {
+      ...(result.tools ?? existing?.tools ?? {}),
+      subagents: {
+        ...(result.tools?.subagents ?? existing?.tools?.subagents ?? {}),
+        tools: {
+          deny: [
+            'browser', 'canvas', 'nodes', 'cron', 'gateway',
+            'message', 'tts', 'image',
+          ],
+        },
+      },
+    };
+  }
+
   return result;
 }
 
