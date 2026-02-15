@@ -20,11 +20,14 @@
     "LICENSE"
   ],
   "openclaw": {
-    "extensions": ["./dist/index.js"]
+    "extensions": [
+      "./dist/index.js"
+    ]
   },
   "scripts": {
     "build": "tsup index.ts --format esm --dts --clean",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {},
   "devDependencies": {
@@ -32,6 +35,25 @@
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agenticmail/agenticmail.git",
+    "directory": "packages/openclaw"
+  },
+  "homepage": "https://github.com/agenticmail/agenticmail",
+  "bugs": "https://github.com/agenticmail/agenticmail/issues",
+  "keywords": [
+    "openclaw",
+    "email",
+    "ai",
+    "ai-agent",
+    "agenticmail",
+    "plugin",
+    "skill"
+  ],
   "publishConfig": {
     "access": "public"
   },

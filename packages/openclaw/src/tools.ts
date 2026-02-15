@@ -1930,37 +1930,58 @@ export function registerTools(
   });
 
   reg('agenticmail_call_agent', {
-    description: 'Synchronous RPC call to another agent. Assigns a task, notifies the target (via SSE push + email), and polls for the result. Auto-spawns an agent session if none is active. Times out after the specified duration. Use mode="light" for simple tasks (no email account, minimal overhead) or mode="full" for complex multi-agent coordination. Default auto-detects based on task complexity.',
+    description: 'Call another agent with a task. Supports sync (wait for result) and async (fire-and-forget) modes. Auto-spawns a session if none is active. Sub-agents have full tool access (web, files, browser, etc.) and auto-compact when context fills up — they can run for hours/days on complex tasks. Use async=true for long-running tasks; the agent will notify you when done.',
     parameters: {
       target: { type: 'string', required: true, description: 'Name of the agent to call' },
       task: { type: 'string', required: true, description: 'Task description' },
       payload: { type: 'object', description: 'Additional data for the task' },
-      timeout: { type: 'number', description: 'Max seconds to wait (default: 180, max: 300)' },
-      mode: { type: 'string', description: '"light" (no email, minimal context — for simple tasks), "standard" (email but trimmed context), "full" (all coordination features). Default: auto-detect from task complexity.' },
+      timeout: { type: 'number', description: 'Max seconds to wait (sync mode only). Default: auto-scaled by complexity (light=60s, standard=180s, full=300s). Max: 600.' },
+      mode: { type: 'string', description: '"light" (no email, minimal context — for simple tasks), "standard" (email but trimmed context, web search available), "full" (all coordination features, multi-agent). Default: auto-detect from task complexity.' },
+      async: { type: 'boolean', description: 'If true, returns immediately after spawning the agent. The agent will email/notify you when done. Use for long-running tasks (hours/days). Default: false.' },
     },
     handler: async (params: any) => {
       try {
         const c = await ctxForParams(ctx, params);
-        const timeoutSec = Math.min(Math.max(Number(params.timeout) || 180, 5), 300);
 
         // --- Auto-detect mode from task complexity ---
         const taskText = (params.task || '').toLowerCase();
         let mode: string = params.mode || 'auto';
         if (mode === 'auto') {
-          // Heavy signals: mentions of email, agents, coordination, search, web, file ops
-          const heavyPattern = /\b(email|send.*to|forward|reply|agent|coordinate|search|web|browse|file|read|write|upload|download|install|deploy|multi.?step|research|analyze|report)\b/i;
-          if (taskText.length < 150 && !heavyPattern.test(taskText)) {
-            mode = 'light';
-          } else if (heavyPattern.test(taskText) && taskText.length > 300) {
+          // Signals that need heavier modes (web access, research, multi-step work)
+          const needsWebTools = /\b(search|research|find|look\s?up|browse|web|scrape|fetch|summarize|analyze|compare|review|check.*(?:site|url|link|page)|read.*(?:article|page|url))\b/i;
+          const needsCoordination = /\b(email|send.*to|forward|reply|agent|coordinate|delegate|multi.?step|pipeline|hand.?off)\b/i;
+          const needsFileOps = /\b(file|read|write|upload|download|install|deploy|create.*(?:doc|report|pdf))\b/i;
+          const isLongRunning = /\b(monitor|watch|poll|continuous|ongoing|daily|hourly|schedule|repeat|long.?running|over.*time|days?|hours?|overnight)\b/i;
+
+          if (isLongRunning.test(taskText) || needsCoordination.test(taskText)) {
             mode = 'full';
+          } else if (needsWebTools.test(taskText) || needsFileOps.test(taskText)) {
+            mode = 'standard';
+          } else if (taskText.length < 200) {
+            mode = 'light';
           } else {
             mode = 'standard';
           }
         }
 
-        const taskPayload = { task: params.task, _mode: mode, ...(params.payload || {}) };
+        // --- Auto-detect async for long-running tasks ---
+        const isAsync = params.async === true ||
+          /\b(monitor|watch|continuous|ongoing|daily|hourly|overnight|days?|hours?)\b/i.test(taskText);
 
-        // Step 1: Create the task (quick request — returns immediately)
+        // --- Dynamic timeout based on mode and complexity ---
+        // Sync: up to 600s (10 min). Async: no polling, just spawn and return.
+        const defaultTimeouts: Record<string, number> = { light: 60, standard: 180, full: 300 };
+        const maxTimeout = 600;
+        const timeoutSec = isAsync ? 0 : Math.min(Math.max(Number(params.timeout) || defaultTimeouts[mode] || 180, 5), maxTimeout);
+
+        const taskPayload = {
+          task: params.task,
+          _mode: mode,
+          _async: isAsync,
+          ...(params.payload || {}),
+        };
+
+        // Step 1: Create the task
         const created = await apiRequest(c, 'POST', '/tasks/assign', {
           assignee: params.target,
           taskType: 'rpc',
@@ -1969,15 +1990,24 @@ export function registerTools(
         if (!created?.id) return { success: false, error: 'Failed to create task' };
         const taskId = created.id;
 
-        // Step 2: Check if the target agent has an active listener.
-        // If not, auto-spawn a session so the task gets picked up.
+        // Step 2: Spawn the agent session if needed
         const hasWatcher = coordination?.activeSSEWatchers?.has(params.target);
         if (!hasWatcher && coordination?.spawnForTask) {
           await coordination.spawnForTask(params.target, taskId, taskPayload);
         }
 
-        // Step 3: Poll for completion with short-lived requests
-        // Each GET /tasks/:id is a quick round-trip — no long-poll to be killed
+        // Step 3a: Async mode — return immediately
+        if (isAsync) {
+          return {
+            taskId,
+            status: 'spawned',
+            mode,
+            async: true,
+            message: `Task assigned to "${params.target}" and agent spawned. It will run independently and notify you when done. Check progress with agenticmail_check_tasks.`,
+          };
+        }
+
+        // Step 3b: Sync mode — poll for completion
         const deadline = Date.now() + timeoutSec * 1000;
         while (Date.now() < deadline) {
           await new Promise(r => setTimeout(r, 2000));
@@ -1992,7 +2022,7 @@ export function registerTools(
           } catch { /* poll error — retry on next cycle */ }
         }
 
-        return { taskId, status: 'timeout', mode, message: `Task not completed within ${timeoutSec}s. Check with agenticmail_check_tasks.` };
+        return { taskId, status: 'timeout', mode, message: `Task not completed within ${timeoutSec}s. The agent is still running — check with agenticmail_check_tasks or wait for email notification.` };
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });

@@ -59,9 +59,22 @@ OpenClaw Agent → tool call → @agenticmail/openclaw → HTTP request → Agen
 
 The plugin uses the agent's API key for most operations and the master key (if provided) for admin operations like creating agents, configuring the gateway, or viewing deletion reports.
 
-### Sub-Agent Architecture
+### Smart Sub-Agent Spawning (`call_agent`)
 
-When an OpenClaw coordinator spawns sub-agents (via `sessions_spawn`), the plugin automatically:
+The `agenticmail_call_agent` tool intelligently spawns sub-agents with dynamic configuration:
+
+- **Auto mode detection** — analyzes task text with regex patterns to choose the right mode:
+  - **Light** — simple tasks (math, lookups, definitions): no email overhead, minimal context, 60s timeout
+  - **Standard** — web research, file operations, analysis: web tools enabled, 180s timeout
+  - **Full** — multi-agent coordination, complex workflows: all features, 300s timeout
+- **Dynamic tool discovery** — `detectAvailableTools()` probes OpenClaw's config at runtime to find what's available (Brave search, web_fetch, etc.) instead of using a static deny list
+- **Web search fallback** — when Brave API isn't configured, sub-agents are instructed to use DuckDuckGo via `web_fetch("https://html.duckduckgo.com/html/?q=...")`
+- **Async mode** — `call_agent(async=true)` for long-running tasks (hours/days): returns immediately, agent runs with 1-hour session timeout, auto-compacts on context fill, and emails results when done
+- **Dynamic timeouts** — scale with complexity: light=60s, standard=180s, full=300s (sync max=600s)
+
+### Sub-Agent Lifecycle
+
+When an OpenClaw coordinator spawns sub-agents, the plugin automatically:
 
 1. **Creates an email account** for each sub-agent on the Stalwart mail server
 2. **Registers the sub-agent** in an identity registry so tool calls route to the correct mailbox

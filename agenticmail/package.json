@@ -26,8 +26,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agenticmail/api": "0.2.26",
-    "@agenticmail/core": "0.2.26",
+    "@agenticmail/api": "^0.2.26",
+    "@agenticmail/core": "^0.2.26",
     "json5": "^2.2.3"
   },
   "devDependencies": {
@@ -55,11 +55,13 @@
     "mcp",
     "ai-agent",
     "agenticmail",
-    "ai-agent",
     "llm",
     "gateway",
     "cloudflare"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "author": "Ope Olatunji",
   "license": "MIT"
 }

@@ -2604,6 +2604,406 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
       },
     },
 
+    // ─── Agent Coordination & Tasks ─────────────────────────────
+
+    tasks: {
+      desc: 'View tasks (incoming/outgoing/all)',
+      run: async () => {
+        log('');
+        try {
+          const direction = await question('  Direction (incoming/outgoing/all) [all]: ').then(v => isBack(v) ? '' : (v.trim() || 'all'));
+          const agentKey = currentAgent?.apiKey ?? config.masterKey;
+
+          // Fetch tasks based on direction
+          const params = direction === 'all' ? '' : `?direction=${direction}`;
+          const resp = await apiFetch(`/api/agenticmail/tasks${params}`, {
+            headers: { 'Authorization': `Bearer ${agentKey}` },
+          });
+          if (!resp.ok) { fail(`API error: ${resp.status}`); return; }
+          const data = await resp.json() as any;
+          const tasks = data.tasks || data || [];
+
+          if (tasks.length === 0) {
+            info('No tasks found');
+            return;
+          }
+
+          log(`  ${c.bold('Tasks')} (${tasks.length}):`);
+          log('');
+          for (const t of tasks.slice(0, 20)) {
+            const status = t.status === 'completed' ? c.green('✓ done')
+              : t.status === 'claimed' ? c.yellow('⏳ working')
+              : t.status === 'failed' ? c.red('✗ failed')
+              : c.dim('pending');
+            const taskDesc = (t.payload?.task || t.taskType || 'unknown').slice(0, 80);
+            const age = t.createdAt ? c.dim(` (${t.createdAt})`) : '';
+            log(`  ${c.cyan(t.id.slice(0, 8))}  ${status}  ${taskDesc}${age}`);
+            if (t.status === 'completed' && t.result) {
+              const summary = typeof t.result === 'string' ? t.result : JSON.stringify(t.result).slice(0, 120);
+              log(`           ${c.dim('Result:')} ${summary}`);
+            }
+          }
+        } catch (err) { fail(`Error: ${errMsg(err)}`); }
+        log('');
+      },
+    },
+
+    msg: {
+      desc: 'Send a message to another agent',
+      run: async () => {
+        log('');
+        try {
+          const agent = await getActiveAgent();
+          if (!agent) return;
+
+          // List available agents
+          const agentsResp = await apiFetch('/api/agenticmail/accounts');
+          if (agentsResp.ok) {
+            const data = await agentsResp.json() as any;
+            const otherAgents = (data.agents || data || []).filter((a: any) => a.name !== agent.name);
+            if (otherAgents.length > 0) {
+              log(`  ${c.dim('Available agents:')} ${otherAgents.map((a: any) => c.cyan(a.name)).join(', ')}`);
+            }
+          }
+
+          const target = await question('  To agent: ');
+          if (!target.trim() || isBack(target)) return;
+          const subject = await question('  Subject: ');
+          if (!subject.trim() || isBack(subject)) return;
+          const body = await question('  Message: ');
+          if (!body.trim() || isBack(body)) return;
+
+          const resp = await apiFetch('/api/agenticmail/agents/message', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${agent.apiKey}` },
+            body: JSON.stringify({ agent: target, subject, text: body }),
+          });
+
+          if (resp.ok) {
+            ok(`Message sent to ${c.cyan(target)}`);
+          } else {
+            const err = await resp.json().catch(() => ({})) as any;
+            fail(`Failed: ${err.error || resp.status}`);
+          }
+        } catch (err) { fail(`Error: ${errMsg(err)}`); }
+        log('');
+      },
+    },
+
+    chat: {
+      desc: 'Chat with the OpenClaw AI agent (real-time streaming)',
+      run: async () => {
+        log('');
+        try {
+          let gatewayPort = '18789';
+          let gatewayToken = '';
+          try {
+            const { readFileSync } = await import('node:fs');
+            const { join } = await import('node:path');
+            const homedir = process.env.HOME || process.env.USERPROFILE || '';
+            const cfgPath = join(homedir, '.openclaw', 'openclaw.json');
+            const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            gatewayPort = String(cfg?.gateway?.port ?? 18789);
+            gatewayToken = cfg?.gateway?.auth?.token ?? '';
+          } catch { /* ignore */ }
+
+          gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || gatewayToken;
+          if (!gatewayToken) {
+            fail('Gateway token not found. Is OpenClaw running?');
+            return;
+          }
+
+          const { WsChat } = await import('./ws-chat.js');
+          const {
+            renderBubble, renderAgentLabel, renderUserLabel,
+            renderThinking, randomThinking,
+          } = await import('./chat-ui.js');
+
+          const chat = new WsChat({
+            gatewayUrl: `ws://127.0.0.1:${gatewayPort}`,
+            token: gatewayToken,
+          });
+
+          await chat.connect();
+
+          // Read user name from workspace
+          let userName = 'You';
+          try {
+            const { readFileSync } = await import('node:fs');
+            const { join } = await import('node:path');
+            const homedir = process.env.HOME || process.env.USERPROFILE || '';
+            for (const f of ['USER.md', 'IDENTITY.md']) {
+              try {
+                const txt = readFileSync(join(homedir, '.openclaw', 'workspace', f), 'utf8');
+                const match = txt.match(/\*\*(?:Name|What to call them)\*\*:\s*(.+)/i);
+                if (match) { userName = match[1].trim(); break; }
+              } catch {}
+            }
+          } catch {}
+
+          // Suppress main shell prompt during chat
+          (rl as any).__chatMode = true;
+
+          // Erase main shell input box (3 lines: top + prompt + bot)
+          process.stdout.write('\x1b[3A\r\x1b[J');
+
+          log(hr());
+          log(`  ${c.bold(c.cyan('\ud83c\udf80 Agent Chat'))} ${c.dim('| Esc to leave | Enter to send | \\\\ + Enter for new line')}`);
+          log(hr());
+
+          const boxChar = { tl: '\u256d', tr: '\u256e', bl: '\u2570', br: '\u256f', h: '\u2500', v: '\u2502' };
+          const bw = () => Math.max(0, (process.stdout.columns || 80) - 2);
+
+          // Readline-based input inside a bordered box.
+          // Custom keypress-based multi-line input with bordered box.
+          // Enter sends (single line w/ content). \ + Enter = new line. Backspace merges lines.
+          function chatInput(): Promise<string | null> {
+            return new Promise((resolve) => {
+              const inputLines: string[] = [''];
+              let cursorLine = 0;
+              let cursorCol = 0;
+              const prefixLen = 5; // visible length of "│ ❯ " or "│   "
+
+              // After draw(), cursor sits on content line `cursorLine`.
+              // Distance from cursor to top border = cursorLine + 1.
+              // We save this so eraseBox works even after cursorLine is mutated.
+              let savedUp = 0;
+
+              function draw() {
+                const width = bw();
+                const top = c.dim(boxChar.tl + boxChar.h.repeat(width) + boxChar.tr);
+                const bot = c.dim(boxChar.bl + boxChar.h.repeat(width) + boxChar.br);
+
+                // Erase previous box using saved distance (+1 for top border line)
+                if (savedUp > 0) {
+                  process.stdout.write(`\x1b[${savedUp + 1}A\r\x1b[J`);
+                }
+
+                // Draw top border
+                process.stdout.write(`${top}\n`);
+                // Draw content lines
+                for (let i = 0; i < inputLines.length; i++) {
+                  const prefix = i === 0 
+                    ? `${c.dim(boxChar.v)} ${c.cyan('\u276f')} ` 
+                    : `${c.dim(boxChar.v)}   `;
+                  process.stdout.write(`${prefix}${inputLines[i]}\n`);
+                }
+                // Draw bottom border (no trailing newline)
+                process.stdout.write(bot);
+                // Move cursor to correct content line
+                const upFromBot = inputLines.length - cursorLine;
+                if (upFromBot > 0) process.stdout.write(`\x1b[${upFromBot}A`);
+                // Position cursor horizontally
+                process.stdout.write(`\r\x1b[${prefixLen + cursorCol}C`);
+
+                savedUp = cursorLine + 1;
+              }
+
+              // Initial draw
+              draw();
+
+              const onKey = (_ch: string, key: any) => {
+                if (!key) return;
+
+                const eraseBox = () => {
+                  // Move to top border line and clear everything from there down
+                  // savedUp = cursorLine + 1 (distance from content line to top border)
+                  // Add 1 extra to ensure we clear the top border line itself
+                  const up = savedUp + 1;
+                  process.stdout.write(`\x1b[${up}A\r\x1b[J`);
+                };
+
+                // Escape = exit chat
+                if (key.name === 'escape') {
+                  process.stdin.removeListener('keypress', onKey);
+                  eraseBox();
+                  resolve(null);
+                  return;
+                }
+
+                // Enter = send if single line with content, else new line
+                if (key.name === 'return') {
+                  if (inputLines.length === 1 && inputLines[0].trim()) {
+                    process.stdin.removeListener('keypress', onKey);
+                    const text = inputLines[0].trim();
+                    eraseBox();
+                    resolve(text);
+                    return;
+                  }
+                  // Multi-line or empty: add new line
+                  const cur = inputLines[cursorLine];
+                  inputLines[cursorLine] = cur.slice(0, cursorCol);
+                  inputLines.splice(cursorLine + 1, 0, cur.slice(cursorCol));
+                  cursorLine++;
+                  cursorCol = 0;
+                  draw();
+                  return;
+                }
+
+                // Tab = send (multi-line)
+                if (key.name === 'tab') {
+                  const text = inputLines.join('\n').trim();
+                  if (!text) return;
+                  process.stdin.removeListener('keypress', onKey);
+                  eraseBox();
+                  resolve(text);
+                  return;
+                }
+
+                // Backspace
+                if (key.name === 'backspace') {
+                  if (cursorCol > 0) {
+                    inputLines[cursorLine] = inputLines[cursorLine].slice(0, cursorCol - 1) + inputLines[cursorLine].slice(cursorCol);
+                    cursorCol--;
+                  } else if (cursorLine > 0) {
+                    cursorCol = inputLines[cursorLine - 1].length;
+                    inputLines[cursorLine - 1] += inputLines[cursorLine];
+                    inputLines.splice(cursorLine, 1);
+                    cursorLine--;
+                  }
+                  draw();
+                  return;
+                }
+
+                // Delete key
+                if (key.name === 'delete') {
+                  if (cursorCol < inputLines[cursorLine].length) {
+                    inputLines[cursorLine] = inputLines[cursorLine].slice(0, cursorCol) + inputLines[cursorLine].slice(cursorCol + 1);
+                  } else if (cursorLine < inputLines.length - 1) {
+                    inputLines[cursorLine] += inputLines[cursorLine + 1];
+                    inputLines.splice(cursorLine + 1, 1);
+                  }
+                  draw();
+                  return;
+                }
+
+                // Arrow keys
+                if (key.name === 'left') { if (cursorCol > 0) cursorCol--; draw(); return; }
+                if (key.name === 'right') { if (cursorCol < inputLines[cursorLine].length) cursorCol++; draw(); return; }
+                if (key.name === 'up' && cursorLine > 0) { cursorLine--; cursorCol = Math.min(cursorCol, inputLines[cursorLine].length); draw(); return; }
+                if (key.name === 'down' && cursorLine < inputLines.length - 1) { cursorLine++; cursorCol = Math.min(cursorCol, inputLines[cursorLine].length); draw(); return; }
+
+                // Regular character
+                if (_ch && !key.ctrl && !key.meta && key.name !== 'tab') {
+                  inputLines[cursorLine] = inputLines[cursorLine].slice(0, cursorCol) + _ch + inputLines[cursorLine].slice(cursorCol);
+                  cursorCol += _ch.length;
+                  draw();
+                }
+              };
+
+              process.stdin.on('keypress', onKey);
+            });
+          }
+
+          while (true) {
+            const msg = await chatInput();
+            if (msg === null || !msg.trim() || msg.trim().toLowerCase() === 'exit') break;
+
+            // User bubble (right)
+            log(renderUserLabel(userName));
+            log(renderBubble(msg.trim(), 'right'));
+
+            // Thinking spinner inside a bordered box
+            const thinkMsg = randomThinking();
+            const startTime = Date.now();
+            const spinFrames = ['\u25e0','\u25d4','\u25d1','\u25d5','\u25e1','\u25d5','\u25d1','\u25d4'];
+            const spinColors = [
+              '\x1b[38;5;209m','\x1b[38;5;176m','\x1b[38;5;115m','\x1b[38;5;180m',
+              '\x1b[38;5;139m','\x1b[38;5;109m','\x1b[38;5;216m','\x1b[38;5;146m',
+            ];
+            let spinFrame = 0;
+            const bWidth = bw();
+            const vBar = c.dim(boxChar.v);
+            log(`${c.dim(boxChar.tl + boxChar.h.repeat(bWidth) + boxChar.tr)}`);
+            process.stdout.write(`${vBar} ${spinColors[0]}${spinFrames[0]}\x1b[0m ${c.dim(thinkMsg)} ${c.dim('0.0s')}`);
+            process.stdout.write(`\n${c.dim(boxChar.bl + boxChar.h.repeat(bWidth) + boxChar.br)}`);
+            process.stdout.write('\x1b[1A\r'); // move back to content line
+
+            const timerInterval = setInterval(() => {
+              spinFrame++;
+              const frame = spinFrames[spinFrame % spinFrames.length];
+              const color = spinColors[spinFrame % spinColors.length];
+              const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+              process.stdout.write(`\r\x1b[2K${vBar} ${color}${frame}\x1b[0m ${c.dim(thinkMsg)} ${c.yellow(`${elapsed}s`)}`);
+            }, 150);
+
+            try {
+              const resp = await chat.send(msg.trim(), {
+                sessionKey: 'agenticmail-chat',
+                timeoutMs: 120_000,
+              });
+
+              clearInterval(timerInterval);
+              // Erase thinking box: cursor is on content line, top is 1 up, bot is 1 down
+              process.stdout.write('\x1b[1A\r\x1b[J');
+
+              if (resp.text) {
+                log(renderAgentLabel());
+                log(renderBubble(resp.text, 'left'));
+              } else if (resp.error) {
+                fail(resp.error);
+              } else {
+                log(`  ${c.dim('No response received')}`);
+              }
+            } catch (err) {
+              clearInterval(timerInterval);
+              process.stdout.write('\x1b[1A\r\x1b[J');
+              fail(`Error: ${errMsg(err)}`);
+            }
+            log(''); // spacing before next prompt
+          }
+
+          chat.close();
+          (rl as any).__chatMode = false;
+          log('');
+          log(`  ${c.dim('Chat ended')}`);
+          log('');
+        } catch (err) { fail(`Error: ${errMsg(err)}`); }
+        log('');
+      },
+    },
+
+
+
+
+    assign: {
+      desc: 'Assign a task to an agent',
+      run: async () => {
+        log('');
+        try {
+          // List available agents
+          const agentsResp = await apiFetch('/api/agenticmail/accounts');
+          if (agentsResp.ok) {
+            const data = await agentsResp.json() as any;
+            const agents = data.agents || data || [];
+            if (agents.length > 0) {
+              log(`  ${c.dim('Available agents:')} ${agents.map((a: any) => c.cyan(a.name)).join(', ')}`);
+            }
+          }
+
+          const assignee = await question('  Assign to agent: ');
+          if (!assignee.trim() || isBack(assignee)) return;
+          const task = await question('  Task description: ');
+          if (!task.trim() || isBack(task)) return;
+          const taskType = await question('  Task type [generic]: ').then(v => isBack(v) ? '' : (v.trim() || 'generic'));
+
+          const resp = await apiFetch('/api/agenticmail/tasks/assign', {
+            method: 'POST',
+            body: JSON.stringify({ assignee, taskType, payload: { task } }),
+          });
+
+          if (resp.ok) {
+            const data = await resp.json() as any;
+            ok(`Task assigned: ${c.cyan(data.id?.slice(0, 8) || 'ok')}`);
+          } else {
+            const err = await resp.json().catch(() => ({})) as any;
+            fail(`Failed: ${err.error || resp.status}`);
+          }
+        } catch (err) { fail(`Error: ${errMsg(err)}`); }
+        log('');
+      },
+    },
+
     clear: {
       desc: 'Clear the screen',
       run: async () => {
@@ -2864,6 +3264,9 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
   showPrompt();
 
   rl.on('line', async (rawLine: string) => {
+    // During chat mode, don't process lines from main handler
+    if ((rl as any).__chatMode) return;
+
     // Clear the input box + any menu from history
     process.stdout.write('\x1b[3A\r\x1b[J');
 

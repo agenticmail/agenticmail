@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createInterface } from 'node:readline';
+import { createInterface, emitKeypressEvents } from 'node:readline';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1032,6 +1032,8 @@ function mergePluginConfig(
       token: hooksToken,
       // Preserve existing path or use default
       path: existingHooks.path || '/hooks',
+      // Required for AgenticMail to spawn sub-agent sessions via webhook
+      allowRequestSessionKey: true,
     },
     plugins: {
       ...(existing?.plugins ?? {}),
@@ -1057,24 +1059,9 @@ function mergePluginConfig(
     };
   }
 
-  // --- Optimize sub-agent sessions for AgenticMail ---
-  // Sub-agents spawned via sessions_spawn don't need heavy tools.
-  // This reduces tool descriptions in their system prompt.
-  // Note: tools.subagents.tools config (top-level), not agents.defaults.subagents.
-  if (!existing?.tools?.subagents?.tools) {
-    result.tools = {
-      ...(result.tools ?? existing?.tools ?? {}),
-      subagents: {
-        ...(result.tools?.subagents ?? existing?.tools?.subagents ?? {}),
-        tools: {
-          deny: [
-            'browser', 'canvas', 'nodes', 'cron', 'gateway',
-            'message', 'tts', 'image',
-          ],
-        },
-      },
-    };
-  }
+  // Sub-agents get full tool access by default — tasks may need any tool
+  // (browser, cron, etc.) and the agent should discover what it needs dynamically.
+  // Mode system (light/standard/full) controls context injection, not tool availability.
 
   return result;
 }
@@ -1209,21 +1196,15 @@ async function cmdOpenClaw() {
   log('');
 
   // ── Step 3: Create agent account ────────────────────────────────
-  log(`  ${c.bold('Step 3 of 5')} ${c.dim('—')} ${c.bold('Creating agent account')}`);
+  log(`  ${c.bold('Step 3 of 5')} ${c.dim('—')} ${c.bold('Agent account')}`);
   log('');
-
-  const agentNameInput = await ask(`  ${c.cyan('Agent name')} ${c.dim('(secretary)')}: `);
-  const agentName = agentNameInput.trim() || 'secretary';
-
-  log('');
-  const agentSpinner = new Spinner('config', 'Setting up agent email account...');
-  agentSpinner.start();
 
   let agentApiKey: string | undefined;
   let agentEmail = '';
+  let agentName = 'secretary';
 
-  // Check if agent already exists first (avoids 500 errors on duplicate create)
-  let agentExists = false;
+  // Check for existing agents
+  let existingAgents: any[] = [];
   try {
     const listRes = await fetch(`${apiBase}/api/agenticmail/accounts`, {
       headers: { 'Authorization': `Bearer ${config.masterKey}` },
@@ -1231,18 +1212,152 @@ async function cmdOpenClaw() {
     });
     if (listRes.ok) {
       const data = await listRes.json() as any;
-      const agents: any[] = data?.agents ?? data ?? [];
-      const match = agents.find((a: any) => a.name === agentName);
-      if (match) {
-        agentExists = true;
-        agentApiKey = match.apiKey;
-        agentEmail = match.email ?? `${agentName}@localhost`;
-        agentSpinner.succeed(`Agent ${c.bold('"' + agentName + '"')} already exists (${c.cyan(agentEmail)})`);
+      existingAgents = data?.agents ?? data ?? [];
+    }
+  } catch { /* ignore */ }
+
+  // Fetch inbox/sent counts for each agent
+  interface AgentStats { name: string; email: string; role: string; apiKey: string; inbox: number; sent: number; }
+  const agentStats: AgentStats[] = [];
+  for (const a of existingAgents) {
+    const name = a.name ?? 'unknown';
+    const email = a.email ?? `${name}@localhost`;
+    const role = a.role ?? '';
+    let inbox = 0, sent = 0;
+    try {
+      const r = await fetch(`${apiBase}/api/agenticmail/mail/inbox?limit=1&offset=0`, {
+        headers: { 'Authorization': `Bearer ${a.apiKey}` },
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (r.ok) { const d = await r.json() as any; inbox = d?.total ?? d?.messages?.length ?? 0; }
+    } catch {}
+    try {
+      const r = await fetch(`${apiBase}/api/agenticmail/mail/folders/Sent?limit=1&offset=0`, {
+        headers: { 'Authorization': `Bearer ${a.apiKey}` },
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (r.ok) { const d = await r.json() as any; sent = d?.total ?? d?.messages?.length ?? 0; }
+    } catch {}
+    agentStats.push({ name, email, role, apiKey: a.apiKey, inbox, sent });
+  }
+
+  if (agentStats.length > 0) {
+    // Interactive arrow-key selector
+    const options = [
+      ...agentStats.map(a => a.name),
+      '+ Create new agent',
+    ];
+
+    const selectedIdx: number = await new Promise((resolve) => {
+      let sel = 0;
+      const totalOpts = options.length;
+      emitKeypressEvents(process.stdin);
+      if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+      const renderList = () => {
+        // Move cursor up to clear previous render (if not first render)
+        const totalLines = totalOpts + 3; // options + header + footer + blank
+        process.stdout.write(`\x1b[${totalLines}A\r\x1b[J`);
+        drawList();
+      };
+
+      const drawList = () => {
+        log(`  ${c.dim('Use ↑↓ arrows to select, Enter to confirm')}`);
+        log('');
+        for (let i = 0; i < options.length; i++) {
+          const isCreate = i === agentStats.length;
+          const pointer = i === sel ? c.green('  ❯ ') : '    ';
+          if (isCreate) {
+            const label = i === sel ? c.bold(c.green(options[i])) : c.green(options[i]);
+            log(`${pointer}${label}`);
+          } else {
+            const a = agentStats[i];
+            const nameStr = i === sel ? c.bold(c.cyan(a.name)) : c.cyan(a.name);
+            const roleStr = a.role ? c.dim(` (${a.role})`) : '';
+            const stats = `${c.dim('Inbox:')} ${c.yellow(String(a.inbox))}  ${c.dim('Sent:')} ${c.yellow(String(a.sent))}`;
+            log(`${pointer}${nameStr}${roleStr}  ${c.dim(a.email)}  ${stats}`);
+          }
+        }
+        log('');
+      };
+
+      // Initial draw — first time, no erase needed
+      drawList();
+
+      const onKey = (_ch: string, key: any) => {
+        if (!key) return;
+        if (key.name === 'up') {
+          sel = (sel - 1 + totalOpts) % totalOpts;
+          renderList();
+        } else if (key.name === 'down') {
+          sel = (sel + 1) % totalOpts;
+          renderList();
+        } else if (key.name === 'return') {
+          process.stdin.removeListener('keypress', onKey);
+          if (process.stdin.isTTY) process.stdin.setRawMode(false);
+          resolve(sel);
+        } else if (key.name === 'escape') {
+          process.stdin.removeListener('keypress', onKey);
+          if (process.stdin.isTTY) process.stdin.setRawMode(false);
+          resolve(0);
+        }
+      };
+      process.stdin.on('keypress', onKey);
+    });
+
+    if (selectedIdx < agentStats.length) {
+      // Use existing agent
+      const selected = agentStats[selectedIdx];
+      agentName = selected.name;
+      agentApiKey = selected.apiKey;
+      agentEmail = selected.email;
+      ok(`Using agent ${c.bold('"' + agentName + '"')} (${c.cyan(agentEmail)})`);
+    } else {
+      // Create new agent
+      const agentNameInput = await ask(`  ${c.cyan('Agent name')} ${c.dim('(secretary)')}: `);
+      agentName = agentNameInput.trim() || 'secretary';
+
+      const existing = agentStats.find(a => a.name === agentName);
+      if (existing) {
+        agentApiKey = existing.apiKey;
+        agentEmail = existing.email;
+        ok(`Agent ${c.bold('"' + agentName + '"')} already exists (${c.cyan(agentEmail)})`);
+      } else {
+        log('');
+        const spinner = new Spinner('config', 'Creating agent...');
+        spinner.start();
+        try {
+          const response = await fetch(`${apiBase}/api/agenticmail/accounts`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${config.masterKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name: agentName, role: 'secretary' }),
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (response.ok) {
+            const data = await response.json() as any;
+            agentApiKey = data.apiKey;
+            agentEmail = data.email ?? `${agentName}@localhost`;
+            spinner.succeed(`Agent ${c.bold('"' + agentName + '"')} created (${c.cyan(agentEmail)})`);
+          } else {
+            spinner.fail(`Could not create agent: ${await response.text()}`);
+          }
+        } catch (err) {
+          spinner.fail(`Error: ${(err as Error).message}`);
+        }
       }
     }
-  } catch { /* ignore — we'll try to create */ }
+  } else {
+    // No existing agents — create one
+    const agentNameInput = await ask(`  ${c.cyan('Agent name')} ${c.dim('(secretary)')}: `);
+    agentName = agentNameInput.trim() || 'secretary';
 
-  if (!agentExists) {
+    log('');
+    const agentSpinner = new Spinner('config', 'Setting up agent email account...');
+    agentSpinner.start();
+
     try {
       const response = await fetch(`${apiBase}/api/agenticmail/accounts`, {
         method: 'POST',
@@ -1253,15 +1368,13 @@ async function cmdOpenClaw() {
         body: JSON.stringify({ name: agentName, role: 'secretary' }),
         signal: AbortSignal.timeout(10_000),
       });
-
       if (response.ok) {
         const data = await response.json() as any;
         agentApiKey = data.apiKey;
         agentEmail = data.email ?? `${agentName}@localhost`;
         agentSpinner.succeed(`Agent ${c.bold('"' + agentName + '"')} created (${c.cyan(agentEmail)})`);
       } else {
-        const text = await response.text();
-        agentSpinner.fail(`Could not create agent: ${text}`);
+        agentSpinner.fail(`Could not create agent: ${await response.text()}`);
       }
     } catch (err) {
       agentSpinner.fail(`Error: ${(err as Error).message}`);

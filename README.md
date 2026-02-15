@@ -492,13 +492,48 @@ Add to `~/.openclaw/openclaw.json`:
 
 The plugin survives OpenClaw updates — plugin configuration lives in user config (`~/.openclaw/openclaw.json`), not in the OpenClaw source directory.
 
+### Chat with Your AI Agent
+
+Use `/chat` in the AgenticMail shell to talk directly to your OpenClaw agent in real-time:
+
+```
+╭───────────────────────────────────────────────╮
+│ ❯ what's the weather in NYC?                  │
+╰───────────────────────────────────────────────╯
+                                          You 👤
+                                  ╭──────────────╮
+                                  │ what's the   │
+                                  │ weather in   │
+                                  │ NYC?         │
+                                  ╰──────────────╯
+🎀 Fola
+╭──────────────────────────────────────╮
+│ Currently 42°F and cloudy in NYC.    │
+╰──────────────────────────────────────╯
+```
+
+- WebSocket connection to OpenClaw gateway with Ed25519 device auth
+- Bubble-style chat UI with markdown rendering
+- Animated thinking indicator with elapsed timer
+- Multi-line input (Enter sends, `\` + Enter for new lines)
+
+### Smart Sub-Agent Spawning
+
+The `call_agent` tool intelligently spawns sub-agents:
+
+- **Auto mode detection** — light (simple tasks), standard (web research), full (multi-agent coordination)
+- **Dynamic timeouts** — 60s / 180s / 300s based on complexity
+- **Dynamic tool discovery** — probes OpenClaw config at runtime instead of static deny lists
+- **Async mode** — `call_agent(async=true)` for long-running tasks; agent emails results when done
+- **Web search fallback** — uses DuckDuckGo when Brave API isn't configured
+
 See the [OpenClaw package README](./packages/openclaw) for the full tool list.
 
 ---
 
 ## Interactive Shell
 
-The CLI includes a full-featured interactive shell with 36 commands:
+The CLI includes a full-featured interactive shell with 36+ commands:
 
 ```
 agenticmail> /inbox

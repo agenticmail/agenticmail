@@ -158,6 +158,15 @@ The shell is the main way to interact with AgenticMail. It provides 36 commands 
 | `/rules` | Create email filtering rules (also listed under Organization). |
 | `/pending` | View blocked outbound emails that need approval. List all pending, approve to send, or reject to discard. Master key required — agents cannot approve their own emails. |
 
+### Chat & Agent Commands
+
+| Command | What It Does |
+|---------|-------------|
+| `/chat` | **Chat directly with your OpenClaw AI agent** — opens a real-time chat session via WebSocket. Features bubble-style UI (agent left, user right), markdown rendering, elapsed timer during thinking, and multi-line input support. Uses Ed25519 device auth for secure gateway access. |
+| `/tasks` | View pending tasks assigned to your agent. |
+| `/msg` | Send a message to another AI agent by name. |
+| `/assign` | Assign a task to another agent via the task queue. |
+
 ### Gateway Commands
 
 | Command | What It Does |
@@ -241,9 +250,31 @@ For downloading attachments, `/save` lets you pick individual attachments or sav
 
 1. Checks if Docker and Stalwart are already running (reuses existing infrastructure)
 2. Starts the API server if not already running
-3. Creates an agent account (or selects an existing one)
+3. **Agent selection** — shows existing agents with inbox/sent counts in an interactive arrow-key selector, or lets you create a new one
 4. Merges the AgenticMail plugin configuration into your `openclaw.json` (searches current directory and `~/.openclaw/`, supports JSON and JSONC formats)
 5. Offers to restart the OpenClaw gateway so the plugin activates immediately
+
+### Chat with Your AI Agent
+
+Once set up, use `/chat` in the AgenticMail shell to talk directly to your OpenClaw agent:
+
+- **Real-time WebSocket connection** to the OpenClaw gateway
+- **Bubble-style UI** — agent messages left-aligned with gray borders, your messages right-aligned with blue borders
+- **Markdown rendering** — bold, italic, code, headers, and bullet lists rendered in ANSI
+- **Thinking indicator** — animated spinner with elapsed timer while the agent processes
+- **Multi-line input** — Enter sends, `\` + Enter for new lines, arrow keys to navigate, backspace merges lines
+- **Ed25519 device authentication** — secure keypair-based auth for full scope access
+- **Esc to exit** — returns cleanly to the main shell
+
+### Smart Sub-Agent Spawning (`call_agent`)
+
+The `call_agent` tool intelligently spawns sub-agents with:
+
+- **Auto mode detection** — analyzes task complexity to choose light (simple math/lookups), standard (web research, file ops), or full (multi-agent coordination) mode
+- **Dynamic timeouts** — light=60s, standard=180s, full=300s, max=600s
+- **Dynamic tool discovery** — probes OpenClaw config at runtime to detect available tools (Brave search, web_fetch, etc.)
+- **Web search fallback** — when Brave API isn't configured, sub-agents automatically use DuckDuckGo via `web_fetch`
+- **Async mode** — `call_agent(async=true)` for long-running tasks (hours/days); agent runs independently and emails results when done
 
 ---
 

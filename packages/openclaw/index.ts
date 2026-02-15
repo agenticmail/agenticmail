@@ -246,6 +246,50 @@ function activate(api: any): void {
   // When call_agent targets an agent with no active session, this spawns one
   // via OpenClaw's webhook endpoint (if hooks are enabled) or cron wake event.
   // It checks subagentAccounts + activeSSEWatchers first to avoid double-spawning.
+  // --- Detect available tools from OpenClaw config + environment ---
+  function detectAvailableTools(): string[] {
+    const tools: string[] = [];
+    const fullConfig = api?.config ?? api?.getConfig?.() ?? {};
+    const env = process.env;
+
+    // Web search: check all supported providers
+    const searchConfig = fullConfig?.tools?.web?.search ?? {};
+    const hasBrave = searchConfig.apiKey || env.BRAVE_API_KEY;
+    const hasPerplexity = searchConfig.perplexity?.apiKey || env.PERPLEXITY_API_KEY || env.OPENROUTER_API_KEY;
+
+    if (hasBrave || hasPerplexity) {
+      const provider = hasBrave ? 'Brave' : 'Perplexity';
+      tools.push(`web_search (${provider} API — use for internet searches)`);
+    } else {
+      tools.push('web_search is NOT configured (no API key) — DO NOT use it, it will fail');
+    }
+
+    // web_fetch: the universal fallback — always works, no API key
+    tools.push('web_fetch (fetch any URL → readable markdown — always works, no API key needed)');
+    if (!hasBrave && !hasPerplexity) {
+      tools.push('**For web searches without web_search**: use web_fetch("https://www.google.com/search?q=your+query") or web_fetch("https://html.duckduckgo.com/html/?q=your+query") to get search results');
+    }
+
+    // exec always available
+    tools.push('exec (run shell commands — curl, python, node, git, jq, etc.)');
+
+    // read/write/edit always available
+    tools.push('read/write/edit (file operations)');
+
+    // Browser: check if not denied
+    const denyList: string[] = fullConfig?.tools?.subagents?.tools?.deny ?? [];
+    if (!denyList.includes('browser')) {
+      tools.push('browser (control Chrome for complex web tasks)');
+    }
+
+    // Image analysis
+    if (!denyList.includes('image')) {
+      tools.push('image (analyze images with vision model)');
+    }
+
+    return tools;
+  }
+
   const spawnForTask = async (agentName: string, taskId: string, taskPayload: any): Promise<boolean> => {
     // Check if there's already an active SSE watcher for this agent
     if (activeSSEWatchers.has(agentName)) return false; // already has a listener
@@ -258,25 +302,45 @@ function activate(api: any): void {
     const taskDesc = typeof taskPayload?.task === 'string' ? taskPayload.task : JSON.stringify(taskPayload);
     const mode = taskPayload?._mode || 'standard';
 
-    // Light mode: minimal prompt — no email ceremony, just do the task and submit
+    // Detect what tools are actually available in this environment
+    const availableTools = detectAvailableTools();
+    const toolList = availableTools.map(t => `  - ${t}`).join('\n');
+
+    // Build smart prompt based on mode, tools, and task duration
+    const isAsync = taskPayload?._async === true;
+
     const agentMessage = mode === 'light'
       ? [
           `Task (ID: ${taskId}):`,
           taskDesc,
           ``,
-          `Do this task, then call agenticmail_complete_task(id="${taskId}", result={...}) with your answer. One call, done.`,
+          `**Your tools:**`,
+          toolList,
+          ``,
+          `Do this task, then call agenticmail_complete_task(id="${taskId}", result={...}) with your answer as structured JSON.`,
         ].join('\n')
       : [
-          `You have a pending 🎀 AgenticMail task assigned to you (ID: ${taskId}).`,
+          `You have a pending 🎀 AgenticMail task (ID: ${taskId}).`,
           ``,
-          `1. Use agenticmail_check_tasks (direction="incoming") to see your pending tasks`,
-          `2. Use agenticmail_claim_task with the task ID to claim it`,
-          `3. Do the work described in the task payload`,
-          `4. Use agenticmail_submit_result to submit your result as structured JSON`,
+          `**Your tools:**`,
+          toolList,
           ``,
-          `Task: ${taskDesc}`,
+          `**Workflow:**`,
+          `1. agenticmail_check_tasks(direction="incoming") → see task details`,
+          `2. agenticmail_claim_task(id="${taskId}") → claim it`,
+          `3. Do the work — use any tool you need, be thorough`,
+          `4. agenticmail_submit_result(id="${taskId}", result={...}) → submit structured JSON`,
+          ...(isAsync ? [
+            ``,
+            `**This is a long-running async task.** Take as much time as you need.`,
+            `Your context will auto-compact if it fills up — you won't lose progress.`,
+            `When done, submit your result AND email the parent agent with a summary using agenticmail_message_agent.`,
+            `If you hit a blocker, email the parent agent to ask for help instead of giving up.`,
+          ] : []),
           ``,
-          `After submitting your result, you are done.`,
+          `**Task:** ${taskDesc}`,
+          ``,
+          `Be resourceful. If one approach fails, try another. Return structured, useful results.`,
         ].join('\n');
 
     // Strategy 1: Try OpenClaw webhook endpoint (if hooks are enabled)
@@ -295,9 +359,10 @@ function activate(api: any): void {
           body: JSON.stringify({
             message: agentMessage,
             name: `task-${agentName}`,
-            sessionKey: `agenticmail:task:${taskId}`,
+            sessionKey: `subagent:agenticmail-${taskId}`,
             deliver: false,
-            timeoutSeconds: 240,
+            // Dynamic session timeout: light=90s, standard=240s, full=360s, async=3600s (1hr, agent compacts if needed)
+            timeoutSeconds: isAsync ? 3600 : mode === 'light' ? 90 : mode === 'full' ? 360 : 240,
             // Light tasks use a cheaper/faster model if available
             ...(mode === 'light' ? { model: process.env.AGENTICMAIL_LIGHT_MODEL || undefined } : {}),
           }),
@@ -306,10 +371,21 @@ function activate(api: any): void {
 
         if (resp.ok) {
           // Store mode so before_agent_start can read it
-          taskModes.set(`agenticmail:task:${taskId}`, mode);
+          taskModes.set(`subagent:agenticmail-${taskId}`, mode);
+          // Also store with the full key OpenClaw may prefix
+          taskModes.set(`agent:main:subagent:agenticmail-${taskId}`, mode);
           taskModes.set(agentName, mode);
           console.log(`[agenticmail] Auto-spawned session for "${agentName}" via webhook (mode=${mode}) to handle task ${taskId}`);
           return true;
+        }
+
+        // Handle common config errors with actionable messages
+        const errBody = await resp.text().catch(() => '');
+        if (errBody.includes('allowRequestSessionKey')) {
+          console.error(`[agenticmail] ⚠️  Webhook spawn blocked: OpenClaw requires hooks.allowRequestSessionKey=true in config.`);
+          console.error(`[agenticmail]    Fix: Run "agenticmail openclaw" to reconfigure, or add manually to openclaw.json`);
+        } else {
+          console.warn(`[agenticmail] Webhook spawn failed (HTTP ${resp.status}): ${errBody.slice(0, 200)}`);
         }
       } catch (err) {
         console.warn(`[agenticmail] Webhook spawn failed for "${agentName}":`, (err as Error).message);
