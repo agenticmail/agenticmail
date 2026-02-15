@@ -1020,8 +1020,7 @@ function mergePluginConfig(
   let hooksToken = existingHooks.token;
   if (!hooksToken) {
     // Generate a random 32-byte hex token
-    const { randomBytes } = require('node:crypto');
-    hooksToken = randomBytes(32).toString('hex');
+    hooksToken = [...crypto.getRandomValues(new Uint8Array(32))].map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   const result: any = {
