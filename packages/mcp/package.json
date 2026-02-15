@@ -1,0 +1,58 @@
+{
+  "name": "@agenticmail/mcp",
+  "version": "0.2.26",
+  "description": "MCP server for AgenticMail — use email from Claude Code and Claude Desktop",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "agenticmail-mcp": "dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agenticmail/agenticmail.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/agenticmail/agenticmail",
+  "bugs": "https://github.com/agenticmail/agenticmail/issues",
+  "keywords": [
+    "mcp",
+    "email",
+    "ai",
+    "claude",
+    "agenticmail",
+    "model-context-protocol"
+  ],
+  "author": "Ope Olatunji",
+  "license": "MIT"
+}

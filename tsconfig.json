@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/api" },
+    { "path": "packages/mcp" },
+    { "path": "packages/openclaw" },
+    { "path": "agenticmail" }
+  ]
+}

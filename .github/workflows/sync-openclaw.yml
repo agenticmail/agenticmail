@@ -1,0 +1,40 @@
+name: Sync OpenClaw Vendor
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync OpenClaw source
+        run: |
+          bash scripts/vendor-openclaw.sh
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet vendor/openclaw/; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create PR if changed
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: sync vendored OpenClaw source"
+          title: "chore: sync vendored OpenClaw source"
+          body: |
+            Automated sync of vendored OpenClaw source code.
+
+            This PR was created automatically by the sync-openclaw workflow.
+          branch: chore/sync-openclaw
+          delete-branch: true

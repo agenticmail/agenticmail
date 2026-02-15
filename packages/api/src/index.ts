@@ -1,0 +1,83 @@
+import 'dotenv/config';
+import { networkInterfaces } from 'node:os';
+import { createApp } from './app.js';
+import { closeCaches } from './routes/mail.js';
+import { closeAllWatchers } from './routes/events.js';
+import { startScheduledSender } from './routes/features.js';
+
+function getLocalIp(): string {
+  const nets = networkInterfaces();
+  for (const iface of Object.values(nets)) {
+    if (!iface) continue;
+    for (const info of iface) {
+      if (info.family === 'IPv4' && !info.internal) return info.address;
+    }
+  }
+  return '127.0.0.1';
+}
+
+const { app, context } = createApp();
+const { port, host } = context.config.api;
+
+let scheduledTimer: ReturnType<typeof setInterval> | null = null;
+
+const server = app.listen(port, host, async () => {
+  const displayHost = host === '127.0.0.1' || host === '0.0.0.0' ? getLocalIp() : host;
+  console.log(`🚀 AgenticMail API running at http://${displayHost}:${port}`);
+  console.log(`   Health: http://${displayHost}:${port}/api/agenticmail/health`);
+
+  // Start scheduled email sender
+  scheduledTimer = startScheduledSender(context.db, context.accountManager, context.config, context.gatewayManager);
+
+  // Resume gateway (relay polling, domain tunnel) from saved config
+  try {
+    await context.gatewayManager.resume();
+    const status = context.gatewayManager.getStatus();
+    if (status.mode !== 'none') {
+      console.log(`   Gateway: ${status.mode} mode resumed${status.relay?.polling ? ' (polling)' : ''}`);
+    }
+  } catch (err) {
+    console.error('   Gateway resume failed:', err);
+  }
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use`);
+  } else {
+    console.error('Failed to start server:', err);
+  }
+  process.exit(1);
+});
+
+// Graceful shutdown
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log('\nShutting down...');
+  if (scheduledTimer) { try { clearInterval(scheduledTimer); } catch { /* ignore */ } }
+  try { await closeAllWatchers(); } catch { /* ignore */ }
+  try { await closeCaches(); } catch { /* ignore */ }
+  try { await context.gatewayManager.shutdown(); } catch { /* ignore */ }
+  server.close(() => process.exit(0));
+  // Force exit after 5 seconds
+  setTimeout(() => process.exit(1), 5000);
+}
+
+process.on('SIGTERM', () => shutdown().catch(() => process.exit(1)));
+process.on('SIGINT', () => shutdown().catch(() => process.exit(1)));
+
+// Prevent crashes from unhandled errors — log and continue
+process.on('uncaughtException', (err) => {
+  console.error('[AgenticMail] Uncaught exception (server will continue):', err.message);
+  console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  console.error('[AgenticMail] Unhandled promise rejection (server will continue):', msg);
+  if (reason instanceof Error && reason.stack) {
+    console.error(reason.stack);
+  }
+});

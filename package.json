@@ -1,0 +1,31 @@
+{
+  "name": "agenticmail-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "agenticmail"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "dev:api": "npm run dev --workspace=@agenticmail/api",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "init": "tsx scripts/init-local.ts",
+    "setup": "node agenticmail/dist/cli.js setup",
+    "start": "node agenticmail/dist/cli.js start",
+    "status": "node agenticmail/dist/cli.js status"
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Ope Olatunji",
+  "license": "MIT"
+}

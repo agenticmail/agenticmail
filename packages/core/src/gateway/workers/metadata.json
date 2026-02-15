@@ -1,0 +1,11 @@
+{
+  "main_module": "outbound.js",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "bindings": [
+    {"type": "plain_text", "name": "OUTBOUND_SECRET", "text": "outbound_2sabi_secret_key"},
+    {"type": "plain_text", "name": "SMTP_HOST", "text": "smtp.gmail.com"},
+    {"type": "plain_text", "name": "SMTP_PORT", "text": "465"},
+    {"type": "send_email", "name": "SEND_EMAIL"}
+  ]
+}

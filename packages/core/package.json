@@ -1,0 +1,65 @@
+{
+  "name": "@agenticmail/core",
+  "version": "0.2.26",
+  "description": "Core SDK for AgenticMail — programmatic email for AI agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.0",
+    "imapflow": "^1.0.170",
+    "mailparser": "^3.7.2",
+    "nodemailer": "^6.10.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/mailparser": "^3.4.6",
+    "@types/nodemailer": "^6.4.17",
+    "@types/uuid": "^10.0.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agenticmail/agenticmail.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/agenticmail/agenticmail",
+  "bugs": "https://github.com/agenticmail/agenticmail/issues",
+  "keywords": [
+    "email",
+    "ai",
+    "agent",
+    "mail",
+    "smtp",
+    "imap",
+    "agenticmail",
+    "ai-agent",
+    "mcp"
+  ],
+  "author": "Ope Olatunji",
+  "license": "MIT"
+}

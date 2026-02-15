@@ -1,0 +1,62 @@
+# Stalwart Mail Server — AgenticMail Configuration
+
+[server]
+hostname = "2sabi.net"
+
+[server.listener.smtp]
+bind = ["0.0.0.0:25"]
+protocol = "smtp"
+
+[server.listener.submission]
+bind = ["0.0.0.0:587"]
+protocol = "smtp"
+tls.implicit = false
+
+[server.listener.imap]
+bind = ["0.0.0.0:143"]
+protocol = "imap"
+tls.implicit = false
+
+[server.listener.http]
+bind = ["0.0.0.0:8080"]
+protocol = "http"
+tls.implicit = false
+
+[storage]
+data = "rocksdb"
+fts = "rocksdb"
+blob = "rocksdb"
+lookup = "rocksdb"
+directory = "internal"
+
+[store.rocksdb]
+type = "rocksdb"
+path = "/opt/stalwart/data"
+compression = "lz4"
+
+[directory.internal]
+type = "internal"
+store = "rocksdb"
+
+[tracer.stdout]
+type = "stdout"
+level = "info"
+ansi = true
+enable = true
+
+[authentication.fallback-admin]
+user = "admin"
+secret = "cc90b0a6fb4031235c99ef27b3698043"
+
+[signature."agenticmail-2sabi-net"]
+private-key = "%{file:/opt/stalwart/etc/dkim-2sabi.net.key}%"
+domain = "2sabi.net"
+selector = "agenticmail"
+headers = ["From", "To", "Date", "Subject", "Message-ID"]
+algorithm = "rsa-sha256"
+canonicalization = "relaxed/relaxed"
+report = false
+
+[auth.dkim]
+sign = [ { if = "listener != 'smtp'", then = "['agenticmail-2sabi-net']" },
+         { else = false } ]

@@ -1,0 +1,21 @@
+services:
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    container_name: agenticmail-stalwart
+    ports:
+      - "8080:8080"   # HTTP Admin + JMAP
+      - "587:587"     # SMTP Submission
+      - "143:143"     # IMAP
+      - "25:25"       # SMTP
+    volumes:
+      - stalwart-data:/opt/stalwart
+      - ~/.agenticmail/stalwart.toml:/opt/stalwart/etc/config.toml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "stalwart-cli -u http://localhost:8080 -c admin:changeme server list-domains 2>/dev/null || true"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  stalwart-data:

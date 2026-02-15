@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.local
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test & coverage
+coverage/
+
+# Vendored / reference repos
+vendor/openclaw/
+openclaw-reference/
+
+# Local planning & editor state
+plan/
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# AgenticMail local data
+.agenticmail/

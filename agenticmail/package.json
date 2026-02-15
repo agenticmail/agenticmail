@@ -1,0 +1,64 @@
+{
+  "name": "agenticmail",
+  "version": "0.2.26",
+  "description": "Email infrastructure for AI agents — send and receive real email programmatically",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "agenticmail": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@agenticmail/api": "0.2.26",
+    "@agenticmail/core": "0.2.26",
+    "json5": "^2.2.3"
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agenticmail/agenticmail.git",
+    "directory": "agenticmail"
+  },
+  "homepage": "https://github.com/agenticmail/agenticmail",
+  "bugs": "https://github.com/agenticmail/agenticmail/issues",
+  "keywords": [
+    "email",
+    "ai",
+    "agent",
+    "mail",
+    "smtp",
+    "imap",
+    "mcp",
+    "claude",
+    "agenticmail",
+    "ai-agent",
+    "llm",
+    "gateway",
+    "cloudflare"
+  ],
+  "author": "Ope Olatunji",
+  "license": "MIT"
+}

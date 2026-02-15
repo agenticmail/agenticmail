@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      stalwart:
+        image: stalwartlabs/mail-server:latest
+        ports:
+          - 8080:8080
+          - 587:587
+          - 143:143
+          - 25:25
+        env:
+          STALWART_ADMIN_USER: admin
+          STALWART_ADMIN_PASSWORD: testpassword
+        options: >-
+          --health-cmd "curl -f http://localhost:8080/healthz || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+        env:
+          STALWART_ADMIN_USER: admin
+          STALWART_ADMIN_PASSWORD: testpassword
+          STALWART_URL: http://localhost:8080
+          AGENTICMAIL_MASTER_KEY: mk_test_key
+          SMTP_HOST: localhost
+          SMTP_PORT: 587
+          IMAP_HOST: localhost
+          IMAP_PORT: 143

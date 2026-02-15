@@ -1,0 +1,69 @@
+{
+  "id": "agenticmail",
+  "name": "agenticmail",
+  "version": "0.2.0",
+  "displayName": "AgenticMail",
+  "description": "Full email channel + tools for AI agents — send, receive, search, and manage email",
+  "author": "agenticmail",
+  "license": "MIT",
+  "homepage": "https://github.com/agenticmail/agenticmail",
+  "channels": ["mail"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiUrl": {
+        "type": "string",
+        "description": "AgenticMail API URL",
+        "default": "http://127.0.0.1:3100"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Agent API key for authentication"
+      },
+      "masterKey": {
+        "type": "string",
+        "description": "Master API key for admin operations (optional)"
+      }
+    },
+    "required": ["apiKey"]
+  },
+  "tools": [
+    "agenticmail_send",
+    "agenticmail_inbox",
+    "agenticmail_read",
+    "agenticmail_search",
+    "agenticmail_import_relay",
+    "agenticmail_delete",
+    "agenticmail_reply",
+    "agenticmail_forward",
+    "agenticmail_move",
+    "agenticmail_mark_unread",
+    "agenticmail_folders",
+    "agenticmail_list_folder",
+    "agenticmail_create_folder",
+    "agenticmail_batch_delete",
+    "agenticmail_batch_mark_read",
+    "agenticmail_batch_mark_unread",
+    "agenticmail_batch_move",
+    "agenticmail_list_agents",
+    "agenticmail_message_agent",
+    "agenticmail_check_messages",
+    "agenticmail_contacts",
+    "agenticmail_drafts",
+    "agenticmail_signatures",
+    "agenticmail_templates",
+    "agenticmail_schedule",
+    "agenticmail_tags",
+    "agenticmail_create_account",
+    "agenticmail_status",
+    "agenticmail_setup_relay",
+    "agenticmail_setup_domain",
+    "agenticmail_purchase_domain",
+    "agenticmail_gateway_status",
+    "agenticmail_test_email"
+  ],
+  "requires": {
+    "bins": ["docker"]
+  }
+}
