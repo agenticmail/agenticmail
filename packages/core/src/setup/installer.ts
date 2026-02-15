@@ -37,13 +37,8 @@ export class DependencyInstaller {
         return; // both CLI and daemon are good
       } catch {
         // Daemon not running — start it
-        this.onProgress('Starting Docker daemon...');
-        const os = platform();
-        if (os === 'darwin') {
-          try { execSync('open -a Docker', { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
-        } else if (os === 'linux') {
-          try { execSync('sudo systemctl start docker', { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
-        }
+        this.onProgress('Docker found but not running — starting it now...');
+        this.startDockerDaemon();
         await this.waitForDocker();
         return;
       }
@@ -61,11 +56,7 @@ export class DependencyInstaller {
       }
       execSync('brew install --cask docker', { timeout: 300_000, stdio: 'inherit' });
       this.onProgress('Docker installed. Starting Docker Desktop...');
-      // Open Docker Desktop
-      try {
-        execSync('open -a Docker', { timeout: 10_000, stdio: 'ignore' });
-      } catch { /* may already be starting */ }
-      // Wait for Docker daemon to be ready
+      this.startDockerDaemon();
       await this.waitForDocker();
     } else if (os === 'linux') {
       // Linux: install via apt or official script
@@ -82,20 +73,44 @@ export class DependencyInstaller {
   }
 
   /**
-   * Wait for Docker daemon to be ready (up to 60s).
+   * Attempt to start the Docker daemon.
+   * On macOS: opens Docker Desktop app.
+   * On Linux: tries systemctl.
+   */
+  private startDockerDaemon(): void {
+    const os = platform();
+    if (os === 'darwin') {
+      // Try Docker Desktop app
+      try { execSync('open -a Docker', { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
+    } else if (os === 'linux') {
+      try { execSync('sudo systemctl start docker', { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+    }
+  }
+
+  /**
+   * Wait for Docker daemon to be ready (up to 3 minutes).
+   * Docker Desktop can take 1-2+ minutes on first launch.
    */
   private async waitForDocker(): Promise<void> {
-    this.onProgress('Waiting for Docker to be ready...');
-    const maxWait = 60_000;
+    this.onProgress('Waiting for Docker to start (this can take a minute)...');
+    const maxWait = 180_000; // 3 minutes
     const start = Date.now();
+    let attempts = 0;
     while (Date.now() - start < maxWait) {
       try {
         execSync('docker info', { timeout: 5_000, stdio: 'ignore' });
         return;
       } catch { /* not ready yet */ }
+      attempts++;
+      if (attempts % 5 === 0) {
+        const elapsed = Math.round((Date.now() - start) / 1000);
+        this.onProgress(`Still waiting for Docker to start (${elapsed}s)...`);
+      }
       await new Promise(r => setTimeout(r, 3_000));
     }
-    throw new Error('Docker is installed but the daemon did not start within 60s. Start Docker Desktop manually and try again.');
+    throw new Error(
+      'Docker daemon did not start in time. Open Docker Desktop manually, wait for it to finish loading, then run this again.'
+    );
   }
 
   /**
@@ -110,15 +125,8 @@ export class DependencyInstaller {
     try {
       execSync('docker info', { timeout: 10_000, stdio: 'ignore' });
     } catch {
-      // Docker CLI exists but daemon isn't running — try to start it
       this.onProgress('Starting Docker...');
-      const os = platform();
-      if (os === 'darwin') {
-        try { execSync('open -a Docker', { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
-      } else if (os === 'linux') {
-        try { execSync('sudo systemctl start docker', { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
-      }
-      // Wait for the daemon to come up
+      this.startDockerDaemon();
       await this.waitForDocker();
     }
 
