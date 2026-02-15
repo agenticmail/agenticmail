@@ -361,6 +361,7 @@ JSON parse errors (malformed request bodies) return a clear 400 error rather tha
 | `IMAP_HOST` | No | `localhost` | IMAP server host |
 | `IMAP_PORT` | No | `143` | IMAP server port |
 | `AGENTICMAIL_INBOUND_SECRET` | No | (built-in default) | Shared secret for the inbound email webhook |
+| `AGENTICMAIL_DEBUG` | No | — | Set to any value to enable verbose per-message logging |
 
 ---
 

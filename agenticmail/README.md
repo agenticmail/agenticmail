@@ -309,6 +309,9 @@ RELAY_PASSWORD=xxxx xxxx xxxx xxxx          # App password
 CLOUDFLARE_API_TOKEN=your_token             # For domain mode
 CLOUDFLARE_ACCOUNT_ID=your_account          # For domain mode
 AGENTICMAIL_DOMAIN=yourdomain.com           # Custom domain
+
+# === Debug ===
+# AGENTICMAIL_DEBUG=1                       # Verbose per-message logging
 ```
 
 ---

@@ -134,11 +134,11 @@ async function ctxForParams(ctx: ToolContext, params: any): Promise<ToolContext>
             // Cache in the registry so future calls are instant
             registerAgentIdentity(match.name ?? name, match.apiKey, parentEmail);
             identity = { apiKey: match.apiKey, parentEmail };
-            console.log(`[agenticmail] Path 3b: resolved "${name}" via API → key=${match.apiKey.slice(0, 12)}...`);
+            // resolved agent identity via API directory lookup
           }
         }
       } catch (err) {
-        console.warn(`[agenticmail] Path 3b API lookup failed: ${(err as Error).message}`);
+        console.warn(`[agenticmail] Agent directory lookup failed: ${(err as Error).message}`);
       }
     }
 
@@ -472,10 +472,18 @@ function buildSecurityAdvisory(
   return { attachmentWarnings: attWarn, linkWarnings: linkWarn, summary: lines.join('\n') };
 }
 
+export interface CoordinationHooks {
+  /** Auto-spawn a session for an agent to handle a task. Returns true if spawned. */
+  spawnForTask?: (agentName: string, taskId: string, taskPayload: any) => Promise<boolean>;
+  /** Active SSE watchers — agents with live listeners */
+  activeSSEWatchers?: Map<string, any>;
+}
+
 export function registerTools(
   api: any,
   ctx: ToolContext,
   subagentAccounts?: Map<string, SubagentAccountRef>,
+  coordination?: CoordinationHooks,
 ): void {
   // OpenClaw registerTool accepts either a tool object or a factory function.
   // We register FACTORIES so each session gets tools bound to its own sessionKey.
@@ -1908,7 +1916,7 @@ export function registerTools(
   });
 
   reg('agenticmail_call_agent', {
-    description: 'Synchronous RPC call to another agent. Assigns a task, notifies the target (via SSE push + email), and polls for the result. Times out after the specified duration.',
+    description: 'Synchronous RPC call to another agent. Assigns a task, notifies the target (via SSE push + email), and polls for the result. Auto-spawns an agent session if none is active. Times out after the specified duration.',
     parameters: {
       target: { type: 'string', required: true, description: 'Name of the agent to call' },
       task: { type: 'string', required: true, description: 'Task description' },
@@ -1919,17 +1927,25 @@ export function registerTools(
       try {
         const c = await ctxForParams(ctx, params);
         const timeoutSec = Math.min(Math.max(Number(params.timeout) || 180, 5), 300);
+        const taskPayload = { task: params.task, ...(params.payload || {}) };
 
         // Step 1: Create the task (quick request — returns immediately)
         const created = await apiRequest(c, 'POST', '/tasks/assign', {
           assignee: params.target,
           taskType: 'rpc',
-          payload: { task: params.task, ...(params.payload || {}) },
+          payload: taskPayload,
         });
         if (!created?.id) return { success: false, error: 'Failed to create task' };
         const taskId = created.id;
 
-        // Step 2: Poll for completion with short-lived requests
+        // Step 2: Check if the target agent has an active listener.
+        // If not, auto-spawn a session so the task gets picked up.
+        const hasWatcher = coordination?.activeSSEWatchers?.has(params.target);
+        if (!hasWatcher && coordination?.spawnForTask) {
+          await coordination.spawnForTask(params.target, taskId, taskPayload);
+        }
+
+        // Step 3: Poll for completion with short-lived requests
         // Each GET /tasks/:id is a quick round-trip — no long-poll to be killed
         const deadline = Date.now() + timeoutSec * 1000;
         while (Date.now() < deadline) {

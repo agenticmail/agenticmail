@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { join } from 'node:path';
 import nodemailer from 'nodemailer';
+import { debug } from '../debug.js';
 import { RelayGateway, type InboundEmail } from './relay.js';
 import { CloudflareClient } from './cloudflare.js';
 import { DomainPurchaser } from './domain-purchase.js';
@@ -837,7 +838,7 @@ export class GatewayManager {
     try {
       const info = await transport.sendMail(mailOpts);
 
-      console.log(`[GatewayManager] Sent via Stalwart: ${info.messageId} → ${info.response}`);
+      debug('GatewayManager', `Sent via Stalwart: ${info.messageId} → ${info.response}`);
 
       return {
         messageId: info.messageId,

@@ -8,6 +8,7 @@ import {
 } from '@agenticmail/core';
 
 const INBOUND_SECRET = process.env.AGENTICMAIL_INBOUND_SECRET || 'inbound_2sabi_secret_key';
+const DEBUG = () => !!process.env.AGENTICMAIL_DEBUG;
 
 /**
  * Inbound email webhook — receives email forwarded by Cloudflare Email Workers.
@@ -57,12 +58,12 @@ export function createInboundRoutes(accountManager: AccountManager, config: Agen
       // Deduplicate: skip if already delivered
       const originalMessageId = parsed.messageId;
       if (originalMessageId && gatewayManager?.isAlreadyDelivered(originalMessageId, agent.name)) {
-        console.log(`[Inbound] Skipping duplicate: ${originalMessageId} → ${agent.name}`);
+        if (DEBUG()) console.log(`[Inbound] Skipping duplicate: ${originalMessageId} → ${agent.name}`);
         res.json({ ok: true, delivered: agent.email, duplicate: true });
         return;
       }
 
-      console.log(`[Inbound] Delivering email to ${agent.email} from ${from} (subject: ${subject || parsed.subject})`);
+      if (DEBUG()) console.log(`[Inbound] Delivering email to ${agent.email} from ${from} (subject: ${subject || parsed.subject})`);
 
       // Deliver to agent's Stalwart mailbox via SMTP
       // Authenticate as the agent and send to themselves
@@ -97,7 +98,7 @@ export function createInboundRoutes(accountManager: AccountManager, config: Agen
 
         // Record delivery for deduplication
         if (originalMessageId) gatewayManager?.recordDelivery(originalMessageId, agent.name);
-        console.log(`[Inbound] Delivered to ${agent.email}`);
+        if (DEBUG()) console.log(`[Inbound] Delivered to ${agent.email}`);
         res.json({ ok: true, delivered: agent.email });
       } finally {
         sender.close();

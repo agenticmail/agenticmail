@@ -483,6 +483,7 @@ interface SetupConfig {
 | `SMTP_PORT` | SMTP server port |
 | `IMAP_HOST` | IMAP server host |
 | `IMAP_PORT` | IMAP server port |
+| `AGENTICMAIL_DEBUG` | Enable verbose per-message logging |
 
 ---
 

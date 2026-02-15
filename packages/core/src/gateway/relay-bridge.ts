@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createTransport } from 'nodemailer';
+import { debug } from '../debug.js';
 
 export interface RelayBridgeOptions {
   /** Port for the HTTP bridge server */
@@ -93,7 +94,7 @@ export class RelayBridge {
     const { from, to, subject, text, html, replyTo, inReplyTo, references } = payload;
     const recipients = Array.isArray(to) ? to : [to];
 
-    console.log(`[RelayBridge] Submitting to Stalwart: ${from} → ${recipients.join(', ')}`);
+    debug('RelayBridge', `Submitting to Stalwart: ${from} → ${recipients.join(', ')}`);
 
     // Submit to local Stalwart — it handles DKIM signing and MX delivery
     const transport = createTransport({
@@ -122,7 +123,7 @@ export class RelayBridge {
         },
       });
 
-      console.log(`[RelayBridge] Queued: ${info.messageId} → ${info.response}`);
+      debug('RelayBridge', `Queued: ${info.messageId} → ${info.response}`);
       return {
         ok: true,
         messageId: info.messageId,

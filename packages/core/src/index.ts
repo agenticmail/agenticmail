@@ -82,5 +82,8 @@ export type {
 } from './gateway/types.js';
 export { RELAY_PRESETS } from './gateway/types.js';
 
+// Debug
+export { debug, debugWarn } from './debug.js';
+
 // Setup & Dependencies
 export { SetupManager, DependencyChecker, DependencyInstaller, type DependencyStatus, type InstallProgress, type SetupConfig, type SetupResult } from './setup/index.js';

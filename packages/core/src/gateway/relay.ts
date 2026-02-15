@@ -6,6 +6,7 @@ import { simpleParser, type AddressObject } from 'mailparser';
 import type { RelayConfig } from './types.js';
 import type { SendMailOptions, SendResult } from '../mail/types.js';
 import type { SendResultWithRaw } from '../mail/sender.js';
+import { debug } from '../debug.js';
 
 export interface RelayGatewayOptions {
   onInboundMail?: (agentName: string, parsed: InboundEmail) => void | Promise<void>;
@@ -291,7 +292,7 @@ export class RelayGateway {
             : 1;
           this.lastSeenUid = Math.max(0, uidNext - 51);
           this.firstPollDone = true;
-          console.log(`[RelayGateway] First poll: scanning recent messages (UID ${this.lastSeenUid + 1}+, uidNext=${uidNext})`);
+          debug('RelayGateway', `First poll: scanning recent messages (UID ${this.lastSeenUid + 1}+, uidNext=${uidNext})`);
         }
 
         // Search for ALL messages returning UIDs (not sequence numbers)
@@ -365,7 +366,7 @@ export class RelayGateway {
             try {
               await this.onInboundMail(agentName, inbound);
               await imap.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true } as any);
-              console.log(`[RelayGateway] Processed and marked seen: UID ${uid} → agent "${agentName}"`);
+              debug('RelayGateway', `Processed and marked seen: UID ${uid} → agent "${agentName}"`);
             } catch (err) {
               console.error(`[RelayGateway] Error delivering UID ${uid} to agent "${agentName}": ${(err as Error).message}`);
             }

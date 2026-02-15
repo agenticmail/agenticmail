@@ -215,9 +215,95 @@ function activate(api: any): void {
     }).catch(() => { /* best effort — API may not be up yet */ });
   }
 
+  // --- Auto-spawn callback for call_agent ---
+  // When call_agent targets an agent with no active session, this spawns one
+  // via OpenClaw's webhook endpoint (if hooks are enabled) or cron wake event.
+  // It checks subagentAccounts + activeSSEWatchers first to avoid double-spawning.
+  const spawnForTask = async (agentName: string, taskId: string, taskPayload: any): Promise<boolean> => {
+    // Check if there's already an active SSE watcher for this agent
+    if (activeSSEWatchers.has(agentName)) return false; // already has a listener
+
+    // Check if a sub-agent session already exists for this agent name
+    for (const account of subagentAccounts.values()) {
+      if (account.name === agentName) return false; // session already running
+    }
+
+    const taskDesc = typeof taskPayload?.task === 'string' ? taskPayload.task : JSON.stringify(taskPayload);
+    const agentMessage = [
+      `You have a pending 🎀 AgenticMail task assigned to you (ID: ${taskId}).`,
+      ``,
+      `1. Use agenticmail_check_tasks (direction="incoming") to see your pending tasks`,
+      `2. Use agenticmail_claim_task with the task ID to claim it`,
+      `3. Do the work described in the task payload`,
+      `4. Use agenticmail_submit_result to submit your result as structured JSON`,
+      ``,
+      `Task: ${taskDesc}`,
+      ``,
+      `After submitting your result, you are done.`,
+    ].join('\n');
+
+    // Strategy 1: Try OpenClaw webhook endpoint (if hooks are enabled)
+    const gatewayPort = process.env.OPENCLAW_PORT || process.env.PORT || '3000';
+    const hooksToken = process.env.OPENCLAW_HOOKS_TOKEN;
+
+    if (hooksToken) {
+      try {
+        const hookUrl = `http://127.0.0.1:${gatewayPort}/hooks/agent`;
+        const resp = await fetch(hookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${hooksToken}`,
+          },
+          body: JSON.stringify({
+            message: agentMessage,
+            name: `task-${agentName}`,
+            sessionKey: `agenticmail:task:${taskId}`,
+            deliver: false,
+            timeoutSeconds: 240,
+          }),
+          signal: AbortSignal.timeout(5_000),
+        });
+
+        if (resp.ok) {
+          console.log(`[agenticmail] Auto-spawned session for "${agentName}" via webhook to handle task ${taskId}`);
+          return true;
+        }
+      } catch (err) {
+        console.warn(`[agenticmail] Webhook spawn failed for "${agentName}":`, (err as Error).message);
+      }
+    }
+
+    // Strategy 2: Use cron wake event to trigger a system event in the main session
+    // This causes the main agent to see the task and can delegate it
+    try {
+      const gatewayUrl = `http://127.0.0.1:${gatewayPort}`;
+      // Try to use the cron wake endpoint (works without hooks token)
+      const resp = await fetch(`${gatewayUrl}/api/cron/wake`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: `🎀 AgenticMail: Task ${taskId} assigned to "${agentName}" but no active session found. The task is waiting to be claimed. Use agenticmail_check_tasks to see it.`,
+          mode: 'now',
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
+
+      if (resp.ok) {
+        console.log(`[agenticmail] Sent wake event for task ${taskId} (agent "${agentName}" has no active session)`);
+        return true;
+      }
+    } catch {
+      // Wake event also failed — task will remain pending for manual pickup
+    }
+
+    console.warn(`[agenticmail] Could not auto-spawn session for "${agentName}" — task ${taskId} remains pending`);
+    return false;
+  };
+
   // Register email tools — pass subagentAccounts so tool factories can inject
   // the sub-agent's own API key per-session (deferred lookup at execution time).
-  registerTools(api, ctx, subagentAccounts);
+  registerTools(api, ctx, subagentAccounts, { spawnForTask, activeSSEWatchers });
 
   // Initialize the follow-up reminder system with the plugin API reference.
   // This enables: system event delivery and file persistence for reminders.

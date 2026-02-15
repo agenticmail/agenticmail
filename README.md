@@ -621,6 +621,9 @@ AGENTICMAIL_INBOUND_SECRET=your_secret      # Shared secret for Email Worker
 # === Gmail SMTP Relay (domain mode outbound) ===
 GMAIL_RELAY_EMAIL=you@gmail.com             # Gmail address for outbound relay
 GMAIL_RELAY_APP_PASSWORD=xxxx xxxx xxxx     # Gmail app password
+
+# === Debug ===
+# AGENTICMAIL_DEBUG=1                       # Enable verbose per-message logging
 ```
 
 ### Docker Compose
