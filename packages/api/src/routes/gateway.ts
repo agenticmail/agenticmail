@@ -68,11 +68,12 @@ export function createGatewayRoutes(gatewayManager: GatewayManager): Router {
             zone: [
               { permission: 'Zone > Zone > Read', reason: 'Look up zone ID for your domain' },
               { permission: 'Zone > DNS > Edit', reason: 'Create/manage DNS records (SPF, DKIM, DMARC, CNAME)' },
-              { permission: 'Zone > Email Routing Rules > Edit', reason: 'Enable Email Routing and set catch-all rule to worker' },
+              { permission: 'Zone > Email Routing Rules > Edit', reason: 'Set catch-all rule to route emails to worker' },
             ],
             account: [
               { permission: 'Account > Cloudflare Tunnel > Edit', reason: 'Create and configure tunnel for inbound SMTP' },
               { permission: 'Account > Workers Scripts > Edit', reason: 'Deploy the inbound email worker' },
+              { permission: 'Account > Email Routing Addresses > Edit', reason: 'Enable/disable Email Routing on zones' },
               { permission: 'Account > Account Settings > Read', reason: 'Verify account access' },
             ],
             optional: [
