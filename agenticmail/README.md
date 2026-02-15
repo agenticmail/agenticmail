@@ -109,7 +109,7 @@ The shell provides complete email and agent management through an interactive RE
 |---------|-------------|
 | `/spam` | View spam folder, report spam, mark as not-spam, view spam score for any email |
 | `/rules` | Create, list, and delete email filtering rules (auto-move, auto-delete, mark read) |
-| `/pending` | View blocked outbound emails, approve or reject (uses master key) |
+| `/pending` | View blocked outbound emails, approve or reject (master key required — agents cannot self-approve) |
 
 ### Gateway Commands
 

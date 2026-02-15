@@ -97,6 +97,12 @@ Plugin configuration lives in `~/.openclaw/openclaw.json` (user config), not in 
 | `agenticmail_message_agent` | Send message to another agent |
 | `agenticmail_check_messages` | Check for new messages from agents |
 
+### Security (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `agenticmail_pending_emails` | List and view blocked outbound emails. Agents can check approval status but **cannot** approve or reject — only the owner (master key holder) can do that. |
+
 ### Administration (2 tools)
 
 | Tool | Description |
@@ -122,7 +128,13 @@ The plugin includes a skill at `skill/SKILL.md` that gets injected into the agen
 
 - **Email etiquette** — professional communication, appropriate tone
 - **Security awareness** — understanding the outbound guard, not attempting to bypass blocks
-- **Approval workflow** — informing the owner when emails are blocked instead of self-approving
+- **Human-only approval workflow** — when an email is blocked, agents are instructed to:
+  - Inform their owner in the conversation that the email was blocked
+  - Explain the recipient, subject, and which warnings triggered the block
+  - Periodically check approval status with `agenticmail_pending_emails(action='list')`
+  - Never attempt to approve their own emails or rewrite content to bypass detection
+  - The owner receives a notification email and must approve/reject via the master key
+- **Multi-agent protocol** — how to communicate with and assign tasks to other agents
 - **Multi-agent protocol** — how to communicate with and assign tasks to other agents
 
 ### Skill Files

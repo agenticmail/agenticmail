@@ -81,15 +81,18 @@ AI agents need to communicate with the real world. Email is the universal commun
   - Private keys (SSH, PGP, RSA)
   - PII patterns (SSN, credit card numbers)
   - Internal URLs and configuration data
-  - Blocked emails are held for human (master key) approval
+  - Blocked emails are held for human-only approval (agents cannot self-approve)
 - **Spam filter** — rule-based scoring engine for inbound email:
   - Categories: phishing, scam, malware, commercial spam, social engineering, lottery scam
   - Configurable threshold (default: 40)
   - Skips internal agent-to-agent emails
   - Runs on both relay inbound and SSE event streams
-- **Human approval flow** — blocked outbound emails can be approved/rejected via:
-  - Master key API call (`POST /mail/pending/:id/approve`)
-  - Email reply to the notification (reply "approve" or "reject")
+- **Human-only approval flow** — when an agent's email is blocked:
+  - The agent is informed the email was blocked and told to notify their owner
+  - The owner receives a notification email with full blocked email content, warnings, and pending ID
+  - Only the master key holder can approve or reject (`POST /mail/pending/:id/approve`)
+  - Agents can list and view their own pending emails but **cannot** approve or reject them
+  - System prompt guidelines instruct agents to inform their owner and wait, never attempt to bypass
 - **DKIM/SPF/DMARC** — automatic DNS setup in domain mode for email authentication
 - **Rate limiting** — configurable per-endpoint rate limits
 
@@ -562,10 +565,14 @@ Every outgoing email is scanned before sending. The guard detects:
 | Internal data | Localhost URLs, internal IPs, config file contents |
 
 When sensitive data is detected:
-1. Email is **blocked** and saved to `pending_outbound` table
-2. Agent receives a response explaining what was blocked and why
-3. Owner (master key holder) is notified via email
-4. Owner approves or rejects via API or by replying to the notification email
+1. Email is **blocked** and saved to the `pending_outbound` table
+2. Agent receives a response explaining what was blocked and why, with instructions to inform their owner
+3. Owner (master key holder) is notified via email with the full blocked email content, security warnings, recipient, subject, and pending ID
+4. Owner approves or rejects via the master key API (`POST /mail/pending/:id/approve` or `/reject`) or by replying to the notification email
+5. Agents **cannot** approve or reject their own blocked emails — the approve/reject endpoints require the master key
+6. Agents can only list and view their pending emails to check approval status
+7. MCP and OpenClaw tools enforce this by rejecting approve/reject actions with a message directing agents to inform their owner
+8. System prompt guidelines (OpenClaw) instruct agents to never attempt self-approval or rewrite emails to bypass detection
 
 ### Spam Filter
 

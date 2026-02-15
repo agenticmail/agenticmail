@@ -93,14 +93,16 @@ All routes prefixed with `/api/agenticmail`.
 | `POST` | `/mail/batch/delete` | Agent | Delete multiple messages. |
 | `POST` | `/mail/batch/move` | Agent | Move multiple messages. Body: `{ "uids": [1,2], "folder": "Archive" }` |
 
-### Pending Outbound (Blocked Emails)
+### Pending Outbound (Blocked Emails — Human-Only Approval)
+
+Agents **cannot** approve or reject their own blocked emails. Only the master key holder (human) can approve or reject. When an email is blocked, the owner receives a notification email with the full content, security warnings, and pending ID.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/mail/pending` | Both | List blocked outbound emails. Master sees all; agent sees own. |
-| `GET` | `/mail/pending/:id` | Both | Get specific pending email details. |
-| `POST` | `/mail/pending/:id/approve` | Master | Approve and send the blocked email. |
-| `POST` | `/mail/pending/:id/reject` | Master | Reject and discard the blocked email. |
+| `GET` | `/mail/pending` | Both | List blocked outbound emails. Master sees all; agent sees only own. |
+| `GET` | `/mail/pending/:id` | Both | Get specific pending email details. Master can view any; agent can only view own. |
+| `POST` | `/mail/pending/:id/approve` | Master | Approve and send the blocked email. **Master key required** — agent keys are rejected with 403. |
+| `POST` | `/mail/pending/:id/reject` | Master | Reject and discard the blocked email. **Master key required** — agent keys are rejected with 403. |
 
 ### Spam
 

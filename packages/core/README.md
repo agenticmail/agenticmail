@@ -197,6 +197,8 @@ console.log(`Blocked: ${result.blocked}`);       // true
 console.log(`Warnings:`, result.warnings);       // [{ category: 'api_key', ... }]
 ```
 
+When integrated via the API layer, blocked emails are held in a `pending_outbound` table for **human-only approval**. The owner (master key holder) receives a notification email with the full blocked email content and security warnings. Agents cannot approve or reject their own blocked emails — only the master key holder can do so via `POST /mail/pending/:id/approve` or `POST /mail/pending/:id/reject`.
+
 ---
 
 ## Modules

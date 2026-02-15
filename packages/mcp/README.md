@@ -107,7 +107,7 @@ Add to your Claude Code MCP configuration (`.claude/mcp.json` or project setting
 | `manage_templates` | Create, list, delete email templates |
 | `manage_scheduled` | Schedule emails for future delivery, list, cancel |
 | `manage_spam` | List spam folder, report spam, mark as not-spam |
-| `manage_pending_emails` | List blocked outbound emails, check approval status |
+| `manage_pending_emails` | List and view blocked outbound emails. Agents can check approval status but **cannot** approve or reject — only the owner (master key holder) can do that. |
 | `template_send` | Send an email using a saved template |
 | `create_folder` | Create a new IMAP folder |
 | `list_folder` | List messages in a specific folder |
@@ -166,6 +166,16 @@ Each tool call:
 3. Returns formatted text results back to Claude
 
 The server runs as a subprocess with stdio transport — Claude sends JSON-RPC messages via stdin, and the server responds via stdout. No network ports are opened by the MCP server itself.
+
+### Outbound Security & Human-Only Approval
+
+When Claude sends an email that triggers the outbound guard (e.g., contains API keys, PII, or credentials), the email is blocked and held for human approval. The MCP server enforces that:
+
+- Claude is informed the email was blocked and told to notify the user
+- The owner receives a notification email with the full blocked email content and security warnings
+- Claude **cannot** approve or reject blocked emails — `manage_pending_emails` rejects approve/reject actions with a clear message
+- Claude can only list and view pending emails to check if the owner has approved or rejected them
+- Only the master key holder can approve/reject via the API
 
 ---
 
