@@ -208,7 +208,7 @@ function activate(api: any): void {
     if (hooksEnabled && hooksToken) {
       process.env.OPENCLAW_HOOKS_TOKEN = hooksToken;
       // Also resolve the gateway port
-      const gatewayPort = fullConfig?.api?.port ?? fullConfig?.port;
+      const gatewayPort = fullConfig?.gateway?.port ?? fullConfig?.api?.port ?? fullConfig?.port;
       if (gatewayPort) process.env.OPENCLAW_PORT = String(gatewayPort);
     }
   } catch { /* ignore — hooks just won't auto-spawn */ }
