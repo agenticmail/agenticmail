@@ -18,15 +18,36 @@ export class DependencyInstaller {
   }
 
   /**
-   * Install Docker if not present.
-   * Uses Homebrew on macOS, apt on Linux.
+   * Ensure Docker is installed AND the daemon is running.
+   * Installs Docker if not present (Homebrew on macOS, apt on Linux).
+   * Starts the daemon if Docker CLI is present but daemon is stopped.
    */
   async installDocker(): Promise<void> {
-    // Check if already installed
+    // Check if CLI is installed
+    let cliInstalled = false;
     try {
       execSync('docker --version', { timeout: 5_000, stdio: 'ignore' });
-      return;
+      cliInstalled = true;
     } catch { /* not installed */ }
+
+    if (cliInstalled) {
+      // CLI exists — check if daemon is running
+      try {
+        execSync('docker info', { timeout: 10_000, stdio: 'ignore' });
+        return; // both CLI and daemon are good
+      } catch {
+        // Daemon not running — start it
+        this.onProgress('Starting Docker daemon...');
+        const os = platform();
+        if (os === 'darwin') {
+          try { execSync('open -a Docker', { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
+        } else if (os === 'linux') {
+          try { execSync('sudo systemctl start docker', { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+        }
+        await this.waitForDocker();
+        return;
+      }
+    }
 
     const os = platform();
 
@@ -85,11 +106,20 @@ export class DependencyInstaller {
       throw new Error(`docker-compose.yml not found at: ${composePath}`);
     }
 
-    // Ensure Docker daemon is running
+    // Ensure Docker daemon is running — start it if needed
     try {
       execSync('docker info', { timeout: 10_000, stdio: 'ignore' });
     } catch {
-      throw new Error('Docker is not running. Please start Docker Desktop first.');
+      // Docker CLI exists but daemon isn't running — try to start it
+      this.onProgress('Starting Docker...');
+      const os = platform();
+      if (os === 'darwin') {
+        try { execSync('open -a Docker', { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
+      } else if (os === 'linux') {
+        try { execSync('sudo systemctl start docker', { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+      }
+      // Wait for the daemon to come up
+      await this.waitForDocker();
     }
 
     this.onProgress('Starting Stalwart mail server...');

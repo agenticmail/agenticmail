@@ -388,25 +388,24 @@ async function cmdSetup() {
   log(`  ${c.bold('Step 3 of 4')} ${c.dim('—')} ${c.bold('Starting services')}`);
   log('');
 
-  const docker = deps.find(d => d.name === 'docker');
-  if (!docker?.installed) {
+  // Always ensure Docker daemon is running (CLI may be installed but daemon stopped)
+  {
     const spinner = new Spinner('docker');
     spinner.start();
     try {
       await setup.ensureDocker();
-      spinner.succeed(`${c.bold('Docker')} — installed and running!`);
+      spinner.succeed(`${c.bold('Docker')} — engine running`);
     } catch (err) {
-      spinner.fail(`Couldn't install Docker: ${(err as Error).message}`);
+      spinner.fail(`Couldn't start Docker: ${(err as Error).message}`);
       log('');
       log(`  ${c.yellow('Tip:')} Install Docker manually from ${c.cyan('https://docker.com/get-docker')}`);
       log(`  ${c.dim('Then run')} ${c.green('agenticmail setup')} ${c.dim('again.')}`);
       process.exit(1);
     }
-  } else {
-    ok(`${c.bold('Docker')} ${c.dim('— engine running')}`);
     await new Promise(r => setTimeout(r, 300));
   }
 
+  // Start Stalwart mail server container
   const stalwart = deps.find(d => d.name === 'stalwart');
   if (!stalwart?.installed) {
     const spinner = new Spinner('stalwart');
@@ -423,6 +422,7 @@ async function cmdSetup() {
     await new Promise(r => setTimeout(r, 300));
   }
 
+  // Download cloudflared if missing
   const cf = deps.find(d => d.name === 'cloudflared');
   if (!cf?.installed) {
     const spinner = new Spinner('cloudflared');
