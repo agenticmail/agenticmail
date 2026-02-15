@@ -468,16 +468,16 @@ See the [MCP package README](./packages/mcp) for the full tool list.
 Already have OpenClaw? Two steps:
 
 ```bash
-# Step 1 — Install AgenticMail and run the setup wizard
-npx agenticmail setup
+# Step 1 — Install AgenticMail globally and run the setup wizard
+npm install -g agenticmail && agenticmail setup
 ```
 
 ```bash
 # Step 2 — Connect AgenticMail to your OpenClaw instance
-npx agenticmail openclaw
+agenticmail openclaw
 ```
 
-That's it. The `openclaw` command will start the mail server, create an agent, and merge the plugin config into your `openclaw.json` automatically. Your OpenClaw agent now has its own email address.
+That's it. The global install gives you the `agenticmail` command. The `openclaw` command will start the mail server, create an agent, and merge the plugin config into your `openclaw.json` automatically. Your OpenClaw agent now has its own email address.
 
 ### Manual Configuration
 
