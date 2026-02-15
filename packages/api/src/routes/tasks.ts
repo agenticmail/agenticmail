@@ -136,6 +136,39 @@ export function createTaskRoutes(db: Database.Database, accountManager: AccountM
     } catch (err) { next(err); }
   });
 
+  // Claim + Submit in one call (pending → completed, skipping claimed state)
+  // Designed for light-mode tasks where the agent already knows the answer.
+  // Saves a round-trip: no need for separate claim then submit.
+  router.post('/tasks/:id/complete', requireAgent, async (req, res, next) => {
+    try {
+      const { result } = req.body || {};
+      const resultJson = JSON.stringify(result ?? null);
+      const dbResult = db.prepare(
+        "UPDATE agent_tasks SET status = 'completed', result = ?, claimed_at = datetime('now'), completed_at = datetime('now') WHERE id = ? AND status = 'pending'"
+      ).run(resultJson, req.params.id);
+      if (dbResult.changes === 0) {
+        // Maybe already claimed? Try completing from claimed state too
+        const retry = db.prepare(
+          "UPDATE agent_tasks SET status = 'completed', result = ?, completed_at = datetime('now') WHERE id = ? AND status = 'claimed'"
+        ).run(resultJson, req.params.id);
+        if (retry.changes === 0) {
+          res.status(404).json({ error: 'Task not found or already completed' });
+          return;
+        }
+      }
+      touchActivity(db, req.agent!.id);
+
+      // Instantly wake the RPC long-poll
+      const resolver = rpcResolvers.get(req.params.id);
+      if (resolver) {
+        rpcResolvers.delete(req.params.id);
+        resolver({ status: 'completed', result: resultJson });
+      }
+
+      res.json({ ok: true, taskId: req.params.id, status: 'completed' });
+    } catch (err) { next(err); }
+  });
+
   // Fail a task (claimed → failed)
   // Capability-based: any authenticated agent that knows the task ID can fail it.
   router.post('/tasks/:id/fail', requireAgent, async (req, res, next) => {

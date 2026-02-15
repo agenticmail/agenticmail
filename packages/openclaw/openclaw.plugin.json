@@ -58,6 +58,7 @@
     "agenticmail_check_tasks",
     "agenticmail_claim_task",
     "agenticmail_submit_result",
+    "agenticmail_complete_task",
     "agenticmail_call_agent",
     "agenticmail_contacts",
     "agenticmail_drafts",

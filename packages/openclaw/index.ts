@@ -260,7 +260,7 @@ function activate(api: any): void {
           `Task (ID: ${taskId}):`,
           taskDesc,
           ``,
-          `Do this task, then call agenticmail_claim_task(id="${taskId}") and agenticmail_submit_result(id="${taskId}", result={...}) with your answer.`,
+          `Do this task, then call agenticmail_complete_task(id="${taskId}", result={...}) with your answer. One call, done.`,
         ].join('\n')
       : [
           `You have a pending 🎀 AgenticMail task assigned to you (ID: ${taskId}).`,
@@ -414,10 +414,10 @@ function activate(api: any): void {
     taskModes.delete(sessionKey);
 
     if (isSubAgent && taskMode === 'light') {
-      // Light mode: absolute minimum context — just the tools needed to submit results
+      // Light mode: absolute minimum context — one tool to complete the task
       prependLines.push(
         '<agenticmail-coordination>',
-        'Use agenticmail_claim_task and agenticmail_submit_result to complete your assigned task.',
+        'Use agenticmail_complete_task(id, result) to submit your answer in one call.',
         '</agenticmail-coordination>',
       );
     } else if (isSubAgent) {

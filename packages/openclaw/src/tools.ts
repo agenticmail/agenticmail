@@ -1915,6 +1915,20 @@ export function registerTools(
     },
   });
 
+  reg('agenticmail_complete_task', {
+    description: 'Claim and submit result in one call (skip separate claim + submit). Use for light-mode tasks where you already have the answer.',
+    parameters: {
+      id: { type: 'string', required: true, description: 'Task ID' },
+      result: { type: 'object', description: 'Task result data' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', `/tasks/${params.id}/complete`, { result: params.result });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   reg('agenticmail_call_agent', {
     description: 'Synchronous RPC call to another agent. Assigns a task, notifies the target (via SSE push + email), and polls for the result. Auto-spawns an agent session if none is active. Times out after the specified duration. Use mode="light" for simple tasks (no email account, minimal overhead) or mode="full" for complex multi-agent coordination. Default auto-detects based on task complexity.',
     parameters: {
