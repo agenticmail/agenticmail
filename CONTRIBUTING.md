@@ -161,6 +161,6 @@ cd packages/core && npx tsup src/index.ts --format esm --dts --clean
 
 - Open an [issue](https://github.com/agenticmail/agenticmail/issues) for bugs or feature requests
 - Check existing issues before creating new ones
-- Reach out to the maintainer via [GitHub](https://github.com/ope-olatunji)
+- Reach out to the maintainer via [GitHub](https://github.com/agenticmail/agenticmail)
 
 Thank you for contributing!

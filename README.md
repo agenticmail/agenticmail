@@ -760,4 +760,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines.
 
 ## License
 
-[MIT](./LICENSE) - Ope Olatunji ([@ope-olatunji](https://github.com/ope-olatunji))
+[MIT](./LICENSE) - Ope Olatunji ([@ope-olatunji](https://github.com/agenticmail/agenticmail))

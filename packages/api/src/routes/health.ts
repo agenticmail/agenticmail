@@ -7,10 +7,10 @@ const ABOUT = {
   description: 'Email infrastructure for AI agents — send, receive, coordinate, and automate email with full DKIM/SPF/DMARC authentication.',
   author: {
     name: 'Ope Olatunji',
-    github: 'https://github.com/ope-olatunji',
+    github: 'https://github.com/agenticmail/agenticmail',
   },
   license: 'MIT',
-  repository: 'https://github.com/ope-olatunji/agenticmail',
+  repository: 'https://github.com/agenticmail/agenticmail',
   contributing: 'Contributions and feature requests welcome! Visit the GitHub repo to open issues, suggest features, or submit pull requests.',
 };
 

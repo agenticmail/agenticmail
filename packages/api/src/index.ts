@@ -29,10 +29,10 @@ const server = app.listen(port, host, async () => {
   console.log('  ╔══════════════════════════════════════════╗');
   console.log('  ║           AgenticMail v' + VERSION.padEnd(18) + '║');
   console.log('  ║     Built by Ope Olatunji                ║');
-  console.log('  ║     https://github.com/ope-olatunji      ║');
+  console.log('  ║  github.com/agenticmail/agenticmail       ║');
   console.log('  ║                                          ║');
   console.log('  ║  Contributions & feature requests welcome ║');
-  console.log('  ║  github.com/ope-olatunji/agenticmail     ║');
+  console.log('  ║  github.com/agenticmail/agenticmail     ║');
   console.log('  ╚══════════════════════════════════════════╝');
   console.log('');
   console.log(`  🚀 API: http://${displayHost}:${port}`);
