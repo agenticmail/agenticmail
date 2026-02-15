@@ -1226,7 +1226,7 @@ export function registerTools(
   });
 
   reg('agenticmail_purchase_domain', {
-    description: 'Search for and purchase a domain via Cloudflare Registrar (requires master key)',
+    description: 'Search for available domains via Cloudflare Registrar (requires master key). NOTE: Cloudflare API only supports READ access for registrar — domains must be purchased manually. Use this tool to CHECK availability, then direct the user to purchase at https://dash.cloudflare.com/?to=/:account/domain-registration or from Namecheap/other registrars (then point nameservers to Cloudflare).',
     parameters: {
       keywords: { type: 'array', required: true, description: 'Search keywords' },
       tld: { type: 'string', description: 'Preferred TLD' },

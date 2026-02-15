@@ -109,7 +109,7 @@ That's it. The command sets up the mail server, creates an agent account, config
 | `agenticmail_setup_domain` | Set up a custom domain via Cloudflare with optional Gmail SMTP relay (Advanced) |
 | `agenticmail_setup_gmail_alias` | Get instructions to add agent email as Gmail "Send mail as" alias (for domain mode) |
 | `agenticmail_setup_payment` | Get instructions to add payment method to Cloudflare (self-service link or browser automation) |
-| `agenticmail_purchase_domain` | Search for and purchase a domain via Cloudflare Registrar |
+| `agenticmail_purchase_domain` | Search domain availability (purchase must be done manually on Cloudflare or other registrar) |
 | `agenticmail_gateway_status` | Check email gateway status (relay, domain, or none) |
 | `agenticmail_test_email` | Send a test email to verify setup |
 

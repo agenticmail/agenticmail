@@ -63,28 +63,29 @@ export function createGatewayRoutes(gatewayManager: GatewayManager): Router {
           ],
           howToGetCloudflareToken: 'https://dash.cloudflare.com/profile/api-tokens → Create Token → Custom Token',
           howToGetAccountId: 'https://dash.cloudflare.com → click any site → right sidebar shows Account ID',
-          paymentMethod: {
-            note: 'A payment method is required in Cloudflare to purchase domains (~$10/yr for .com)',
+          domainPurchase: {
+            note: 'Cloudflare API only supports READ access for registrar — domains must be purchased manually.',
             options: [
               {
                 option: 'A',
-                label: 'Add payment method yourself (recommended)',
-                url: 'https://dash.cloudflare.com/?to=/:account/billing',
+                label: 'Buy from Cloudflare Registrar (recommended — at-cost pricing, no markup)',
+                url: 'https://dash.cloudflare.com/?to=/:account/domain-registration',
                 steps: [
-                  'Open the link above (or go to Cloudflare Dashboard → Manage Account → Billing)',
-                  'Click "Payment Info" or "Add payment method"',
-                  'Enter your card details (prepaid debit cards with limits work fine)',
-                  'Click Save',
+                  'Open the link above',
+                  'Search for your desired domain',
+                  'Add a payment method if needed (Billing page)',
+                  'Complete the purchase — domain is automatically in your Cloudflare account',
                 ],
               },
               {
                 option: 'B',
-                label: 'Let your AI agent do it via browser',
+                label: 'Buy from another registrar (Namecheap, GoDaddy, etc.) then point to Cloudflare',
                 steps: [
-                  'Log into Cloudflare in your browser',
-                  'Ask your agent to navigate to the billing page and add the payment method',
-                  'The agent will use browser automation to fill in the form',
-                  'You will see the card details on screen before confirming',
+                  'Purchase your domain from any registrar',
+                  'Add the domain to Cloudflare: https://dash.cloudflare.com/?to=/:account/add-site',
+                  'Cloudflare will show you 2 nameservers to set',
+                  'Update nameservers at your registrar',
+                  'Wait for DNS propagation (5-30 min)',
                 ],
               },
             ],

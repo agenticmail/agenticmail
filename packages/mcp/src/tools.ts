@@ -435,7 +435,7 @@ export const toolDefinitions = [
   },
   {
     name: 'purchase_domain',
-    description: 'Search for and purchase a domain via Cloudflare Registrar (requires master API key and domain mode configured)',
+    description: 'Search for available domains via Cloudflare Registrar (requires master API key). NOTE: Cloudflare API only supports READ access — domains must be purchased manually at https://dash.cloudflare.com or from another registrar (then point nameservers to Cloudflare).',
     inputSchema: {
       type: 'object' as const,
       properties: {

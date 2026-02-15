@@ -54,20 +54,17 @@ export class DomainPurchaser {
 
   /**
    * Purchase a domain via Cloudflare Registrar.
-   * Requires a payment method pre-configured in the Cloudflare account.
+   * NOTE: Cloudflare API tokens only support READ access for registrar.
+   * Domain purchases must be done manually via the Cloudflare dashboard
+   * or another registrar (then point nameservers to Cloudflare).
    */
-  async purchase(domain: string, autoRenew = true): Promise<DomainPurchaseResult> {
-    // First verify availability
-    const check = await this.cf.checkAvailability(domain);
-    if (!check.available) {
-      throw new Error(`Domain ${domain} is not available for purchase`);
-    }
-
-    const result = await this.cf.purchaseDomain(domain, autoRenew);
-    return {
-      domain: result.domain,
-      status: result.status,
-    };
+  async purchase(_domain: string, _autoRenew = true): Promise<DomainPurchaseResult> {
+    throw new Error(
+      'Cloudflare API does not support domain purchases programmatically (tokens only get READ access). ' +
+      'Please purchase the domain manually:\n' +
+      '  Option A: Buy on Cloudflare → https://dash.cloudflare.com/?to=/:account/domain-registration\n' +
+      '  Option B: Buy from Namecheap/GoDaddy/etc → then add to Cloudflare and point nameservers'
+    );
   }
 
   /**
