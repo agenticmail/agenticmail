@@ -36,7 +36,7 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Internet email connectivity** — two gateway modes to send/receive real email (Gmail relay or custom domain with DKIM/SPF/DMARC).
 - **Security guardrails** — outbound scanning prevents agents from leaking API keys, passwords, or PII. Blocked emails require human approval.
 - **Agent collaboration** — agents can email each other, assign tasks, and make synchronous RPC calls.
-- **Tool integrations** — 49 MCP tools for any AI client, 33 OpenClaw tools, and a 35-command interactive shell.
+- **Tool integrations** — 54 MCP tools for any AI client, 54 OpenClaw tools, and a 36-command interactive shell.
 
 ---
 
@@ -97,11 +97,11 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Rate limiting** — configurable per-endpoint rate limits
 
 ### Integrations
-- **MCP server** — 49 tools for any MCP-compatible AI client
-- **OpenClaw plugin** — 33 tools with skill definition and system prompt guidelines
+- **MCP server** — 54 tools for any MCP-compatible AI client
+- **OpenClaw plugin** — 54 tools with skill definition and system prompt guidelines
 - **REST API** — 75+ endpoints, OpenAPI-style, Bearer token auth
 - **SSE events** — real-time inbox notifications via Server-Sent Events
-- **Interactive CLI** — 35+ shell commands with arrow key navigation, body previews, retry logic
+- **Interactive CLI** — 36 shell commands with arrow key navigation, body previews, retry logic
 
 ---
 
@@ -111,9 +111,9 @@ AI agents need to communicate with the real world. Email is the universal commun
                   ┌──────────────────────────────────────────────────┐
                   │                    AgenticMail                    │
                   │                                                  │
- AI Client ─MCP─> │  @agenticmail/mcp    (49 tools, stdio transport) │
+ AI Client ─MCP─> │  @agenticmail/mcp    (54 tools, stdio transport) │
                   │       │                                          │
- OpenClaw ─────>  │  @agenticmail/openclaw  (33 tools, plugin)       │
+ OpenClaw ─────>  │  @agenticmail/openclaw  (54 tools, plugin)       │
                   │       │                                          │
  HTTP clients──>  │       ▼                                          │
                   │  @agenticmail/api     (Express, 75+ endpoints)   │
@@ -359,8 +359,8 @@ This is a TypeScript monorepo with 5 packages:
 | [`agenticmail`](./agenticmail) | CLI, setup wizard, interactive shell. Install this to get started. | `npm i -g agenticmail` |
 | [`@agenticmail/core`](./packages/core) | Core SDK — accounts, SMTP/IMAP, gateway, spam filter, outbound guard, storage | `npm i @agenticmail/core` |
 | [`@agenticmail/api`](./packages/api) | Express REST API server with 75+ endpoints | `npm i @agenticmail/api` |
-| [`@agenticmail/mcp`](./packages/mcp) | MCP server with 49 tools for any MCP-compatible AI client | `npm i -g @agenticmail/mcp` |
-| [`@agenticmail/openclaw`](./packages/openclaw) | OpenClaw plugin with 33 tools and skill definition | `openclaw plugin install agenticmail` |
+| [`@agenticmail/mcp`](./packages/mcp) | MCP server with 54 tools for any MCP-compatible AI client | `npm i -g @agenticmail/mcp` |
+| [`@agenticmail/openclaw`](./packages/openclaw) | OpenClaw plugin with 54 tools and skill definition | `openclaw plugin install agenticmail` |
 
 **Dependency graph:**
 ```
@@ -423,7 +423,7 @@ See the [API package README](./packages/api) for complete endpoint documentation
 
 ## MCP Integration
 
-The MCP server exposes 49 tools to any MCP-compatible AI client via stdio transport.
+The MCP server exposes 54 tools to any MCP-compatible AI client via stdio transport.
 
 ### Setup
 
@@ -498,7 +498,7 @@ See the [OpenClaw package README](./packages/openclaw) for the full tool list.
 
 ## Interactive Shell
 
-The CLI includes a full-featured interactive shell with 35+ commands:
+The CLI includes a full-featured interactive shell with 36 commands:
 
 ```
 agenticmail> /inbox
@@ -677,7 +677,7 @@ agenticmail/
 ├── agenticmail/           # CLI facade package (npm: agenticmail)
 │   └── src/
 │       ├── cli.ts         # CLI entry point (setup, start, status)
-│       ├── shell.ts       # Interactive REPL (35+ commands)
+│       ├── shell.ts       # Interactive REPL (36 commands)
 │       └── index.ts       # Re-exports from @agenticmail/core
 ├── packages/
 │   ├── core/              # @agenticmail/core
@@ -698,11 +698,11 @@ agenticmail/
 │   ├── mcp/               # @agenticmail/mcp
 │   │   └── src/
 │   │       ├── index.ts   # MCP server entry (stdio transport)
-│   │       ├── tools.ts   # 49 tool definitions and handlers
+│   │       ├── tools.ts   # 54 tool definitions and handlers
 │   │       └── resources.ts
 │   └── openclaw/          # @agenticmail/openclaw
 │       ├── index.ts       # Plugin entry, system prompt
-│       ├── src/tools.ts   # 33 tool definitions and handlers
+│       ├── src/tools.ts   # 54 tool definitions and handlers
 │       └── skill/         # SKILL.md, reference docs, scripts
 ├── docker-compose.yml     # Stalwart mail server
 ├── .env.example           # Environment variable template

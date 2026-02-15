@@ -2,7 +2,7 @@
 
 The MCP (Model Context Protocol) server for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives any MCP-compatible AI client full email capabilities.
 
-When connected, your AI agent can send emails, check inboxes, reply to messages, manage contacts, schedule emails, assign tasks to other agents, and more — all through natural language. The server provides 52+ tools that cover every email and agent management operation.
+When connected, your AI agent can send emails, check inboxes, reply to messages, manage contacts, schedule emails, assign tasks to other agents, and more — all through natural language. The server provides 54 tools that cover every email and agent management operation.
 
 ## Install
 
