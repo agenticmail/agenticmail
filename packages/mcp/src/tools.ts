@@ -426,6 +426,14 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'setup_payment',
+    description: 'Get instructions for adding a payment method to Cloudflare (required before purchasing domains). Returns Option A (self-service link) and Option B (browser automation steps). Card details go directly to Cloudflare — never stored by AgenticMail.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
     name: 'purchase_domain',
     description: 'Search for and purchase a domain via Cloudflare Registrar (requires master API key and domain mode configured)',
     inputSchema: {
@@ -765,7 +773,7 @@ export const toolDefinitions = [
 // Tools that require master key access
 const MASTER_KEY_TOOLS = new Set([
   'create_account', 'setup_email_relay', 'setup_email_domain',
-  'setup_guide', 'setup_gmail_alias',
+  'setup_guide', 'setup_gmail_alias', 'setup_payment',
   'purchase_domain', 'check_gateway_status', 'send_test_email',
   'delete_agent', 'deletion_reports', 'cleanup_agents',
 ]);
@@ -1392,6 +1400,23 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
           }
         }
         if (step.url) lines.push(`   URL: ${step.url}`);
+      }
+      return lines.join('\n');
+    }
+
+    case 'setup_payment': {
+      const result = await apiRequest('GET', '/gateway/domain/payment-setup', undefined, useMaster);
+      if (!result?.instructions) throw new Error('No response from payment setup');
+      const lines = [result.instructions.summary, ''];
+      for (const opt of result.instructions.options) {
+        lines.push(`=== Option ${opt.option}: ${opt.label} ===`);
+        if (opt.securityNote) lines.push(`Security: ${opt.securityNote}`);
+        for (const step of opt.steps) {
+          lines.push(`  ${step.step}. ${step.action}`);
+          if (step.url) lines.push(`     URL: ${step.url}`);
+          if (step.note) lines.push(`     Note: ${step.note}`);
+        }
+        lines.push('');
       }
       return lines.join('\n');
     }

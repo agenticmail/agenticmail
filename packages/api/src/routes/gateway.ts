@@ -238,6 +238,47 @@ export function createGatewayRoutes(gatewayManager: GatewayManager): Router {
     }
   });
 
+  // Get Cloudflare payment method setup instructions for browser automation
+  router.get('/gateway/domain/payment-setup', requireMaster, async (_req, res) => {
+    const config = gatewayManager.getConfig();
+    const accountId = config.mode === 'domain' && config.domain
+      ? config.domain.cloudflareAccountId
+      : undefined;
+
+    res.json({
+      status: 'ok',
+      instructions: {
+        summary: 'Add a payment method to your Cloudflare account (required for domain purchases)',
+        options: [
+          {
+            option: 'A',
+            label: 'Add it yourself (2 minutes)',
+            steps: [
+              { step: 1, action: 'Open Cloudflare billing page', url: accountId ? `https://dash.cloudflare.com/${accountId}/billing` : 'https://dash.cloudflare.com/?to=/:account/billing' },
+              { step: 2, action: 'Click "Payment Info" tab or "Manage" next to Payment Method' },
+              { step: 3, action: 'Click "Add payment method"' },
+              { step: 4, action: 'Enter card details (prepaid debit cards with spending limits work fine)' },
+              { step: 5, action: 'Click "Save" or "Add"' },
+            ],
+          },
+          {
+            option: 'B',
+            label: 'Let your AI agent do it via browser automation',
+            requirements: ['Agent must have browser tool access', 'You must be logged into Cloudflare in your browser'],
+            steps: [
+              { step: 1, action: 'Agent navigates to Cloudflare billing page', url: accountId ? `https://dash.cloudflare.com/${accountId}/billing` : 'https://dash.cloudflare.com/?to=/:account/billing' },
+              { step: 2, action: 'Agent clicks "Payment Info" or "Manage" next to Payment Method' },
+              { step: 3, action: 'Agent clicks "Add payment method"' },
+              { step: 4, action: 'Agent fills in card number, expiry, CVC, and billing info', note: 'User provides card details via chat. Agent types them into the form. Details are NOT stored anywhere.' },
+              { step: 5, action: 'Agent clicks "Save" — user should verify the details on screen before confirming' },
+            ],
+            securityNote: 'Card details go directly to Cloudflare via their secure form. AgenticMail never stores or sees your card information.',
+          },
+        ],
+      },
+    });
+  });
+
   // Get gateway status
   router.get('/gateway/status', requireMaster, async (_req, res, next) => {
     try {

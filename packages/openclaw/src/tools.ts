@@ -1213,6 +1213,18 @@ export function registerTools(
     },
   });
 
+  reg('agenticmail_setup_payment', {
+    description: 'Get instructions for adding a payment method to Cloudflare (required before purchasing domains). Returns two options: (A) direct link for user to do it themselves, or (B) step-by-step browser automation instructions for the agent. Card details go directly to Cloudflare — never stored by AgenticMail.',
+    parameters: {},
+    handler: async () => {
+      try {
+        return await apiRequest(ctx, 'GET', '/gateway/domain/payment-setup', undefined, true);
+      } catch (err) {
+        return { success: false, error: (err as Error).message };
+      }
+    },
+  });
+
   reg('agenticmail_purchase_domain', {
     description: 'Search for and purchase a domain via Cloudflare Registrar (requires master key)',
     parameters: {
