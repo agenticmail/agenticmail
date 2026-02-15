@@ -198,6 +198,21 @@ function activate(api: any): void {
     ownerName,
   };
 
+  // --- Read hooks config for auto-spawn support ---
+  // The setup wizard enables hooks and generates a token.
+  // We store it in process.env so the spawnForTask callback can use it.
+  try {
+    const fullConfig = api?.config ?? {};
+    const hooksToken = fullConfig?.hooks?.token;
+    const hooksEnabled = fullConfig?.hooks?.enabled;
+    if (hooksEnabled && hooksToken) {
+      process.env.OPENCLAW_HOOKS_TOKEN = hooksToken;
+      // Also resolve the gateway port
+      const gatewayPort = fullConfig?.api?.port ?? fullConfig?.port;
+      if (gatewayPort) process.env.OPENCLAW_PORT = String(gatewayPort);
+    }
+  } catch { /* ignore — hooks just won't auto-spawn */ }
+
   if (!ctx.config.apiKey && !ctx.config.masterKey) {
     console.error('[agenticmail] Warning: Neither apiKey nor masterKey is configured');
   }

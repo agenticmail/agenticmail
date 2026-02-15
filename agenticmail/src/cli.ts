@@ -1013,8 +1013,27 @@ function mergePluginConfig(
     loadPaths.push(pluginDir);
   }
 
+  // --- Enable OpenClaw hooks for 🎀 AgenticMail auto-spawn ---
+  // This allows call_agent to auto-spawn agent sessions when no active listener exists.
+  // Generate a hooks token if one doesn't already exist.
+  const existingHooks = existing?.hooks ?? {};
+  let hooksToken = existingHooks.token;
+  if (!hooksToken) {
+    // Generate a random 32-byte hex token
+    const { randomBytes } = require('node:crypto');
+    hooksToken = randomBytes(32).toString('hex');
+  }
+
   const result: any = {
     ...existing,
+    // Enable hooks for AgenticMail agent auto-spawn
+    hooks: {
+      ...existingHooks,
+      enabled: true,
+      token: hooksToken,
+      // Preserve existing path or use default
+      path: existingHooks.path || '/hooks',
+    },
     plugins: {
       ...(existing?.plugins ?? {}),
       entries: {
@@ -1276,6 +1295,10 @@ async function cmdOpenClaw() {
         const updated = mergePluginConfig(existing, apiUrl, config.masterKey, agentApiKey, pluginDir);
         writeFileSync(openclawConfigPath, JSON.stringify(updated, null, 2) + '\n');
         configSpinner.succeed(`OpenClaw config updated: ${c.cyan(openclawConfigPath)}`);
+        // Check if hooks were newly enabled
+        if (!JSON5.parse(raw)?.hooks?.enabled && updated?.hooks?.enabled) {
+          ok(`${c.bold('Agent auto-spawn')} enabled — call_agent will auto-create sessions`);
+        }
       } catch (err) {
         configSpinner.fail(`Could not update config: ${(err as Error).message}`);
         log('');
@@ -1300,6 +1323,7 @@ async function cmdOpenClaw() {
         const newConfig = mergePluginConfig({}, apiUrl, config.masterKey, agentApiKey, pluginDir);
         writeFileSync(defaultPath, JSON.stringify(newConfig, null, 2) + '\n');
         ok(`Created ${c.cyan(defaultPath)}`);
+        ok(`${c.bold('Agent auto-spawn')} enabled — call_agent will auto-create sessions`);
       } catch (err) {
         fail(`Could not create config: ${(err as Error).message}`);
         log('');
@@ -1374,12 +1398,17 @@ async function cmdOpenClaw() {
   log(`  ${c.dim('Server:')}      ${c.cyan(apiBase)}`);
   log('');
   if (gatewayRestarted) {
-    log(`  Your agent now has ${c.bold('51 email tools')} available!`);
+    log(`  Your agent now has ${c.bold('54 email tools')} available!`);
     log(`  Try: ${c.dim('"Send an email to test@example.com"')}`);
+    log('');
+    log(`  ${c.bold('🎀 AgenticMail Coordination')} ${c.dim('(auto-configured)')}`);
+    log(`    Your agent can now use ${c.cyan('agenticmail_call_agent')} to call other agents`);
+    log(`    with structured task queues, push notifications, and auto-spawned sessions.`);
+    log(`    This replaces sessions_spawn for coordinated multi-agent work.`);
   } else {
     log(`  ${c.bold('Next step:')}`);
     log(`    Restart your OpenClaw gateway, then your agent will`);
-    log(`    have ${c.bold('51 email tools')} available!`);
+    log(`    have ${c.bold('54 email tools')} available!`);
   }
   log('');
 
