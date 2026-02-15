@@ -1,4 +1,4 @@
-# Contributing to AgenticMail
+# Contributing to 🎀 AgenticMail
 
 Thank you for your interest in contributing to AgenticMail! This guide will help
 you get started.
@@ -48,7 +48,7 @@ AgenticMail is a TypeScript monorepo with npm workspaces:
 packages/
   core/       - @agenticmail/core    (SDK: IMAP, SMTP, accounts, gateway, spam filter)
   api/        - @agenticmail/api     (Express REST API server)
-  mcp/        - @agenticmail/mcp     (MCP server for Claude Code / Claude Desktop)
+  mcp/        - @agenticmail/mcp     (MCP server for AI clients)
   openclaw/   - @agenticmail/openclaw (OpenClaw plugin and skill)
 agenticmail/  - agenticmail           (CLI facade package)
 ```

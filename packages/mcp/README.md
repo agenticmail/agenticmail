@@ -1,8 +1,8 @@
 # @agenticmail/mcp
 
-The MCP (Model Context Protocol) server for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives Claude Code, Claude Desktop, and any MCP-compatible AI client full email capabilities.
+The MCP (Model Context Protocol) server for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives any MCP-compatible AI client full email capabilities.
 
-When connected, Claude can send emails, check inboxes, reply to messages, manage contacts, schedule emails, assign tasks to other agents, and more — all through natural language. The server provides 52+ tools that cover every email and agent management operation.
+When connected, your AI agent can send emails, check inboxes, reply to messages, manage contacts, schedule emails, assign tasks to other agents, and more — all through natural language. The server provides 52+ tools that cover every email and agent management operation.
 
 ## Install
 
@@ -16,17 +16,17 @@ npm install -g @agenticmail/mcp
 
 ## What This Package Does
 
-This is the bridge between Claude (or any MCP-compatible AI) and the AgenticMail system. It runs as a subprocess that Claude communicates with through standard input/output (no network ports opened). Every tool call from Claude gets translated into an API request to the AgenticMail server, and the response comes back as formatted text Claude can understand.
+This is the bridge between your AI client and the AgenticMail system. It runs as a subprocess that the AI communicates with through standard input/output (no network ports opened). Every tool call gets translated into an API request to the AgenticMail server, and the response comes back as formatted text the AI can understand.
 
-Think of it this way: Claude doesn't know how to send email natively. This MCP server teaches it how by giving it a set of tools — "send_email", "list_inbox", "reply_email", and so on — that Claude can call when you ask it to do email-related tasks.
+Think of it this way: your AI agent doesn't know how to send email natively. This MCP server teaches it how by giving it a set of tools — "send_email", "list_inbox", "reply_email", and so on — that the AI can call when you ask it to do email-related tasks.
 
 ---
 
 ## Setup
 
-### Claude Code
+### MCP Client Setup (CLI-Based)
 
-Add to your Claude Code MCP configuration (`.claude/mcp.json` or project settings):
+Add to your MCP client configuration (e.g., `.mcp.json` or project settings):
 
 ```json
 {
@@ -43,10 +43,11 @@ Add to your Claude Code MCP configuration (`.claude/mcp.json` or project setting
 }
 ```
 
-### Claude Desktop
+### Desktop Clients
 
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+For desktop AI applications, add to your MCP configuration file. Example paths:
+- **macOS:** `~/Library/Application Support/<app>/config.json`
+- **Windows:** `%APPDATA%\<app>\config.json`
 
 ```json
 {
@@ -75,19 +76,19 @@ Add to your Claude Code MCP configuration (`.claude/mcp.json` or project setting
 
 ## How It Works
 
-The MCP server sits between Claude and the AgenticMail API:
+The MCP server sits between your AI and the AgenticMail API:
 
 ```
-Claude → MCP tool call → agenticmail-mcp → HTTP request → AgenticMail API → Stalwart Mail Server
+AI Client → MCP tool call → agenticmail-mcp → HTTP request → AgenticMail API → Stalwart Mail Server
 ```
 
 Each tool call:
-1. Receives structured arguments from Claude
+1. Receives structured arguments from the AI
 2. Validates the input (UIDs must be positive integers, arrays must be non-empty, etc.)
 3. Makes an HTTP request to the AgenticMail API with a 30-second timeout
-4. Returns formatted text results back to Claude
+4. Returns formatted text results back to the AI
 
-The server runs with stdio transport — Claude sends JSON-RPC messages via stdin, and the server responds via stdout. No network ports are opened by the MCP server itself. It shuts down gracefully on SIGTERM or SIGINT.
+The server runs with stdio transport — the AI client sends JSON-RPC messages via stdin, and the server responds via stdout. No network ports are opened by the MCP server itself. It shuts down gracefully on SIGTERM or SIGINT.
 
 ---
 
@@ -185,7 +186,7 @@ These tools require the master key:
 
 ## Outbound Security Scanning
 
-Every email Claude sends through `send_email`, `reply_email`, or `forward_email` is scanned before going out. The scanner checks for:
+Every email sent through `send_email`, `reply_email`, or `forward_email` is scanned before going out. The scanner checks for:
 
 ### What Gets Detected
 
@@ -201,18 +202,18 @@ Every email Claude sends through `send_email`, `reply_email`, or `forward_email`
 
 ### What Happens When Something Is Found
 
-- **Medium severity** — the email is sent, but Claude receives a warning in the response
+- **Medium severity** — the email is sent, but the AI receives a warning in the response
 - **High severity** — the email is **blocked** and stored for human review
 
-When an email is blocked, Claude is told the pending ID and instructed to let the user know. The user (owner) receives a notification email with the full blocked content and instructions.
+When an email is blocked, the AI is told the pending ID and instructed to let the user know. The user (owner) receives a notification email with the full blocked content and instructions.
 
 ### Human-Only Approval
 
-Claude **cannot** approve or reject its own blocked emails. The `manage_pending_emails` tool only allows listing and viewing — approve/reject actions are explicitly rejected with a clear error message. Only the human owner can approve (via the API, the interactive shell, or by replying "approve" or "yes" to the notification email).
+The AI **cannot** approve or reject its own blocked emails. The `manage_pending_emails` tool only allows listing and viewing — approve/reject actions are explicitly rejected with a clear error message. Only the human owner can approve (via the API, the interactive shell, or by replying "approve" or "yes" to the notification email).
 
 ### Automatic Follow-Up Reminders
 
-When an email is blocked, the MCP server automatically schedules escalating follow-up reminders for Claude:
+When an email is blocked, the MCP server automatically schedules escalating follow-up reminders for the AI:
 
 1. **12 hours** — first reminder
 2. **6 hours** — second reminder
@@ -220,13 +221,13 @@ When an email is blocked, the MCP server automatically schedules escalating foll
 4. **1 hour** — final reminder before cooldown
 5. **3-day cooldown** — then the cycle restarts
 
-These reminders are injected into Claude's tool responses, prompting Claude to ask the user about the pending approval. A background heartbeat checks every 5 minutes to detect if the owner has already approved or rejected the email, and cancels the reminders if so.
+These reminders are injected into tool responses, prompting the AI to ask the user about the pending approval. A background heartbeat checks every 5 minutes to detect if the owner has already approved or rejected the email, and cancels the reminders if so.
 
 ---
 
 ## Inbound Security
 
-When Claude reads an email with `read_email`, the response includes a security analysis:
+When the AI reads an email with `read_email`, the response includes a security analysis:
 
 - **Spam score** — how likely the email is to be spam or malicious (0-100)
 - **Category** — what type of threat was detected (phishing, social engineering, prompt injection, etc.)
@@ -239,7 +240,7 @@ Internal emails (between agents on the same system) are trusted and skip spam sc
 
 ## Waiting for Email in Real Time
 
-The `wait_for_email` tool opens a Server-Sent Events (SSE) connection to the API and listens for new emails or task notifications. If SSE is unavailable, it falls back to polling the inbox. This is useful for workflows where Claude needs to wait for a reply before continuing.
+The `wait_for_email` tool opens a Server-Sent Events (SSE) connection to the API and listens for new emails or task notifications. If SSE is unavailable, it falls back to polling the inbox. This is useful for workflows where the AI needs to wait for a reply before continuing.
 
 The wait has a configurable timeout (default 2 minutes, maximum 5 minutes). When an email arrives, the tool returns details about the message. If a task notification arrives instead, it returns the task information.
 
@@ -247,12 +248,12 @@ The wait has a configurable timeout (default 2 minutes, maximum 5 minutes). When
 
 ## Relay Email Integration
 
-When the owner has connected a Gmail or Outlook account as a relay, Claude can:
+When the owner has connected a Gmail or Outlook account as a relay, the AI can:
 
 - **Search the relay** — `search_emails` with `searchRelay: true` searches both the local inbox and the connected Gmail/Outlook account. Relay results come back with a separate set of UIDs tagged by account.
 - **Import from relay** — `import_relay_email` pulls a specific email from the relay account into the local inbox, preserving all headers for proper threading.
 
-This means Claude can find and import emails from the owner's real Gmail/Outlook inbox, then reply to them normally through the AgenticMail system.
+This means the AI can find and import emails from the owner's real Gmail/Outlook inbox, then reply to them normally through the AgenticMail system.
 
 ---
 
@@ -275,14 +276,14 @@ The API server checks every 30 seconds for scheduled emails whose send time has 
 
 ### Message Priority
 
-When using `message_agent`, Claude can set a priority level:
+When using `message_agent`, the AI can set a priority level:
 - **Normal** — no prefix
 - **High** — subject prefixed with `[HIGH]`
 - **Urgent** — subject prefixed with `[URGENT]`
 
 ### Synchronous RPC
 
-The `call_agent` tool is unique — it assigns a task to another agent and then **holds the connection open** until that agent responds (up to 5 minutes). This is useful when Claude needs an answer from another agent before it can continue.
+The `call_agent` tool is unique — it assigns a task to another agent and then **holds the connection open** until that agent responds (up to 5 minutes). This is useful when the AI needs an answer from another agent before it can continue.
 
 Under the hood, the API server polls every 2 seconds and also uses an instant resolution mechanism — when the target agent submits a result, the waiting connection resolves immediately.
 
@@ -307,7 +308,7 @@ The MCP server provides one resource:
 ```
 User: Check my email and summarize anything important
 
-Claude: [calls list_inbox]
+AI: [calls list_inbox]
 You have 5 new emails:
 1. john@example.com - "Q2 Budget Review" (2 hours ago)
 2. sarah@example.com - "Re: Project Timeline" (4 hours ago)
@@ -328,7 +329,7 @@ Here's a summary of the important emails:
 
 User: Reply to John saying I approve the budget
 
-Claude: [calls reply_email]
+AI: [calls reply_email]
 Reply sent to john@example.com with subject "Re: Q2 Budget Review"
 ```
 

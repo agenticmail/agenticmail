@@ -1,8 +1,8 @@
-# AgenticMail
+# 🎀 AgenticMail
 
 **Email infrastructure for AI agents.** Give your AI agents their own email addresses — send, receive, reply, forward, search, and manage real email programmatically.
 
-AgenticMail is a self-hosted email platform purpose-built for AI agents. It runs a local [Stalwart](https://stalw.art) mail server via Docker, exposes a REST API with 75+ endpoints, and integrates with [Claude](https://claude.ai) via MCP and [OpenClaw](https://github.com/openclaw/openclaw) via plugin. Each agent gets its own email address, inbox, and API key.
+AgenticMail is a self-hosted email platform purpose-built for AI agents. It runs a local [Stalwart](https://stalw.art) mail server via Docker, exposes a REST API with 75+ endpoints, and integrates with any MCP-compatible AI client and [OpenClaw](https://github.com/openclaw/openclaw) via plugin. Each agent gets its own email address, inbox, and API key.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org)
@@ -18,7 +18,7 @@ AgenticMail is a self-hosted email platform purpose-built for AI agents. It runs
 - [Gateway Modes](#gateway-modes)
 - [Packages](#packages)
 - [API Overview](#api-overview)
-- [MCP Integration (Claude)](#mcp-integration-claude)
+- [MCP Integration](#mcp-integration)
 - [OpenClaw Integration](#openclaw-integration)
 - [Interactive Shell](#interactive-shell)
 - [Security](#security)
@@ -28,7 +28,7 @@ AgenticMail is a self-hosted email platform purpose-built for AI agents. It runs
 
 ---
 
-## Why AgenticMail?
+## Why 🎀 AgenticMail?
 
 AI agents need to communicate with the real world. Email is the universal communication protocol — every person and business has an email address. AgenticMail bridges the gap between AI agents and email by providing:
 
@@ -36,7 +36,7 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Internet email connectivity** — two gateway modes to send/receive real email (Gmail relay or custom domain with DKIM/SPF/DMARC).
 - **Security guardrails** — outbound scanning prevents agents from leaking API keys, passwords, or PII. Blocked emails require human approval.
 - **Agent collaboration** — agents can email each other, assign tasks, and make synchronous RPC calls.
-- **Tool integrations** — 49 MCP tools for Claude, 33 OpenClaw tools, and a 35-command interactive shell.
+- **Tool integrations** — 49 MCP tools for any AI client, 33 OpenClaw tools, and a 35-command interactive shell.
 
 ---
 
@@ -97,7 +97,7 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Rate limiting** — configurable per-endpoint rate limits
 
 ### Integrations
-- **MCP server** — 49 tools for Claude Code and Claude Desktop
+- **MCP server** — 49 tools for any MCP-compatible AI client
 - **OpenClaw plugin** — 33 tools with skill definition and system prompt guidelines
 - **REST API** — 75+ endpoints, OpenAPI-style, Bearer token auth
 - **SSE events** — real-time inbox notifications via Server-Sent Events
@@ -111,7 +111,7 @@ AI agents need to communicate with the real world. Email is the universal commun
                   ┌──────────────────────────────────────────────────┐
                   │                    AgenticMail                    │
                   │                                                  │
- Claude ──MCP──>  │  @agenticmail/mcp    (49 tools, stdio transport) │
+ AI Client ─MCP─> │  @agenticmail/mcp    (49 tools, stdio transport) │
                   │       │                                          │
  OpenClaw ─────>  │  @agenticmail/openclaw  (33 tools, plugin)       │
                   │       │                                          │
@@ -359,7 +359,7 @@ This is a TypeScript monorepo with 5 packages:
 | [`agenticmail`](./agenticmail) | CLI, setup wizard, interactive shell. Install this to get started. | `npm i -g agenticmail` |
 | [`@agenticmail/core`](./packages/core) | Core SDK — accounts, SMTP/IMAP, gateway, spam filter, outbound guard, storage | `npm i @agenticmail/core` |
 | [`@agenticmail/api`](./packages/api) | Express REST API server with 75+ endpoints | `npm i @agenticmail/api` |
-| [`@agenticmail/mcp`](./packages/mcp) | MCP server with 49 tools for Claude Code / Claude Desktop | `npm i -g @agenticmail/mcp` |
+| [`@agenticmail/mcp`](./packages/mcp) | MCP server with 49 tools for any MCP-compatible AI client | `npm i -g @agenticmail/mcp` |
 | [`@agenticmail/openclaw`](./packages/openclaw) | OpenClaw plugin with 33 tools and skill definition | `openclaw plugin install agenticmail` |
 
 **Dependency graph:**
@@ -421,32 +421,13 @@ See the [API package README](./packages/api) for complete endpoint documentation
 
 ---
 
-## MCP Integration (Claude)
+## MCP Integration
 
-The MCP server exposes 49 tools to Claude Code and Claude Desktop via stdio transport.
+The MCP server exposes 49 tools to any MCP-compatible AI client via stdio transport.
 
-### Setup for Claude Code
+### Setup
 
-Add to your MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "agenticmail": {
-      "command": "npx",
-      "args": ["agenticmail-mcp"],
-      "env": {
-        "AGENTICMAIL_API_URL": "http://127.0.0.1:3100",
-        "AGENTICMAIL_API_KEY": "ak_your_agent_key"
-      }
-    }
-  }
-}
-```
-
-### Setup for Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+Add to your MCP client configuration (e.g., `.mcp.json` or project settings):
 
 ```json
 {
@@ -463,9 +444,13 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 }
 ```
 
-### What Claude can do
+### Desktop Clients
 
-Once connected, Claude can:
+For desktop AI applications, add the same configuration to your app's MCP config file (check your app's documentation for the file location).
+
+### What your AI can do
+
+Once connected, your AI can:
 - "Check my inbox" → `list_inbox`
 - "Send an email to john@example.com about the project update" → `send_email`
 - "Reply to that last email saying thanks" → `reply_email`

@@ -1,7 +1,7 @@
 {
   "name": "@agenticmail/mcp",
   "version": "0.2.26",
-  "description": "MCP server for AgenticMail — use email from Claude Code and Claude Desktop",
+  "description": "MCP server for AgenticMail — use email from any MCP-compatible AI client",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -50,7 +50,7 @@
     "mcp",
     "email",
     "ai",
-    "claude",
+    "ai-agent",
     "agenticmail",
     "model-context-protocol"
   ],

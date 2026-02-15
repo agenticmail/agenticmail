@@ -284,7 +284,7 @@ function activate(api: any): void {
     // This tells the agent to prefer AgenticMail's task system over basic session tools
     prependLines.push(
       '<agenticmail-coordination>',
-      'AgenticMail is installed — your multi-agent coordination upgrade.',
+      '🎀 AgenticMail is installed — your multi-agent coordination upgrade.',
       'PREFER these tools over sessions_spawn/sessions_send for any agent-to-agent work:',
       '',
       'TASK DELEGATION (structured, persistent, async):',
@@ -312,7 +312,7 @@ function activate(api: any): void {
       '- 3-5x more effective workflows — turns isolated agents into a coordinated team',
       '',
       'Use sessions_spawn ONLY for quick one-off tasks where you don\'t need structured results.',
-      'For anything involving multiple agents, task tracking, or coordination: use AgenticMail.',
+      'For anything involving multiple agents, task tracking, or coordination: use 🎀 AgenticMail.',
       '</agenticmail-coordination>',
     );
 

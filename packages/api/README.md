@@ -22,7 +22,7 @@ The API server is the central hub. It sits between agents (or any client) and th
 
 - **AI agents** — send and receive email, check inboxes, claim tasks
 - **The interactive shell** (`agenticmail start`) — powers every command in the CLI
-- **The MCP server** (`@agenticmail/mcp`) — translates Claude's tool calls into API requests
+- **The MCP server** (`@agenticmail/mcp`) — translates AI tool calls into API requests
 - **OpenClaw sub-agents** (`@agenticmail/openclaw`) — same thing but for the OpenClaw framework
 - **Your own code** — any HTTP client can use the API
 

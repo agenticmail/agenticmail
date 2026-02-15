@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Account management — create, list, delete AI agents
 - Local Stalwart mail server integration
 - IMAP inbox watching with SSE event streaming
-- MCP server for Claude Code integration
+- MCP server for AI client integration
 - OpenClaw plugin with skill definitions
 - Interactive CLI shell with 30+ commands
 - Task system — agent-to-agent RPC with SSE + polling

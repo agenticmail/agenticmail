@@ -2,9 +2,9 @@ import { Router } from 'express';
 import type { StalwartAdmin } from '@agenticmail/core';
 
 const ABOUT = {
-  name: 'AgenticMail',
+  name: '🎀 AgenticMail',
   version: '0.2.26',
-  description: 'Email infrastructure for AI agents — send, receive, coordinate, and automate email with full DKIM/SPF/DMARC authentication.',
+  description: '🎀 AgenticMail — Email infrastructure for AI agents. Send, receive, coordinate, and automate email with full DKIM/SPF/DMARC authentication.',
   author: {
     name: 'Ope Olatunji',
     github: 'https://github.com/agenticmail/agenticmail',
@@ -71,11 +71,11 @@ const ABOUT = {
   impact: {
     tokenSavings: {
       estimate: '~60% fewer tokens on multi-agent coordination tasks',
-      explanation: 'Without AgenticMail, agents poll sessions_history repeatedly to check if sub-agents finished — each poll costs 500-2000 tokens and most return "still working." With push notifications and structured task results, the coordinator gets notified exactly once when work completes. For a 5-agent team doing 10 tasks, that eliminates roughly 40-80 redundant polling calls.',
+      explanation: 'Without 🎀 AgenticMail, agents poll sessions_history repeatedly to check if sub-agents finished — each poll costs 500-2000 tokens and most return "still working." With push notifications and structured task results, the coordinator gets notified exactly once when work completes. For a 5-agent team doing 10 tasks, that eliminates roughly 40-80 redundant polling calls.',
     },
     reliability: {
       estimate: 'Near-zero lost work from agent crashes',
-      explanation: 'Session-based coordination loses all context when a sub-agent times out or crashes. AgenticMail tasks persist in the database — a crashed agent can be restarted and pick up exactly where it left off. The task queue acts as a durable work ledger.',
+      explanation: 'Session-based coordination loses all context when a sub-agent times out or crashes. 🎀 AgenticMail tasks persist in the database — a crashed agent can be restarted and pick up exactly where it left off. The task queue acts as a durable work ledger.',
     },
     productivity: {
       estimate: '3-5x more effective multi-agent workflows',

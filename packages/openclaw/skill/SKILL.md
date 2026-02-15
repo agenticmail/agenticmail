@@ -1,11 +1,11 @@
 ---
 name: agenticmail
-description: Full email for AI agents — send, receive, search, reply, forward, manage mailboxes, and collaborate with 54 tools
+description: 🎀 AgenticMail — Full email for AI agents. Send, receive, search, reply, forward, manage mailboxes, and collaborate with 54 tools
 homepage: https://github.com/agenticmail/agenticmail
 metadata: { "openclaw": { "emoji": "🎀", "primaryEnv": "AGENTICMAIL_API_KEY", "requires": { "bins": ["docker"], "config": ["plugins.entries.agenticmail.config.apiKey"] } } }
 ---
 
-# AgenticMail
+# 🎀 AgenticMail
 
 Email infrastructure for AI agents. Gives your agent a real mailbox — send, receive, search, reply, forward, and manage email with 54 tools. Includes outbound security guard, spam filtering, human-in-the-loop approval for sensitive content, inter-agent task delegation, and automatic follow-up scheduling.
 

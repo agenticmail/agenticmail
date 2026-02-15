@@ -45,7 +45,7 @@ In `~/.openclaw/openclaw.json`:
 
 ## MCP Server Config
 
-In `.mcp.json` (for Claude Code, Cursor, etc.):
+In `.mcp.json` (for MCP clients like Cursor, Windsurf, etc.):
 
 ```json
 {

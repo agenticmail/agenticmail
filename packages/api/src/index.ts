@@ -27,12 +27,12 @@ const server = app.listen(port, host, async () => {
   const displayHost = host === '127.0.0.1' || host === '0.0.0.0' ? getLocalIp() : host;
   console.log('');
   console.log('  ╔═══════════════════════════════════════════════════════════════╗');
-  console.log('  ║                    AgenticMail v' + VERSION.padEnd(29) + '║');
+  console.log('  ║                 🎀 AgenticMail v' + VERSION.padEnd(29) + '║');
   console.log('  ║              Built by Ope Olatunji                           ║');
   console.log('  ║       github.com/agenticmail/agenticmail                     ║');
   console.log('  ╠═══════════════════════════════════════════════════════════════╣');
   console.log('  ║                                                             ║');
-  console.log('  ║  What AgenticMail gives your agents:                        ║');
+  console.log('  ║  What 🎀 AgenticMail gives your agents:                     ║');
   console.log('  ║                                                             ║');
   console.log('  ║  📧 Real Email        Send, receive, reply, forward with    ║');
   console.log('  ║                       full DKIM/SPF/DMARC authentication    ║');

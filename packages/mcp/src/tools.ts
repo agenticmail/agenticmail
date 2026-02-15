@@ -427,7 +427,7 @@ export const toolDefinitions = [
   },
   {
     name: 'setup_payment',
-    description: 'Get instructions for adding a payment method to Cloudflare (required before purchasing domains). Returns Option A (self-service link) and Option B (browser automation steps). Card details go directly to Cloudflare — never stored by AgenticMail.',
+    description: 'Get instructions for adding a payment method to Cloudflare (required before purchasing domains). Returns Option A (self-service link) and Option B (browser automation steps). Card details go directly to Cloudflare — never stored by 🎀 AgenticMail.',
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -592,7 +592,7 @@ export const toolDefinitions = [
   },
   {
     name: 'check_health',
-    description: 'Check AgenticMail server health status',
+    description: 'Check 🎀 AgenticMail server health status',
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -1631,7 +1631,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     case 'check_health': {
       const result = await apiRequest('GET', '/health');
       if (!result) throw new Error('No response from health check');
-      return `AgenticMail server: ${result.status ?? 'ok'}${result.stalwart ? `, Stalwart: ${result.stalwart}` : ''}`;
+      return `🎀 AgenticMail server: ${result.status ?? 'ok'}${result.stalwart ? `, Stalwart: ${result.stalwart}` : ''}`;
     }
 
     case 'wait_for_email': {

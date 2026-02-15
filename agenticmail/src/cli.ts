@@ -1655,7 +1655,7 @@ switch (command) {
     log('');
     process.exit(0);
   default:
-    // No arguments = the main entry point, just like typing "claude"
+    // No arguments = the main entry point
     cmdStart().catch(err => { console.error(err); process.exit(1); });
     break;
 }
