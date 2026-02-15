@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/core",
-  "version": "0.2.26",
+  "version": "0.3.0",
   "description": "Core SDK for AgenticMail — programmatic email for AI agents",
   "type": "module",
   "main": "dist/index.js",

@@ -1,12 +1,12 @@
 {
   "name": "agenticmail",
-  "version": "0.2.26",
+  "version": "0.3.1",
   "description": "Email infrastructure for AI agents — send and receive real email programmatically",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "agenticmail": "./dist/cli.js"
+    "agenticmail": "dist/cli.js"
   },
   "exports": {
     ".": {
@@ -26,8 +26,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agenticmail/api": "^0.2.26",
-    "@agenticmail/core": "^0.2.26",
+    "@agenticmail/api": "^0.3.0",
+    "@agenticmail/core": "^0.3.0",
     "json5": "^2.2.3"
   },
   "devDependencies": {
