@@ -1,8 +1,8 @@
 # agenticmail
 
-CLI and main package for [AgenticMail](https://github.com/agenticmail/agenticmail) — email infrastructure for AI agents.
+The main package for [AgenticMail](https://github.com/agenticmail/agenticmail) — email infrastructure for AI agents. This is the package you install to get started.
 
-This is the package you install to get started. It bundles the setup wizard, API server launcher, and a full-featured interactive shell with 35+ commands for managing agents, sending/receiving email, configuring gateways, and more.
+It bundles a setup wizard, API server launcher, and a full interactive shell with 36 commands for managing agents, sending and receiving email, configuring gateways, and more. It also re-exports everything from `@agenticmail/core` so you can use it as an SDK.
 
 ## Install
 
@@ -21,11 +21,6 @@ npm install -g agenticmail
 docker compose up -d
 
 # 2. Run the setup wizard
-#    - Checks Docker and Stalwart health
-#    - Generates master API key
-#    - Creates SQLite database with migrations
-#    - Creates your first AI agent
-#    - Optionally configures email gateway
 agenticmail setup
 
 # 3. Start the API server + interactive shell
@@ -37,107 +32,218 @@ agenticmail status
 
 ---
 
-## CLI Commands
+## The Setup Wizard
 
-### `agenticmail setup`
+Running `agenticmail setup` walks you through everything needed to get email working:
 
-Interactive setup wizard that:
-1. Verifies Docker is running and Stalwart is healthy
-2. Creates the `~/.agenticmail` data directory
-3. Generates a master API key (or uses existing one from `.env`)
-4. Initializes the SQLite database with all required tables
-5. Creates the first AI agent with email address and API key
-6. Prompts for gateway configuration (relay mode or domain mode)
+1. **System check** — verifies Docker is running, Stalwart mail server is healthy, and optionally checks for Cloudflared (the Cloudflare tunnel tool). Shows friendly status indicators and auto-installs missing components where possible.
 
-### `agenticmail start`
+2. **Account creation** — generates a master API key (the admin password for the entire system), creates the `~/.agenticmail` data directory, and initializes the SQLite database with all required tables.
 
-Starts the Express API server and drops into the interactive shell. The API runs on port 3100 (configurable via `AGENTICMAIL_API_PORT`).
+3. **Service startup** — starts Docker if needed, ensures Stalwart is running and healthy.
 
-### `agenticmail status`
+4. **Email connection** — this is where you choose how your agents connect to the outside world:
 
-Shows system health: Stalwart connectivity, API server status, gateway mode, active agents.
+### Relay Mode (Recommended for Getting Started)
+
+Uses your existing Gmail or Outlook account. You provide your email address and an app password (not your regular password). The wizard:
+
+- Lets you pick Gmail, Outlook, or a custom provider
+- Handles Gmail's app password format (strips spaces automatically)
+- Creates your first AI agent
+- Sends a welcome test email
+- Sets up relay polling so incoming mail gets delivered to agent inboxes
+- Retries up to 3 times if authentication fails
+
+Agent emails go out as sub-addresses like `yourname+agentname@gmail.com`. Replies come back through the same account.
+
+### Domain Mode (For Professional Use)
+
+Uses a custom domain with Cloudflare for DNS, email routing, and tunneling. The wizard:
+
+- Takes your Cloudflare API token and account ID
+- Optionally lets you search for and purchase a domain
+- Configures MX records, SPF, DKIM, and DMARC automatically
+- Sets up a Cloudflare Tunnel for inbound email delivery
+- Configures a Cloudflare Email Worker as the catch-all handler
+- Provides manual verification instructions for anything that needs confirmation
+
+Agent emails use proper addresses like `secretary@yourdomain.com`.
 
 ---
 
-## Interactive Shell
+## Starting the Server
 
-The shell provides complete email and agent management through an interactive REPL. Type `/help` to see all commands.
+`agenticmail start` does three things:
+
+1. **Checks prerequisites** — verifies Docker and Stalwart are running. If there's no config file, runs the setup wizard automatically.
+
+2. **Launches the API server** — forks `@agenticmail/api` as a child process, monitors it for crashes (captures the last 50 lines of error output for diagnostics), and waits up to 20 seconds for a health check response.
+
+3. **Drops into the interactive shell** — once the API is healthy, you get an interactive command prompt where you can manage everything.
+
+If the server crashes, you get clear error output showing what went wrong.
+
+---
+
+## System Status
+
+`agenticmail status` shows a full health report:
+
+- **Services** — Docker, Stalwart mail server, Cloudflared (if configured)
+- **Account setup** — whether the config file and database exist
+- **Server health** — API server connectivity and Stalwart reachability
+- **Email gateway** — current mode (relay or domain), provider name, domain name, polling status
+
+---
+
+## The Interactive Shell
+
+The shell is the main way to interact with AgenticMail. It provides 36 commands organized by category, with arrow-key navigation, color-coded output, and keyboard shortcuts.
+
+### Getting Around
+
+- Type `/` to see the command menu, then use arrow keys to navigate and Enter to select
+- Type any command directly (e.g., `/inbox`)
+- Press **Escape** at any point to cancel and go back
+- Press **Tab** to auto-complete commands
 
 ### Email Commands
 
-| Command | Description |
+| Command | What It Does |
 |---------|-------------|
-| `/inbox` | Interactive inbox viewer with arrow key navigation, body previews (toggle with `v`), inline reading (press Enter), unread markers, pagination |
-| `/send` | Compose and send email (prompts for to, subject, body) |
-| `/read` | Read a specific email by number |
-| `/reply` | Reply to an email (preserves threading) |
-| `/forward` | Forward an email |
-| `/search` | Search emails by keyword |
-| `/delete` | Delete an email |
-| `/save` | Save email content to a file |
-| `/thread` | View email thread (related messages) |
-| `/unread` | Toggle unread status |
-| `/archive` | Move email to archive |
-| `/trash` | View trash/deleted folder |
-| `/sent` | View sent emails |
+| `/inbox` | Interactive inbox viewer — use arrow keys to select messages, Enter to read, `v` to toggle body previews, left/right arrows for pagination. Unread messages marked with a star. |
+| `/send` | Compose and send an email. Prompts for recipient, subject, and body. Supports file attachments via drag-and-drop or file path. |
+| `/read` | Read a specific email by number. Shows full headers, body, and attachment list. |
+| `/reply` | Reply to an email. Auto-fills the recipient, subject (with Re: prefix), and quoted body. Supports attachments. |
+| `/forward` | Forward an email. Includes original message and attachments. |
+| `/search` | Search emails by keyword. Can search both local inbox and connected relay account (Gmail/Outlook). Offers to import relay results. |
+| `/delete` | Delete an email (shows inbox preview first). |
+| `/save` | Download email attachments to a file. Lets you pick individual attachments or save all. |
+| `/thread` | View an email conversation. Groups messages by subject (strips Re:/Fwd: prefixes) and shows up to 20 messages. |
+| `/unread` | Mark an email as unread. |
+| `/archive` | Move an email to the Archive folder. |
+| `/trash` | Move an email to Trash. |
+| `/sent` | Browse sent emails with pagination. |
+| `/digest` | Quick inbox overview with body previews for each message. |
 
 ### Organization Commands
 
-| Command | Description |
+| Command | What It Does |
 |---------|-------------|
-| `/folders` | List, create, and manage IMAP folders |
-| `/contacts` | Manage address book |
-| `/drafts` | View, edit, and send draft emails |
-| `/signature` | Manage email signatures |
-| `/templates` | Manage reusable email templates |
-| `/schedule` | Schedule emails for future delivery |
-| `/tag` | Tag and categorize messages |
+| `/folders` | List all folders, create new ones, or browse a specific folder with pagination. |
+| `/contacts` | Manage your address book — list, add, or delete contacts. |
+| `/drafts` | Save, edit, and send draft emails. Also lets you browse the Drafts IMAP folder. |
+| `/signature` | Create and manage email signatures. One can be marked as default (shown with a star). |
+| `/templates` | Create reusable email templates. Use them to quickly send formatted emails. |
+| `/schedule` | Schedule emails for future delivery. Comes with 5 quick presets (30 min, 1 hour, 3 hours, tomorrow 8am, tomorrow 9am) plus custom date/time input with timezone support. |
+| `/tag` | Create colored tags and apply them to messages. View messages by tag. |
+| `/rules` | Create email filtering rules. Set conditions (from address, subject contains) and actions (move to folder, mark as read, delete). |
 
 ### Agent Commands
 
-| Command | Description |
+| Command | What It Does |
 |---------|-------------|
-| `/agents` | List all AI agents with email and role |
-| `/switch` | Switch the active agent (changes which inbox you're viewing) |
-| `/deleteagent` | Delete an agent (with 3-retry name confirmation, archives emails) |
-| `/deletions` | View past agent deletion reports |
-| `/name` | Set display name for the active agent (appears in From: header) |
+| `/agents` | List all AI agents with their email address, API key (partially hidden), and owner name. |
+| `/switch` | Switch the active agent. Changes which inbox you're viewing and which agent sends email. |
+| `/deleteagent` | Delete an agent. Requires typing the agent's name to confirm (3 attempts). Archives all emails and generates a deletion report. |
+| `/deletions` | View past agent deletion reports with email counts and top correspondents. |
+| `/name` | Set a display name for the active agent. This appears in the From: header (e.g., "secretary from John"). |
 
 ### Security Commands
 
-| Command | Description |
+| Command | What It Does |
 |---------|-------------|
-| `/spam` | View spam folder, report spam, mark as not-spam, view spam score for any email |
-| `/rules` | Create, list, and delete email filtering rules (auto-move, auto-delete, mark read) |
-| `/pending` | View blocked outbound emails, approve or reject (master key required — agents cannot self-approve) |
+| `/spam` | View spam folder, report emails as spam, mark emails as not-spam, or get a detailed spam score showing which detection rules matched and their point values. |
+| `/rules` | Create email filtering rules (also listed under Organization). |
+| `/pending` | View blocked outbound emails that need approval. List all pending, approve to send, or reject to discard. Master key required — agents cannot approve their own emails. |
 
 ### Gateway Commands
 
-| Command | Description |
+| Command | What It Does |
 |---------|-------------|
-| `/relay` | Configure Gmail/Outlook relay mode (interactive setup) |
-| `/digest` | Show inbox digest with body previews and unread markers |
-| `/setup` | Re-run the setup wizard |
-| `/status` | Show server health, gateway mode, agent count |
-| `/openclaw` | OpenClaw sub-agent controls |
+| `/relay` | Search the connected relay account (Gmail/Outlook) and import specific emails into the local inbox. |
+| `/setup` | Re-run the setup wizard. |
+| `/status` | Show server health, gateway mode, and agent count. |
+| `/openclaw` | Launch an OpenClaw terminal session. Opens in a new terminal window (macOS Terminal, or gnome-terminal/xterm/konsole on Linux). |
 
 ### System Commands
 
-| Command | Description |
+| Command | What It Does |
 |---------|-------------|
-| `/help` | Show all available commands |
-| `/clear` | Clear the screen |
-| `/exit` | Exit the shell (also `/quit`) |
+| `/help` | Show all available commands with descriptions. |
+| `/clear` | Clear the screen. |
+| `/exit` | Exit the shell (also `/quit`). Stops the server and cleans up. |
 
-### Shell Features
+---
 
-- **Arrow key navigation** — use `↑`/`↓` to select emails in inbox, `←`/`→` for pagination
-- **Body previews** — press `v` to toggle email body previews in inbox view
-- **Inline reading** — press `Enter` to read selected email without leaving inbox
-- **Unread markers** — `★` indicates unread messages
-- **3-retry input validation** — invalid input gets 3 attempts before canceling
-- **Separator lines** above navigation bars for visual clarity
-- **Esc to exit** — press `Esc` to go back from any paginated view
+## Inbox Navigation
+
+The inbox viewer (`/inbox`) is fully interactive:
+
+- **Up/Down arrows** — move the cursor between emails (green arrow indicator)
+- **Left arrow or `p`** — previous page
+- **Right arrow or `n`** — next page
+- **Enter** — open the selected email full-screen (press any key to return)
+- **`v`** — toggle body previews on/off
+- **Escape** — exit the inbox viewer
+
+10 emails per page. Unread emails show a cyan star. Colors rotate through 8 different colors for visual variety.
+
+---
+
+## Email Approval Workflow
+
+This is one of the most important features. When an AI agent sends an email that the outbound security guard flags (containing passwords, API keys, personal information, etc.):
+
+1. The email is **blocked and stored** in the pending queue
+2. The **owner is notified** via a notification email to their relay address (Gmail/Outlook)
+3. The owner can approve or reject through the `/pending` command in the shell
+
+But there's an easier way: the owner can simply **reply to the notification email**. Reply with "approve", "yes", "lgtm", "go ahead", "send", or "ok" to send the blocked email. Reply with "reject", "no", "deny", "cancel", or "block" to discard it. The relay polling system picks up the reply and acts on it automatically.
+
+The relay polling acts like a persistent background job — it keeps checking for new messages on an exponential backoff schedule (starting at 30 seconds, growing to a cap of 5 minutes, resetting when mail arrives). This means the agent effectively has a follow-up mechanism: it can periodically check if its blocked email was approved and continue accordingly.
+
+---
+
+## Scheduled Emails
+
+The `/schedule` command supports many time formats:
+
+- **Quick presets:** 30 minutes, 1 hour, 3 hours, tomorrow 8am, tomorrow 9am
+- **Custom dates:** `02-14-2026 3:30 PM EST`
+- **Relative:** `in 30 minutes`, `in 2 hours`
+- **Named:** `tomorrow 8am`, `tomorrow 2pm`
+- **Day of week:** `next monday 9am`, `next friday 2pm`
+- **Casual:** `tonight`, `this evening` (sends at 8 PM)
+
+Timezone support includes: EST, EDT, CST, CDT, MST, MDT, PST, PDT, GMT, UTC, BST, CET, CEST, IST, JST, AEST, AEDT, and many more. The system automatically detects your local timezone as a default.
+
+---
+
+## Attachments
+
+The shell supports file attachments in `/send`, `/reply`, and `/forward`:
+
+- **Drag and drop** — drag a file from Finder/Explorer into the terminal
+- **File path** — type or paste a file path (handles quotes, spaces, and `~` expansion)
+- Files are base64-encoded before upload
+- File sizes are displayed in KB
+- You can attach multiple files to a single email
+
+For downloading attachments, `/save` lets you pick individual attachments or save all at once.
+
+---
+
+## OpenClaw Integration
+
+`agenticmail openclaw` is a 5-step setup command that integrates AgenticMail with the OpenClaw agent framework:
+
+1. Checks if Docker and Stalwart are already running (reuses existing infrastructure)
+2. Starts the API server if not already running
+3. Creates an agent account (or selects an existing one)
+4. Merges the AgenticMail plugin configuration into your `openclaw.json` (searches current directory and `~/.openclaw/`, supports JSON and JSONC formats)
+5. Offers to restart the OpenClaw gateway so the plugin activates immediately
 
 ---
 
@@ -147,74 +253,26 @@ The package re-exports everything from `@agenticmail/core`, so you can use it as
 
 ```typescript
 import {
-  // Main client
   AgenticMailClient,
-
-  // Mail operations
   MailSender,
   MailReceiver,
   parseEmail,
-
-  // Inbox watching
   InboxWatcher,
-
-  // Account management
   AccountManager,
   StalwartAdmin,
-
-  // Gateway
   GatewayManager,
   RelayGateway,
   CloudflareClient,
   TunnelManager,
   DNSConfigurator,
   DomainPurchaser,
-
-  // Security
-  scoreEmail,
-  scanOutboundEmail,
-
-  // Storage
   getDatabase,
   EmailSearchIndex,
-
-  // Types
   type SendMailOptions,
   type ParsedEmail,
   type Agent,
   type GatewayConfig,
 } from 'agenticmail';
-```
-
-### Example: Send email programmatically
-
-```typescript
-import { AgenticMailClient } from 'agenticmail';
-
-const client = new AgenticMailClient({
-  apiUrl: 'http://127.0.0.1:3100',
-  apiKey: 'ak_your_agent_key',
-});
-
-// Send
-await client.send({
-  to: 'colleague@example.com',
-  subject: 'Project Update',
-  text: 'The project is on track for Q2.',
-  attachments: [{
-    filename: 'report.pdf',
-    content: pdfBuffer,
-    contentType: 'application/pdf',
-  }],
-});
-
-// Read inbox
-const messages = await client.listInbox(10);
-const email = await client.readMessage(messages[0].uid);
-console.log(email.subject, email.text);
-
-// Search
-const results = await client.search({ from: 'boss@example.com' });
 ```
 
 See the [@agenticmail/core README](https://github.com/agenticmail/agenticmail/tree/main/packages/core) for complete SDK documentation.
