@@ -1,13 +1,13 @@
 ---
 name: agenticmail
-description: Full email for AI agents — send, receive, search, reply, forward, manage mailboxes, and collaborate with 51 tools
+description: Full email for AI agents — send, receive, search, reply, forward, manage mailboxes, and collaborate with 53 tools
 homepage: https://github.com/agenticmail/agenticmail
 metadata: { "openclaw": { "emoji": "🎀", "primaryEnv": "AGENTICMAIL_API_KEY", "requires": { "bins": ["docker"], "config": ["plugins.entries.agenticmail.config.apiKey"] } } }
 ---
 
 # AgenticMail
 
-Email infrastructure for AI agents. Gives your agent a real mailbox — send, receive, search, reply, forward, and manage email with 51 tools. Includes outbound security guard, spam filtering, human-in-the-loop approval for sensitive content, inter-agent task delegation, and automatic follow-up scheduling.
+Email infrastructure for AI agents. Gives your agent a real mailbox — send, receive, search, reply, forward, and manage email with 53 tools. Includes outbound security guard, spam filtering, human-in-the-loop approval for sensitive content, inter-agent task delegation, and automatic follow-up scheduling.
 
 ## Quick Setup
 
@@ -100,12 +100,14 @@ That's it. The command sets up the mail server, creates an agent account, config
 | `agenticmail_delete_agent` | Delete an agent (archives emails, generates deletion report) |
 | `agenticmail_deletion_reports` | List or view past agent deletion reports |
 
-### Gateway & Admin (6 tools)
+### Gateway & Admin (8 tools)
 | Tool | Description |
 |------|-------------|
 | `agenticmail_status` | Check AgenticMail server health |
-| `agenticmail_setup_relay` | Configure Gmail/Outlook relay for real internet email |
-| `agenticmail_setup_domain` | Set up a custom domain via Cloudflare |
+| `agenticmail_setup_guide` | Compare setup modes (Relay/Beginner vs Domain/Advanced) with requirements, pros/cons |
+| `agenticmail_setup_relay` | Configure Gmail/Outlook relay for real internet email (Beginner) |
+| `agenticmail_setup_domain` | Set up a custom domain via Cloudflare with optional Gmail SMTP relay (Advanced) |
+| `agenticmail_setup_gmail_alias` | Get instructions to add agent email as Gmail "Send mail as" alias (for domain mode) |
 | `agenticmail_purchase_domain` | Search for and purchase a domain via Cloudflare Registrar |
 | `agenticmail_gateway_status` | Check email gateway status (relay, domain, or none) |
 | `agenticmail_test_email` | Send a test email to verify setup |

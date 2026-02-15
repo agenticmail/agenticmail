@@ -358,7 +358,7 @@ export const toolDefinitions = [
   },
   {
     name: 'setup_email_relay',
-    description: 'Configure Gmail/Outlook relay for sending real internet email (requires master API key). Use this for quick setup — agents send as user+agentname@gmail.com. Automatically creates a default agent (secretary) unless skipped.',
+    description: 'Configure Gmail/Outlook relay for sending real internet email (requires master API key). BEGINNER-FRIENDLY: Just needs a Gmail/Outlook email + app password. Agents send as user+agentname@gmail.com. Automatically creates a default agent (secretary) unless skipped. Best for: quick setup, personal use, no domain needed.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -378,7 +378,7 @@ export const toolDefinitions = [
   },
   {
     name: 'setup_email_domain',
-    description: 'Set up a custom domain for real internet email via Cloudflare (requires master API key). Configures DNS, tunnel, and mail routing automatically.',
+    description: 'Set up a custom domain for real internet email via Cloudflare (requires master API key). ADVANCED: Requires Cloudflare account, API token, and a domain. Emails send from agent@yourdomain.com with full DKIM/SPF/DMARC. Optionally configures Gmail SMTP as outbound relay (recommended for residential IPs). After setup with gmailRelay, use setup_gmail_alias for each agent.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -393,8 +393,36 @@ export const toolDefinitions = [
           },
           description: 'Purchase a new domain (if domain not provided)',
         },
+        gmailRelay: {
+          type: 'object',
+          properties: {
+            email: { type: 'string', description: 'Gmail address for SMTP relay (e.g., you@gmail.com)' },
+            appPassword: { type: 'string', description: 'Gmail app password (from https://myaccount.google.com/apppasswords)' },
+          },
+          description: 'Gmail SMTP relay for outbound delivery (recommended for residential IPs without PTR records)',
+        },
       },
       required: ['cloudflareToken', 'cloudflareAccountId'],
+    },
+  },
+  {
+    name: 'setup_guide',
+    description: 'Get a comparison of email setup modes (Relay vs Domain) with difficulty levels, requirements, pros/cons, and step-by-step instructions. Show this to users who want to set up real internet email.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'setup_gmail_alias',
+    description: 'Get step-by-step instructions (with exact field values) to add an agent email as a Gmail "Send mail as" alias. Returns the Gmail settings URL and all field values. Required after domain mode setup with gmailRelay to show correct From address. The agent can automate this via browser tools or present instructions to the user.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        agentEmail: { type: 'string', description: 'Agent email to add as alias (e.g., secretary@yourdomain.com)' },
+        agentDisplayName: { type: 'string', description: 'Display name for the alias (defaults to agent name)' },
+      },
+      required: ['agentEmail'],
     },
   },
   {
@@ -737,6 +765,7 @@ export const toolDefinitions = [
 // Tools that require master key access
 const MASTER_KEY_TOOLS = new Set([
   'create_account', 'setup_email_relay', 'setup_email_domain',
+  'setup_guide', 'setup_gmail_alias',
   'purchase_domain', 'check_gateway_status', 'send_test_email',
   'delete_agent', 'deletion_reports', 'cleanup_agents',
 ]);
@@ -1304,9 +1333,67 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         cloudflareAccountId: args.cloudflareAccountId,
         domain: args.domain,
         purchase: args.purchase,
+        gmailRelay: args.gmailRelay,
       }, useMaster);
       if (!result) throw new Error('No response from domain setup');
-      return `Domain email configured!\n  Domain: ${result.domain}\n  DNS: ${result.dnsConfigured ? 'configured' : 'pending'}\n  Tunnel: ${result.tunnelId}`;
+      const lines = [
+        `Domain email configured!`,
+        `  Domain: ${result.domain}`,
+        `  DNS: ${result.dnsConfigured ? 'configured' : 'pending'}`,
+        `  Tunnel: ${result.tunnelId}`,
+      ];
+      if (result.outboundRelay) {
+        lines.push(`  Outbound relay: ${result.outboundRelay.configured ? 'configured' : 'failed'} (${result.outboundRelay.provider})`);
+      }
+      if (result.nextSteps?.length) {
+        lines.push('', 'Next steps:');
+        for (const step of result.nextSteps) {
+          lines.push(`  ${step}`);
+        }
+      }
+      return lines.join('\n');
+    }
+
+    case 'setup_guide': {
+      const result = await apiRequest('GET', '/gateway/setup-guide', undefined, useMaster);
+      if (!result?.modes) throw new Error('No response from setup guide');
+      const lines: string[] = ['Email Setup Options:', ''];
+      for (const mode of result.modes) {
+        lines.push(`=== ${mode.mode.toUpperCase()} MODE (${mode.difficulty}) ===`);
+        lines.push(mode.description);
+        lines.push(`From address: ${mode.fromAddress}`);
+        lines.push('Requirements:');
+        for (const req of mode.requirements) lines.push(`  - ${req}`);
+        lines.push('Pros:');
+        for (const pro of mode.pros) lines.push(`  + ${pro}`);
+        lines.push('Cons:');
+        for (const con of mode.cons) lines.push(`  - ${con}`);
+        lines.push('');
+      }
+      return lines.join('\n');
+    }
+
+    case 'setup_gmail_alias': {
+      const result = await apiRequest('POST', '/gateway/domain/alias-setup', {
+        agentEmail: args.agentEmail,
+        agentDisplayName: args.agentDisplayName,
+      }, useMaster);
+      if (!result?.instructions) throw new Error('No response from alias setup');
+      const lines = [
+        result.instructions.summary,
+        '',
+        'Steps:',
+      ];
+      for (const step of result.instructions.steps) {
+        lines.push(`${step.step}. ${step.action}`);
+        if (step.fields) {
+          for (const [k, v] of Object.entries(step.fields)) {
+            lines.push(`   ${k}: ${v}`);
+          }
+        }
+        if (step.url) lines.push(`   URL: ${step.url}`);
+      }
+      return lines.join('\n');
     }
 
     case 'purchase_domain': {
