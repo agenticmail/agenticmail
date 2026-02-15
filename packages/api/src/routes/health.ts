@@ -11,6 +11,7 @@ const ABOUT = {
   },
   license: 'MIT',
   repository: 'https://github.com/ope-olatunji/agenticmail',
+  contributing: 'Contributions and feature requests welcome! Visit the GitHub repo to open issues, suggest features, or submit pull requests.',
 };
 
 export function createHealthRoutes(stalwart: StalwartAdmin): Router {
