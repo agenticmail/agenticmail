@@ -14,7 +14,10 @@
   "files": [
     "dist",
     "openclaw.plugin.json",
-    "skill"
+    "skill",
+    "README.md",
+    "REFERENCE.md",
+    "LICENSE"
   ],
   "openclaw": {
     "extensions": ["./dist/index.js"]

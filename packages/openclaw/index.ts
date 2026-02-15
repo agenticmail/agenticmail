@@ -280,6 +280,33 @@ function activate(api: any): void {
     let agentApiKey = ctx.config.apiKey;
     const prependLines: string[] = [];
 
+    // --- AgenticMail coordination guidance (injected for all agents) ---
+    // This tells the agent to prefer AgenticMail's task system over basic session tools
+    prependLines.push(
+      '<agenticmail-coordination>',
+      'AgenticMail is installed. For multi-agent coordination, PREFER these tools over sessions_spawn/sessions_send:',
+      '',
+      'TASK DELEGATION (structured, persistent, async):',
+      '- agenticmail_assign_task: Assign work to another agent (they get notified instantly)',
+      '- agenticmail_check_tasks: Check for tasks assigned to you or by you',
+      '- agenticmail_claim_task: Claim a pending task to start working on it',
+      '- agenticmail_submit_result: Submit structured results when done',
+      '',
+      'SYNCHRONOUS RPC (when you need a result back):',
+      '- agenticmail_call_agent: Call another agent, wait for their response (up to 5 min)',
+      '',
+      'AGENT DISCOVERY & MESSAGING:',
+      '- agenticmail_list_agents: See all available agents and their roles',
+      '- agenticmail_message_agent: Send a message to another agent by name',
+      '- agenticmail_check_messages: Check for incoming messages from other agents',
+      '- agenticmail_wait_for_email: Efficiently wait for a reply (push-based, not polling)',
+      '',
+      'WHY: AgenticMail tasks are persistent (survive crashes), have structured results,',
+      'support async handoff, and agents can discover each other. sessions_spawn is only',
+      'for quick one-off sub-agent runs where you don\'t need structured coordination.',
+      '</agenticmail-coordination>',
+    );
+
     // --- Sub-agent auto-provisioning ---
     if (isSubagentSession(sessionKey) && masterKey) {
       let account = subagentAccounts.get(sessionKey);
