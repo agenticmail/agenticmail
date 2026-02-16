@@ -239,22 +239,32 @@ class Spinner {
 
 /**
  * Resolve the API server entry point.
- * Works in both monorepo (workspace symlinks) and standalone npm install.
+ * Works in both monorepo (workspace symlinks) and standalone npm install (npx).
  */
 function resolveApiEntry(): string {
-  // Try require.resolve first — works for both monorepo workspaces and npm installs
+  // Strategy 1: import.meta.resolve (ESM-native, Node 20+)
   try {
-    const require = createRequire(import.meta.url);
-    return require.resolve('@agenticmail/api');
-  } catch { /* not resolvable via require */ }
+    const resolved = import.meta.resolve('@agenticmail/api');
+    return fileURLToPath(resolved);
+  } catch { /* not resolvable */ }
 
-  // Monorepo fallback: relative path from CLI binary
+  // Strategy 2: Walk up from CLI script to find node_modules/@agenticmail/api
   const thisDir = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
+  let dir = thisDir;
+  for (let i = 0; i < 10; i++) {
+    const candidate = join(dir, 'node_modules', '@agenticmail', 'api', 'dist', 'index.js');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // Strategy 3: Monorepo fallback
+  const monorepo = [
     join(thisDir, '..', '..', 'packages', 'api', 'dist', 'index.js'),
     join(thisDir, '..', 'packages', 'api', 'dist', 'index.js'),
   ];
-  for (const p of candidates) {
+  for (const p of monorepo) {
     if (existsSync(p)) return p;
   }
 

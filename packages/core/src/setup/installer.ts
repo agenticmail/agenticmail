@@ -178,17 +178,14 @@ export class DependencyInstaller {
 
     const os = platform();
     const cpu = arch();
-    let downloadUrl: string;
+    const archName = cpu === 'arm64' ? 'arm64' : 'amd64';
 
-    if (os === 'darwin') {
-      downloadUrl = cpu === 'arm64'
-        ? 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64'
-        : 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64';
-    } else if (os === 'linux') {
-      downloadUrl = cpu === 'arm64'
-        ? 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64'
-        : 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64';
-    } else {
+    // macOS uses .tgz archives, Linux uses raw binaries
+    const isTgz = os === 'darwin';
+    const ext = isTgz ? '.tgz' : '';
+    const downloadUrl = `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-${os}-${archName}${ext}`;
+
+    if (os !== 'darwin' && os !== 'linux') {
       throw new Error(`Unsupported platform: ${os}/${cpu}`);
     }
 
@@ -198,10 +195,29 @@ export class DependencyInstaller {
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
-    const tmpPath = binPath + '.tmp';
-    await writeFile(tmpPath, buffer);
-    await chmod(tmpPath, 0o755);
-    await rename(tmpPath, binPath);
+
+    if (isTgz) {
+      // macOS: extract binary from .tgz archive
+      const tgzPath = join(binDir, 'cloudflared.tgz');
+      await writeFile(tgzPath, buffer);
+      try {
+        execSync(`tar -xzf "${tgzPath}" -C "${binDir}" cloudflared`, { timeout: 15_000, stdio: 'ignore' });
+        await chmod(binPath, 0o755);
+      } finally {
+        // Clean up the archive
+        try { execSync(`rm -f "${tgzPath}"`, { stdio: 'ignore' }); } catch { /* ignore */ }
+      }
+    } else {
+      // Linux: raw binary
+      const tmpPath = binPath + '.tmp';
+      await writeFile(tmpPath, buffer);
+      await chmod(tmpPath, 0o755);
+      await rename(tmpPath, binPath);
+    }
+
+    if (!existsSync(binPath)) {
+      throw new Error('cloudflared download succeeded but binary not found after extraction');
+    }
 
     this.onProgress('cloudflared installed');
     return binPath;
