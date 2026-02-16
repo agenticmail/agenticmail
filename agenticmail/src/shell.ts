@@ -2827,9 +2827,9 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
                 const top = c.dim(boxChar.tl + boxChar.h.repeat(width) + boxChar.tr);
                 const bot = c.dim(boxChar.bl + boxChar.h.repeat(width) + boxChar.br);
 
-                // Erase previous box using saved distance (+1 for top border line)
+                // Erase previous box — move up to the top border line and clear down
                 if (savedUp > 0) {
-                  process.stdout.write(`\x1b[${savedUp + 1}A\r\x1b[J`);
+                  process.stdout.write(`\x1b[${savedUp}A\r\x1b[J`);
                 }
 
                 // Draw top border
@@ -2861,9 +2861,7 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
                 const eraseBox = () => {
                   // Move to top border line and clear everything from there down
                   // savedUp = cursorLine + 1 (distance from content line to top border)
-                  // Add 1 extra to ensure we clear the top border line itself
-                  const up = savedUp + 1;
-                  process.stdout.write(`\x1b[${up}A\r\x1b[J`);
+                  process.stdout.write(`\x1b[${savedUp}A\r\x1b[J`);
                 };
 
                 // Escape = exit chat
