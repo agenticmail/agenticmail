@@ -134,28 +134,30 @@ export class StalwartAdmin {
    * Note: stalwart-cli may return a 500 error even when the operation succeeds.
    * We verify by listing the config afterwards.
    */
-  async updateSetting(key: string, value: string): Promise<void> {
-    const { execSync } = await import('node:child_process');
+  private cliArgs(): string[] {
     const creds = `${this.options.adminUser}:${this.options.adminPassword}`;
+    return ['exec', 'agenticmail-stalwart', 'stalwart-cli', '-u', 'http://localhost:8080', '-c', creds];
+  }
+
+  async updateSetting(key: string, value: string): Promise<void> {
+    const { execFileSync } = await import('node:child_process');
+    const cli = this.cliArgs();
 
     // Delete first (ignore errors — may not exist yet)
     try {
-      execSync(
-        `docker exec agenticmail-stalwart stalwart-cli -u http://localhost:8080 -c ${creds} server delete-config ${key}`,
+      execFileSync('docker', [...cli, 'server', 'delete-config', key],
         { timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'] },
       );
     } catch { /* may not exist yet */ }
 
     // Add the new value (stalwart-cli may return 500 but still succeed)
     try {
-      execSync(
-        `docker exec agenticmail-stalwart stalwart-cli -u http://localhost:8080 -c ${creds} server add-config ${key} ${value}`,
+      execFileSync('docker', [...cli, 'server', 'add-config', key, value],
         { timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'] },
       );
     } catch {
       // Verify it was set by listing the config prefix
-      const output = execSync(
-        `docker exec agenticmail-stalwart stalwart-cli -u http://localhost:8080 -c ${creds} server list-config ${key}`,
+      const output = execFileSync('docker', [...cli, 'server', 'list-config', key],
         { timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'] },
       ).toString();
 
@@ -210,11 +212,10 @@ export class StalwartAdmin {
    * Returns the public key (base64, no headers) for DNS TXT record.
    */
   async createDkimSignature(domain: string, selector = 'agenticmail'): Promise<{ signatureId: string; publicKey: string }> {
-    const { execSync } = await import('node:child_process');
+    const { execFileSync } = await import('node:child_process');
 
     const signatureId = `agenticmail-${domain.replace(/\./g, '-')}`;
-    const creds = `${this.options.adminUser}:${this.options.adminPassword}`;
-    const cli = `docker exec agenticmail-stalwart stalwart-cli -u http://localhost:8080 -c ${creds}`;
+    const cli = this.cliArgs();
 
     // Check if signature already exists in DB
     const existing = await this.getSettings(`signature.${signatureId}`);
@@ -223,7 +224,7 @@ export class StalwartAdmin {
     } else {
       // Delete any partial config first
       try {
-        execSync(`${cli} server delete-config "signature.${signatureId}"`, {
+        execFileSync('docker', [...cli, 'server', 'delete-config', `signature.${signatureId}`], {
           timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'],
         });
       } catch { /* may not exist */ }
@@ -231,7 +232,7 @@ export class StalwartAdmin {
       // Use stalwart-cli dkim create — generates key and stores in DB
       console.log(`[DKIM] Creating RSA signature for ${domain} via stalwart-cli`);
       try {
-        execSync(`${cli} dkim create rsa ${domain} ${signatureId} ${selector}`, {
+        execFileSync('docker', [...cli, 'dkim', 'create', 'rsa', domain, signatureId, selector], {
           timeout: 15_000, stdio: ['ignore', 'pipe', 'pipe'],
         });
       } catch (err) {
@@ -243,13 +244,13 @@ export class StalwartAdmin {
     const signRule = await this.getSettings('auth.dkim.sign');
     if (!Object.keys(signRule).length) {
       console.log(`[DKIM] Configuring DKIM signing rule`);
-      const rules = [
-        [`auth.dkim.sign.0000.if`, `listener != 'smtp'`],
-        [`auth.dkim.sign.0000.then`, `['${signatureId}']`],
-        [`auth.dkim.sign.0001.else`, `false`],
+      const rules: [string, string][] = [
+        ['auth.dkim.sign.0000.if', `listener != 'smtp'`],
+        ['auth.dkim.sign.0000.then', `['${signatureId}']`],
+        ['auth.dkim.sign.0001.else', 'false'],
       ];
       for (const [key, value] of rules) {
-        execSync(`${cli} server add-config "${key}" "${value}"`, {
+        execFileSync('docker', [...cli, 'server', 'add-config', key, value], {
           timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'],
         });
       }
@@ -258,7 +259,7 @@ export class StalwartAdmin {
     // Get the public key via stalwart-cli
     let publicKey: string;
     try {
-      const output = execSync(`${cli} dkim get-public-key ${signatureId}`, {
+      const output = execFileSync('docker', [...cli, 'dkim', 'get-public-key', signatureId], {
         timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'],
       }).toString();
       // Output format: Public DKIM key for signature ...: "BASE64KEY"
@@ -271,7 +272,7 @@ export class StalwartAdmin {
 
     // Reload config (no restart needed — DB config is hot-reloadable)
     try {
-      execSync(`${cli} server reload-config`, {
+      execFileSync('docker', [...cli, 'server', 'reload-config'], {
         timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch { /* best effort */ }
@@ -284,9 +285,9 @@ export class StalwartAdmin {
    * Restart the Stalwart Docker container and wait for it to be ready.
    */
   private async restartContainer(): Promise<void> {
-    const { execSync } = await import('node:child_process');
+    const { execFileSync } = await import('node:child_process');
     try {
-      execSync('docker restart agenticmail-stalwart', { timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
+      execFileSync('docker', ['restart', 'agenticmail-stalwart'], { timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
       for (let i = 0; i < 15; i++) {
         try {
           const res = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(2_000) });

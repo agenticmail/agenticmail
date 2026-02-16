@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -25,7 +25,7 @@ export class DependencyChecker {
 
   async checkDocker(): Promise<DependencyStatus> {
     try {
-      const output = execSync('docker --version', { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      const output = execFileSync('docker', ['--version'], { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
       const match = output.match(/Docker version ([\d.]+)/);
       return {
         name: 'docker',
@@ -44,8 +44,7 @@ export class DependencyChecker {
 
   async checkStalwart(): Promise<DependencyStatus> {
     try {
-      const output = execSync(
-        'docker ps --filter name=agenticmail-stalwart --format "{{.Status}}"',
+      const output = execFileSync('docker', ['ps', '--filter', 'name=agenticmail-stalwart', '--format', '{{.Status}}'],
         { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] },
       ).toString().trim();
       const running = output.length > 0 && output.toLowerCase().includes('up');
@@ -70,7 +69,7 @@ export class DependencyChecker {
     if (existsSync(binPath)) {
       let version: string | undefined;
       try {
-        const output = execSync(`"${binPath}" --version`, { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+        const output = execFileSync(binPath, ['--version'], { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
         const match = output.match(/cloudflared version ([\d.]+)/);
         version = match?.[1];
       } catch { /* ignore */ }
@@ -79,7 +78,7 @@ export class DependencyChecker {
 
     // Check system-wide (e.g. installed via Homebrew)
     try {
-      const output = execSync('cloudflared --version', { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      const output = execFileSync('cloudflared', ['--version'], { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
       const match = output.match(/cloudflared version ([\d.]+)/);
       return { name: 'cloudflared', installed: true, version: match?.[1], description: 'Cloudflare Tunnel for custom domain email' };
     } catch {

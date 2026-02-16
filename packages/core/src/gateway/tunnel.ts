@@ -39,8 +39,8 @@ export class TunnelManager {
 
     // Check if cloudflared is available system-wide (e.g. via Homebrew)
     try {
-      const { execSync } = await import('node:child_process');
-      const sysPath = execSync('which cloudflared', { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      const { execFileSync } = await import('node:child_process');
+      const sysPath = execFileSync('which', ['cloudflared'], { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
       if (sysPath && existsSync(sysPath)) {
         this.binPath = sysPath;
         return sysPath;

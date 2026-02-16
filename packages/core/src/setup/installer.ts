@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { writeFile, rename, chmod, mkdir } from 'node:fs/promises';
+import { writeFile, rename, chmod, mkdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, platform, arch } from 'node:os';
 
@@ -26,14 +26,14 @@ export class DependencyInstaller {
     // Check if CLI is installed
     let cliInstalled = false;
     try {
-      execSync('docker --version', { timeout: 5_000, stdio: 'ignore' });
+      execFileSync('docker', ['--version'], { timeout: 5_000, stdio: 'ignore' });
       cliInstalled = true;
     } catch { /* not installed */ }
 
     if (cliInstalled) {
       // CLI exists — check if daemon is running
       try {
-        execSync('docker info', { timeout: 10_000, stdio: 'ignore' });
+        execFileSync('docker', ['info'], { timeout: 10_000, stdio: 'ignore' });
         return; // both CLI and daemon are good
       } catch {
         // Daemon not running — start it
@@ -50,16 +50,16 @@ export class DependencyInstaller {
       // macOS: install via Homebrew cask
       this.onProgress('Installing Docker via Homebrew...');
       try {
-        execSync('brew --version', { timeout: 5_000, stdio: 'ignore' });
+        execFileSync('brew', ['--version'], { timeout: 5_000, stdio: 'ignore' });
       } catch {
         throw new Error('Homebrew is required to install Docker on macOS. Install it from https://brew.sh then try again.');
       }
-      execSync('brew install --cask docker', { timeout: 300_000, stdio: 'inherit' });
+      execFileSync('brew', ['install', '--cask', 'docker'], { timeout: 300_000, stdio: 'inherit' });
       this.onProgress('Docker installed. Starting Docker Desktop...');
       this.startDockerDaemon();
       await this.waitForDocker();
     } else if (os === 'linux') {
-      // Linux: install via apt or official script
+      // Linux: install via official script (requires shell for pipe)
       this.onProgress('Installing Docker...');
       try {
         execSync('curl -fsSL https://get.docker.com | sh', { timeout: 300_000, stdio: 'inherit' });
@@ -81,9 +81,9 @@ export class DependencyInstaller {
     const os = platform();
     if (os === 'darwin') {
       // Try Docker Desktop app
-      try { execSync('open -a Docker', { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
+      try { execFileSync('open', ['-a', 'Docker'], { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
     } else if (os === 'linux') {
-      try { execSync('sudo systemctl start docker', { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+      try { execFileSync('sudo', ['systemctl', 'start', 'docker'], { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
     }
   }
 
@@ -98,7 +98,7 @@ export class DependencyInstaller {
     let attempts = 0;
     while (Date.now() - start < maxWait) {
       try {
-        execSync('docker info', { timeout: 5_000, stdio: 'ignore' });
+        execFileSync('docker', ['info'], { timeout: 5_000, stdio: 'ignore' });
         return;
       } catch { /* not ready yet */ }
       attempts++;
@@ -123,7 +123,7 @@ export class DependencyInstaller {
 
     // Ensure Docker daemon is running — start it if needed
     try {
-      execSync('docker info', { timeout: 10_000, stdio: 'ignore' });
+      execFileSync('docker', ['info'], { timeout: 10_000, stdio: 'ignore' });
     } catch {
       this.onProgress('Starting Docker...');
       this.startDockerDaemon();
@@ -131,7 +131,7 @@ export class DependencyInstaller {
     }
 
     this.onProgress('Starting Stalwart mail server...');
-    execSync(`docker compose -f "${composePath}" up -d`, {
+    execFileSync('docker', ['compose', '-f', composePath, 'up', '-d'], {
       timeout: 120_000,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -141,8 +141,7 @@ export class DependencyInstaller {
     const start = Date.now();
     while (Date.now() - start < maxWait) {
       try {
-        const output = execSync(
-          'docker ps --filter name=agenticmail-stalwart --format "{{.Status}}"',
+        const output = execFileSync('docker', ['ps', '--filter', 'name=agenticmail-stalwart', '--format', '{{.Status}}'],
           { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] },
         ).toString().trim();
         if (output.toLowerCase().includes('up')) {
@@ -169,7 +168,7 @@ export class DependencyInstaller {
 
     // Also check if system-wide cloudflared exists
     try {
-      const sysPath = execSync('which cloudflared', { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      const sysPath = execFileSync('which', ['cloudflared'], { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
       if (sysPath && existsSync(sysPath)) return sysPath;
     } catch { /* not found system-wide */ }
 
@@ -201,11 +200,11 @@ export class DependencyInstaller {
       const tgzPath = join(binDir, 'cloudflared.tgz');
       await writeFile(tgzPath, buffer);
       try {
-        execSync(`tar -xzf "${tgzPath}" -C "${binDir}" cloudflared`, { timeout: 15_000, stdio: 'ignore' });
+        execFileSync('tar', ['-xzf', tgzPath, '-C', binDir, 'cloudflared'], { timeout: 15_000, stdio: 'ignore' });
         await chmod(binPath, 0o755);
       } finally {
         // Clean up the archive
-        try { execSync(`rm -f "${tgzPath}"`, { stdio: 'ignore' }); } catch { /* ignore */ }
+        try { await unlink(tgzPath); } catch { /* ignore */ }
       }
     } else {
       // Linux: raw binary

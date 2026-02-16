@@ -99,8 +99,8 @@ export class CloudflareClient {
       // Supported TLD but no registration info — likely available
       // Do a whois check to confirm
       try {
-        const { execSync } = await import('node:child_process');
-        const whoisOutput = execSync(`whois ${domain}`, { timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }).toString().toLowerCase();
+        const { execFileSync } = await import('node:child_process');
+        const whoisOutput = execFileSync('whois', [domain], { timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }).toString().toLowerCase();
         available = whoisOutput.includes('domain not found') ||
                     whoisOutput.includes('no match') ||
                     whoisOutput.includes('not found') ||
