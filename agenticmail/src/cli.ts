@@ -588,10 +588,21 @@ async function cmdSetup() {
     }
 
     log('');
+    let emailOk = false;
     if (choice === '1') {
-      await setupRelay(result.config);
+      emailOk = await setupRelay(result.config);
     } else {
       await setupDomain(result.config);
+      emailOk = true; // domain setup throws on failure
+    }
+
+    // Verify an agent exists before proceeding
+    if (!emailOk) {
+      log('');
+      info('Email setup did not complete. Run ' + c.green('npx agenticmail setup') + ' again to retry.');
+      cleanupChild();
+      printSummary(result, true);
+      return;
     }
   } else if (!existingEmail) {
     info('No problem! You can set up email anytime by running this again.');
@@ -748,7 +759,7 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
   }
 }
 
-async function setupRelay(config: SetupConfig) {
+async function setupRelay(config: SetupConfig): Promise<boolean> {
   log('  Which email service do you use?');
   log(`    ${c.cyan('1.')} Gmail`);
   log(`    ${c.cyan('2.')} Outlook / Hotmail`);
@@ -838,7 +849,7 @@ async function setupRelay(config: SetupConfig) {
           log('');
           info('Double-check your email and app password, then run: agenticmail setup');
         }
-        return;
+        return false;
       }
 
       const data = await response.json() as any;
@@ -855,12 +866,13 @@ async function setupRelay(config: SetupConfig) {
         // Send welcome email to the user
         await sendWelcomeEmail(apiBase, data.agent.apiKey, email, data.agent.name, data.agent.subAddress);
       }
-      return; // success — exit retry loop
+      return true; // success — exit retry loop
     } catch (err) {
       spinner.fail(`Couldn't connect: ${(err as Error).message}`);
-      return;
+      return false;
     }
   }
+  return false;
 }
 
 /**
