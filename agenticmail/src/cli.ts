@@ -330,11 +330,15 @@ async function cmdSetup() {
   log(`  ${c.bold('Welcome!')} We're going to set up everything your AI agent`);
   log(`  needs to send and receive real email.`);
   log('');
+  const hasOpenClaw = existsSync(join(homedir(), '.openclaw', 'openclaw.json'));
+  const totalSteps = hasOpenClaw ? 5 : 4;
+
   log(`  Here's what we'll do:`);
   log(`    ${c.dim('1.')} Check your system for required tools`);
   log(`    ${c.dim('2.')} Create your private account and keys`);
   log(`    ${c.dim('3.')} Start the mail server`);
   log(`    ${c.dim('4.')} Connect your email`);
+  if (hasOpenClaw) log(`    ${c.dim('5.')} Configure OpenClaw integration`);
   log('');
   await pick(`  ${c.magenta('Press any key to get started...')} `, [
     '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
@@ -347,7 +351,7 @@ async function cmdSetup() {
   const setup = new SetupManager();
 
   // Step 1: System check
-  log(`  ${c.bold('Step 1 of 4')} ${c.dim('—')} ${c.bold('Checking your system')}`);
+  log(`  ${c.bold(`Step 1 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Checking your system')}`);
   log('');
 
   const deps = await setup.checkDependencies();
@@ -373,7 +377,7 @@ async function cmdSetup() {
   await new Promise(r => setTimeout(r, 500));
 
   // Step 2: Config
-  log(`  ${c.bold('Step 2 of 4')} ${c.dim('—')} ${c.bold('Creating your account')}`);
+  log(`  ${c.bold(`Step 2 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Creating your account')}`);
   log('');
 
   const configSpinner = new Spinner('config');
@@ -395,7 +399,7 @@ async function cmdSetup() {
   await new Promise(r => setTimeout(r, 500));
 
   // Step 3: Install missing + start services
-  log(`  ${c.bold('Step 3 of 4')} ${c.dim('—')} ${c.bold('Starting services')}`);
+  log(`  ${c.bold(`Step 3 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Starting services')}`);
   log('');
 
   // Always ensure Docker daemon is running (CLI may be installed but daemon stopped)
@@ -455,7 +459,7 @@ async function cmdSetup() {
   await new Promise(r => setTimeout(r, 800));
 
   // Step 4: Email connection
-  log(`  ${c.bold('Step 4 of 4')} ${c.dim('—')} ${c.bold('Connect your email')}`);
+  log(`  ${c.bold(`Step 4 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Connect your email')}`);
   log('');
 
   // Start the API server first (needed to check gateway status + email config)
@@ -593,8 +597,11 @@ async function cmdSetup() {
     info('No problem! You can set up email anytime by running this again.');
   }
 
-  // Auto-register with OpenClaw if installed
-  if (serverReady) {
+  // Step 5: OpenClaw integration (only if detected)
+  if (hasOpenClaw && serverReady) {
+    log('');
+    log(`  ${c.bold(`Step 5 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Configure OpenClaw integration')}`);
+    log('');
     await registerWithOpenClaw(result.config);
   }
 
