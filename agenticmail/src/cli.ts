@@ -694,14 +694,14 @@ async function restartOpenClawGateway(): Promise<void> {
     restartSpinner.start();
     try {
       const { execSync } = await import('node:child_process');
-      execSync('openclaw gateway restart', { stdio: 'pipe', timeout: 30_000 });
+      execSync('openclaw gateway start', { stdio: 'pipe', timeout: 30_000 });
       restartSpinner.succeed('OpenClaw gateway restarted');
     } catch {
       restartSpinner.fail('Gateway restart failed');
-      log(`    Run manually: ${c.green('openclaw gateway restart')}`);
+      log(`    Run manually: ${c.green('openclaw gateway start')}`);
     }
   } else {
-    info(`Restart OpenClaw to pick up the changes: ${c.green('openclaw gateway restart')}`);
+    info(`Restart OpenClaw to pick up the changes: ${c.green('openclaw gateway start')}`);
   }
 }
 
@@ -1770,7 +1770,7 @@ async function cmdOpenClaw() {
 
   if (!hasOpenClawCli) {
     log(`  ${c.yellow('⚠')} OpenClaw CLI not found in PATH`);
-    log(`    Run manually: ${c.green('openclaw gateway restart')}`);
+    log(`    Run manually: ${c.green('openclaw gateway start')}`);
   } else {
     // Non-interactive (agent/script): auto-restart
     // Interactive (human): ask for confirmation
@@ -1787,16 +1787,16 @@ async function cmdOpenClaw() {
       restartSpinner.start();
       try {
         const { execSync } = await import('node:child_process');
-        execSync('openclaw gateway restart', { stdio: 'pipe', timeout: 30_000 });
+        execSync('openclaw gateway start', { stdio: 'pipe', timeout: 30_000 });
         restartSpinner.succeed('OpenClaw gateway restarted');
         gatewayRestarted = true;
       } catch (err) {
         restartSpinner.fail('Gateway restart failed');
         log(`  ${c.yellow('⚠')} Gateway restart failed: ${(err as Error).message}`);
-        log(`    Run manually: ${c.green('openclaw gateway restart')}`);
+        log(`    Run manually: ${c.green('openclaw gateway start')}`);
       }
     } else {
-      log(`  ${c.dim('Skipped.')} Run later: ${c.green('openclaw gateway restart')}`);
+      log(`  ${c.dim('Skipped.')} Run later: ${c.green('openclaw gateway start')}`);
     }
   }
 
