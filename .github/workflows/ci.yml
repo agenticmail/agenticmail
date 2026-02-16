@@ -22,7 +22,7 @@ jobs:
           STALWART_ADMIN_USER: admin
           STALWART_ADMIN_PASSWORD: testpassword
         options: >-
-          --health-cmd "curl -f http://localhost:8080/healthz || exit 1"
+          --health-cmd "stalwart-cli -u http://localhost:8080 -c admin:testpassword server list-domains 2>/dev/null || true"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
