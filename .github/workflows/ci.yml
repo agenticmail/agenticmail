@@ -12,7 +12,7 @@ jobs:
 
     services:
       stalwart:
-        image: stalwartlabs/mail-server:latest
+        image: stalwartlabs/stalwart:latest
         ports:
           - 8080:8080
           - 587:587
