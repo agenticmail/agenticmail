@@ -732,7 +732,32 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
     };
 
     writeFileSync(openclawConfig, JSON.stringify(ocConfig, null, 2) + '\n', 'utf8');
-    ok(`OpenClaw integration configured — your agents can now use email!`);
+    ok(`OpenClaw config updated: ${c.cyan(openclawConfig)}`);
+    if (pluginPath) ok(`Plugin found: ${c.cyan(pluginPath)}`);
+
+    // Restart OpenClaw gateway so it picks up the plugin immediately
+    let hasOpenClawCli = false;
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('which openclaw', { stdio: 'ignore' });
+      hasOpenClawCli = true;
+    } catch { /* not found */ }
+
+    if (hasOpenClawCli) {
+      log('');
+      const restartSpinner = new Spinner('gateway', 'Restarting OpenClaw gateway...');
+      restartSpinner.start();
+      try {
+        const { execSync } = await import('node:child_process');
+        execSync('openclaw gateway restart', { stdio: 'pipe', timeout: 30_000 });
+        restartSpinner.succeed('OpenClaw gateway restarted');
+      } catch {
+        restartSpinner.fail('Gateway restart failed');
+        log(`    Run manually: ${c.green('openclaw gateway restart')}`);
+      }
+    } else {
+      info(`Restart OpenClaw to pick up the changes: ${c.green('openclaw gateway restart')}`);
+    }
   } catch {
     // Don't fail setup if OpenClaw integration fails
   }
