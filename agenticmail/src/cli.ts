@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createInterface, emitKeypressEvents } from 'node:readline';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -307,19 +307,61 @@ async function waitForApi(host: string, port: number, timeoutMs = 15_000): Promi
   return false;
 }
 
-// --- Track child processes for cleanup ---
-let apiChild: import('node:child_process').ChildProcess | null = null;
+// --- Background server management ---
+const PID_FILE = join(homedir(), '.agenticmail', 'server.pid');
 
-function cleanupChild() {
-  if (apiChild) {
-    apiChild.kill();
-    apiChild = null;
+/**
+ * Start the API server as a detached background process.
+ * Returns true if the server is reachable (already running or just started).
+ */
+async function startApiServer(config: SetupConfig): Promise<boolean> {
+  const host = config.api.host;
+  const port = config.api.port;
+
+  // Check if already running
+  try {
+    const probe = await fetch(`http://${host}:${port}/api/agenticmail/health`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (probe.ok) return true;
+  } catch { /* not running */ }
+
+  const { spawn } = await import('node:child_process');
+  const apiEntry = resolveApiEntry();
+  const env = configToEnv(config);
+
+  const child = spawn(process.execPath, [apiEntry], {
+    detached: true,
+    stdio: 'ignore',
+    env,
+  });
+  child.unref();
+
+  // Save PID so it can be stopped later
+  if (child.pid) {
+    try { writeFileSync(PID_FILE, String(child.pid)); } catch { /* ignore */ }
   }
+
+  return waitForApi(host, port);
 }
 
-process.on('exit', cleanupChild);
-process.on('SIGINT', () => { cleanupChild(); process.exit(0); });
-process.on('SIGTERM', () => { cleanupChild(); process.exit(0); });
+/**
+ * Stop a previously started background API server.
+ */
+function stopApiServer(): boolean {
+  try {
+    if (!existsSync(PID_FILE)) return false;
+    const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+    if (isNaN(pid)) return false;
+    process.kill(pid, 'SIGTERM');
+    try { unlinkSync(PID_FILE); } catch { /* ignore */ }
+    return true;
+  } catch {
+    // Process already dead — clean up PID file
+    try { unlinkSync(PID_FILE); } catch { /* ignore */ }
+    return false;
+  }
+}
 
 // --- Commands ---
 
@@ -499,62 +541,20 @@ async function cmdSetup() {
   log(`  ${c.bold(`Step 4 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Connect your email')}`);
   log('');
 
-  // Start the API server first (needed to check gateway status + email config)
+  // Start the API server as a background process (survives CLI exit)
   const serverSpinner = new Spinner('server', 'Starting the server...');
   serverSpinner.start();
 
   let serverReady = false;
-
-  // Check if server is already running (leftover from previous session)
   try {
-    const probe = await fetch(`http://${result.config.api.host}:${result.config.api.port}/api/agenticmail/health`, {
-      signal: AbortSignal.timeout(2_000),
-    });
-    if (probe.ok) serverReady = true;
-  } catch { /* not running */ }
-
-  if (serverReady) {
-    serverSpinner.succeed(`Server already running at ${c.cyan(`http://${result.config.api.host}:${result.config.api.port}`)}`);
-  } else {
-    try {
-      const { fork } = await import('node:child_process');
-      const apiEntry = resolveApiEntry();
-      const env = configToEnv(result.config);
-
-      apiChild = fork(apiEntry, [], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env });
-
-      const stderrLines: string[] = [];
-      apiChild.stderr?.on('data', (chunk: Buffer) => {
-        const lines = chunk.toString().trim().split('\n');
-        for (const line of lines) {
-          stderrLines.push(line);
-          if (stderrLines.length > 50) stderrLines.shift();
-        }
-      });
-      apiChild.on('exit', (code, signal) => {
-        apiChild = null;
-        log('');
-        fail(`Server stopped unexpectedly${signal ? ` (signal: ${signal})` : code ? ` (exit code: ${code})` : ''}`);
-        if (stderrLines.length > 0) {
-          log('');
-          log(`  ${c.dim('Last server output:')}`);
-          for (const line of stderrLines.slice(-10)) {
-            log(`  ${c.dim(line)}`);
-          }
-        }
-        log('');
-        process.exit(code ?? 1);
-      });
-
-      serverReady = await waitForApi(result.config.api.host, result.config.api.port);
-      if (serverReady) {
-        serverSpinner.succeed(`Server running at ${c.cyan(`http://${result.config.api.host}:${result.config.api.port}`)}`);
-      } else {
-        serverSpinner.fail('Server did not start in time');
-      }
-    } catch (err) {
-      serverSpinner.fail(`Could not start server: ${(err as Error).message}`);
+    serverReady = await startApiServer(result.config);
+    if (serverReady) {
+      serverSpinner.succeed(`Server running at ${c.cyan(`http://${result.config.api.host}:${result.config.api.port}`)}`);
+    } else {
+      serverSpinner.fail('Server did not start in time');
     }
+  } catch (err) {
+    serverSpinner.fail(`Could not start server: ${(err as Error).message}`);
   }
 
   // Check if there's already an email connection configured
@@ -619,7 +619,6 @@ async function cmdSetup() {
   if (choice === '1' || choice === '2') {
     if (!serverReady) {
       info('You can configure email later by running: agenticmail setup');
-      cleanupChild();
       printSummary(result, true);
       return;
     }
@@ -637,7 +636,6 @@ async function cmdSetup() {
     if (!emailOk) {
       log('');
       info('Email setup did not complete. Run ' + c.green('npx agenticmail setup') + ' again to retry.');
-      cleanupChild();
       printSummary(result, true);
       return;
     }
@@ -655,9 +653,9 @@ async function cmdSetup() {
 
   printSummary(result, false);
 
-  // Drop into the interactive shell with the server still running
+  // Drop into the interactive shell — server keeps running in background after exit
   if (serverReady) {
-    await interactiveShell({ config: result.config, onExit: cleanupChild });
+    await interactiveShell({ config: result.config, onExit: () => {} });
   }
 }
 
@@ -1458,17 +1456,9 @@ async function cmdOpenClaw() {
     const serverSpinner = new Spinner('server', 'Starting the server...');
     serverSpinner.start();
     try {
-      const { fork } = await import('node:child_process');
-      const apiEntry = resolveApiEntry();
-      const env = configToEnv(config);
-      apiChild = fork(apiEntry, [], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env });
-
-      apiChild.on('exit', () => { apiChild = null; });
-
-      const ready = await waitForApi(apiHost, apiPort);
+      const ready = await startApiServer(config);
       if (!ready) {
         serverSpinner.fail('Server did not start in time');
-        cleanupChild();
         process.exit(1);
       }
       serverSpinner.succeed(`Server running at ${c.cyan(apiBase)}`);
@@ -1828,15 +1818,9 @@ async function cmdOpenClaw() {
   }
   log('');
 
-  // Drop into the interactive shell (keeps the API server running)
-  // Non-interactive mode (agent/script) skips the shell
+  // Drop into the interactive shell — server keeps running in background after exit
   if (process.stdin.isTTY) {
-    await interactiveShell({ config, onExit: cleanupChild });
-  } else {
-    // Stop the API if we started it
-    if (!serverWasRunning) {
-      cleanupChild();
-    }
+    await interactiveShell({ config, onExit: () => {} });
   }
 }
 
@@ -1996,76 +1980,36 @@ async function cmdStart() {
     process.exit(1);
   }
 
-  // API server — check if one is already running first
+  // API server — start as background process (survives CLI exit)
   const serverSpinner = new Spinner('server', 'Launching your server...');
   serverSpinner.start();
 
-  let alreadyRunning = false;
   try {
-    const probe = await fetch(`http://${config.api.host}:${config.api.port}/api/agenticmail/health`, {
-      signal: AbortSignal.timeout(2_000),
-    });
-    if (probe.ok) alreadyRunning = true;
-  } catch { /* not running */ }
-
-  if (alreadyRunning) {
-    serverSpinner.succeed(`Server already running at ${c.cyan(`http://${config.api.host}:${config.api.port}`)}`);
-  } else {
-    try {
-      const { fork } = await import('node:child_process');
-      const apiEntry = resolveApiEntry();
-
-      if (!existsSync(apiEntry)) {
-        serverSpinner.fail(`Server isn't built yet. Run: ${c.bold('npm run build')}`);
-        process.exit(1);
-      }
-
-      const env = configToEnv(config);
-      // Suppress API stdout so it doesn't clutter the interactive prompt
-      apiChild = fork(apiEntry, [], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env });
-
-      // Capture stderr for crash diagnostics (keep last 50 lines)
-      const stderrLines: string[] = [];
-      apiChild.stderr?.on('data', (chunk: Buffer) => {
-        const lines = chunk.toString().trim().split('\n');
-        for (const line of lines) {
-          stderrLines.push(line);
-          if (stderrLines.length > 50) stderrLines.shift();
-        }
-      });
-
-      apiChild.on('exit', (code, signal) => {
-        apiChild = null;
-        log('');
-        fail(`Server stopped unexpectedly${signal ? ` (signal: ${signal})` : code ? ` (exit code: ${code})` : ''}`);
-        if (stderrLines.length > 0) {
-          log('');
-          log(`  ${c.dim('Last server output:')}`);
-          for (const line of stderrLines.slice(-10)) {
-            log(`  ${c.dim(line)}`);
-          }
-        }
-        log('');
-        process.exit(code ?? 1);
-      });
-
-      // Wait for server to be ready
-      const ready = await waitForApi(config.api.host, config.api.port, 20_000);
-      if (!ready) {
-        serverSpinner.fail('Server did not start in time');
-        cleanupChild();
-        process.exit(1);
-      }
-
+    const ready = await startApiServer(config);
+    if (ready) {
       serverSpinner.succeed(`Server running at ${c.cyan(`http://${config.api.host}:${config.api.port}`)}`);
-    } catch (err) {
-      serverSpinner.fail(`Couldn't start the server: ${(err as Error).message}`);
+    } else {
+      serverSpinner.fail('Server did not start in time');
       process.exit(1);
     }
+  } catch (err) {
+    serverSpinner.fail(`Couldn't start the server: ${(err as Error).message}`);
+    process.exit(1);
   }
 
-  // Interactive prompt
-  await interactiveShell({ config, onExit: cleanupChild });
+  // Interactive prompt — server keeps running in background after exit
+  await interactiveShell({ config, onExit: () => {} });
+}
+
+async function cmdStop() {
+  log('');
+  const stopped = stopApiServer();
+  if (stopped) {
+    ok('AgenticMail server stopped');
+  } else {
+    info('Server is not running');
+  }
+  log('');
 }
 
 // --- Main ---
@@ -2078,6 +2022,9 @@ switch (command) {
     break;
   case 'start':
     cmdStart().catch(err => { console.error(err); process.exit(1); });
+    break;
+  case 'stop':
+    cmdStop().then(() => { process.exit(0); }).catch(err => { console.error(err); process.exit(1); });
     break;
   case 'status':
     cmdStatus().then(() => { process.exit(0); }).catch(err => { console.error(err); process.exit(1); });
@@ -2095,6 +2042,7 @@ switch (command) {
     log(`    ${c.green('agenticmail')}           Get started (setup + start)`);
     log(`    ${c.green('agenticmail setup')}     Re-run the setup wizard`);
     log(`    ${c.green('agenticmail start')}     Start the server`);
+    log(`    ${c.green('agenticmail stop')}      Stop the server`);
     log(`    ${c.green('agenticmail status')}    See what's running`);
     log(`    ${c.green('agenticmail openclaw')}  Set up AgenticMail for OpenClaw`);
     log('');
