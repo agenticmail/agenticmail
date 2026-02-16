@@ -5,7 +5,7 @@
  * just a simple readline loop with boxed prompt styling.
  */
 
-import { createInterface } from 'node:readline';
+import { createInterface, emitKeypressEvents } from 'node:readline';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { SetupConfig } from '@agenticmail/core';
@@ -2797,6 +2797,12 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
           // Suppress main shell prompt during chat
           (rl as any).__chatMode = true;
 
+          // Pause readline so it doesn't echo keystrokes / newlines during chat input
+          rl.pause();
+          emitKeypressEvents(process.stdin);
+          if (process.stdin.isTTY) process.stdin.setRawMode(true);
+          process.stdin.resume();
+
           // Erase main shell input box (3 lines: top + prompt + bot)
           process.stdout.write('\x1b[3A\r\x1b[J');
 
@@ -3005,7 +3011,12 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
           }
 
           chat.close();
+
+          // Restore readline control of stdin
+          if (process.stdin.isTTY) process.stdin.setRawMode(false);
+          rl.resume();
           (rl as any).__chatMode = false;
+
           log('');
           log(`  ${c.dim('Chat ended')}`);
           log('');
