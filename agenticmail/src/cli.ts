@@ -659,11 +659,29 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
       // Plugin path is missing/broken — fall through to re-configure
     }
 
-    // Find the @agenticmail/openclaw plugin directory
-    const pluginDir = resolveOpenClawPluginDir();
+    // Find the @agenticmail/openclaw plugin directory — install if missing
+    let pluginDir = resolveOpenClawPluginDir();
     if (!pluginDir) {
-      info(`Install the OpenClaw plugin first: ${c.green('npm i @agenticmail/openclaw')}`);
-      info(`Then run: ${c.green('agenticmail openclaw')}`);
+      const installSpinner = new Spinner('plugin', 'Installing @agenticmail/openclaw...');
+      installSpinner.start();
+      try {
+        const { execSync } = await import('node:child_process');
+        // Install to home dir so it persists (not in npx cache)
+        execSync('npm i @agenticmail/openclaw', {
+          cwd: homedir(),
+          timeout: 60_000,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        installSpinner.succeed('Installed @agenticmail/openclaw');
+        pluginDir = resolveOpenClawPluginDir();
+      } catch (err) {
+        installSpinner.fail(`Could not install: ${(err as Error).message}`);
+        info(`Install manually: ${c.green('npm i @agenticmail/openclaw')}`);
+        return;
+      }
+    }
+    if (!pluginDir) {
+      fail('Could not find @agenticmail/openclaw after install');
       return;
     }
 
