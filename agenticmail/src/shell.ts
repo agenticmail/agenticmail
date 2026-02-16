@@ -655,7 +655,7 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
     },
 
     agents: {
-      desc: 'List all agents',
+      desc: 'List agents or create a new one',
       run: async () => {
         log('');
         try {
@@ -664,7 +664,7 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
           const data = await resp.json() as any;
           const agents = data.agents || data || [];
           if (agents.length === 0) {
-            info('No agents yet. Run /setup to create one.');
+            info('No agents yet.');
           } else {
             for (const agent of agents) {
               const owner = agent.metadata?.ownerName;
@@ -678,6 +678,59 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
               info('Use /switch to change active agent');
             }
           }
+          log('');
+          log(`  ${c.green('[1]')} Create new agent`);
+          log(`  ${c.green('[2]')} Back`);
+          log('');
+          const choice = await question(`  ${c.dim('>')}: `);
+          if (isBack(choice) || choice.trim() === '2') { log(''); return; }
+          if (choice.trim() !== '1') { log(''); return; }
+
+          // Create new agent flow
+          log('');
+          const nameInput = await question(`  ${c.cyan('Agent name:')} `);
+          if (isBack(nameInput) || !nameInput.trim()) { log(''); return; }
+          const agentName = nameInput.trim();
+
+          log('');
+          log(`  ${c.bold('Role')}`);
+          log(`  ${c.green('[1]')} secretary ${c.dim('(default)')}`);
+          log(`  ${c.green('[2]')} assistant`);
+          log(`  ${c.green('[3]')} researcher`);
+          log(`  ${c.green('[4]')} writer`);
+          log(`  ${c.green('[5]')} custom`);
+          log('');
+          const roleChoice = await question(`  ${c.dim('>')}: `);
+          if (isBack(roleChoice)) { log(''); return; }
+          const roles = ['secretary', 'assistant', 'researcher', 'writer', 'custom'];
+          const roleIdx = parseInt(roleChoice.trim()) - 1;
+          const role = (roleIdx >= 0 && roleIdx < roles.length) ? roles[roleIdx] : 'secretary';
+
+          log('');
+          info('Creating agent...');
+          const createResp = await apiFetch('/api/agenticmail/accounts', {
+            method: 'POST',
+            body: JSON.stringify({ name: agentName, role }),
+            signal: AbortSignal.timeout(15_000),
+          });
+
+          if (!createResp.ok) {
+            const text = await createResp.text();
+            let parsed: any = {};
+            try { parsed = JSON.parse(text); } catch {}
+            fail(parsed.error || text);
+            log('');
+            return;
+          }
+
+          const created = await createResp.json() as any;
+          ok(`Agent ${c.bold('"' + created.name + '"')} created!`);
+          log(`    ${c.dim('Email:')} ${c.cyan(created.email || created.subAddress || '')}`);
+          log(`    ${c.dim('Key:')}   ${c.yellow(created.apiKey)}`);
+          log(`    ${c.dim('Role:')}  ${role}`);
+          currentAgent = { name: created.name, email: created.email || created.subAddress, apiKey: created.apiKey };
+          ok(`Switched to ${c.bold(created.name)}`);
+          log('');
         } catch (err) {
           fail(`Error: ${errMsg(err)}`);
         }
