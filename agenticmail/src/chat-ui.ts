@@ -123,7 +123,7 @@ export function renderBubble(text: string, side: 'left' | 'right'): string {
   return output.join('\n');
 }
 
-export function renderAgentLabel(name: string = 'Fola'): string {
+export function renderAgentLabel(name: string = 'Agentic Mail'): string {
   return `  ${'\ud83c\udf80'} ${bold(cyan(name))}`;
 }
 
