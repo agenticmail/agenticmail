@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/api",
-  "version": "0.3.1",
+  "version": "0.3.3",
   "description": "REST API server for AgenticMail",
   "type": "module",
   "main": "dist/index.js",

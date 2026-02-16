@@ -722,7 +722,10 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
       }
     } catch { /* ignore */ }
 
-    if (!agentApiKey) return; // No agents yet, can't configure
+    if (!agentApiKey) {
+      info('No agent found — OpenClaw config will be linked when you run setup again after connecting your email.');
+      return;
+    }
 
     const apiUrl = `http://${config.api.host}:${config.api.port}`;
 

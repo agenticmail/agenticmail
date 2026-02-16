@@ -36,5 +36,5 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     return;
   }
 
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({ error: message || 'Internal server error' });
 }
