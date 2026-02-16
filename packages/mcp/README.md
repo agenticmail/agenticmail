@@ -2,7 +2,7 @@
 
 The MCP (Model Context Protocol) server for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives any MCP-compatible AI client full email capabilities.
 
-When connected, your AI agent can send emails, check inboxes, reply to messages, manage contacts, schedule emails, assign tasks to other agents, and more — all through natural language. The server provides 54 tools that cover every email and agent management operation.
+When connected, your AI agent can send emails, check inboxes, reply to messages, manage contacts, schedule emails, assign tasks to other agents, and more — all through natural language. The server provides 62 tools that cover every email and agent management operation.
 
 ## Install
 
@@ -181,6 +181,19 @@ These tools require the master key:
 | `setup_guide` | Show relay vs domain comparison guide |
 | `send_test_email` | Send a test email to verify gateway |
 | `purchase_domain` | Search for and purchase a domain |
+
+### SMS / Phone Number (8 tools)
+
+| Tool | Description |
+|------|-------------|
+| `sms_setup` | Configure Google Voice phone number for SMS access |
+| `sms_send` | Record and send SMS via Google Voice |
+| `sms_messages` | List inbound/outbound SMS messages |
+| `sms_check_code` | Extract verification/OTP codes from recent SMS |
+| `sms_read_voice` | Read SMS directly from Google Voice web (fastest method) |
+| `sms_record` | Record an SMS read from Google Voice web or any source |
+| `sms_parse_email` | Parse SMS from forwarded Google Voice email (fallback) |
+| `sms_config` | Get current SMS configuration |
 
 ---
 

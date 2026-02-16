@@ -252,6 +252,23 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
   log(`  ${c.dim('Server:')} ${c.cyan(`http://${config.api.host}:${config.api.port}`)}`);
   if (agentLine) log(`  ${c.dim('Agents:')} ${agentLine}`);
   if (emailLine) log(`  ${c.dim('Email:')}  ${emailLine}`);
+
+  // Show SMS/phone status
+  try {
+    const agentsResp = await apiFetch('/api/agenticmail/accounts');
+    if (agentsResp.ok) {
+      const agentsData = await agentsResp.json() as any;
+      const agents = agentsData.agents || agentsData.accounts || [];
+      for (const a of agents) {
+        const smsConf = a.metadata?.sms;
+        if (smsConf?.enabled && smsConf.phoneNumber) {
+          log(`  ${c.dim('Phone:')}  ${c.green(smsConf.phoneNumber)} ${c.dim('via Google Voice')} ${c.dim('(' + a.name + ')')}`);
+          break; // Show first configured phone
+        }
+      }
+    }
+  } catch {}
+
   log('');
   log('');
   log(`  ${c.dim('Type')} ${c.bold('/help')} ${c.dim('for commands, or')} ${c.bold('/exit')} ${c.dim('to stop.')}`);
@@ -1678,6 +1695,14 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
                 log(`  ${c.cyan('📁')} ${f.path}${special}`);
               }
             }
+            // Show SMS virtual folder if configured
+            try {
+              const smsResp = await agentFetch(agent.apiKey, '/api/agenticmail/sms/config');
+              const smsData = await smsResp.json() as any;
+              if (smsData.sms?.enabled) {
+                log(`  ${c.green('📱')} SMS ${c.dim(`(${smsData.sms.phoneNumber})`)}`);
+              }
+            } catch {}
           } else if (choice.trim() === '2' || choice.trim().toLowerCase() === 'create') {
             const name = await question(`  ${c.dim('Folder name:')} `);
             if (isBack(name) || !name.trim()) { info('Cancelled'); log(''); return; }
@@ -1692,10 +1717,29 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
             if (!listResp.ok) { fail('Could not list folders'); log(''); return; }
             const { folders } = await listResp.json() as any;
             if (!folders?.length) { info('No folders'); log(''); return; }
+
+            // Check for SMS and append as virtual folder
+            let hasSms = false;
+            try {
+              const smsResp = await agentFetch(agent.apiKey, '/api/agenticmail/sms/config');
+              const smsData = await smsResp.json() as any;
+              if (smsData.sms?.enabled) hasSms = true;
+            } catch {}
+
             for (let i = 0; i < folders.length; i++) {
               log(`  ${c.dim(`[${i + 1}]`)} ${c.cyan(folders[i].path)}`);
             }
-            const idx = await askChoice(`  ${c.dim('Folder #:')} `, folders.length);
+            if (hasSms) {
+              log(`  ${c.dim(`[${folders.length + 1}]`)} ${c.green('SMS')} ${c.dim('(text messages)')}`);
+            }
+            const totalChoices = hasSms ? folders.length + 1 : folders.length;
+            const idx = await askChoice(`  ${c.dim('Folder #:')} `, totalChoices);
+
+            // SMS virtual folder selected
+            if (idx !== null && hasSms && idx === folders.length) {
+              await commands.sms.run();
+              return;
+            }
             if (idx === null) { log(''); return; }
             const folderPath = folders[idx].path;
 
@@ -3246,6 +3290,331 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
           if (!launched) {
             info('Run in another terminal: openclaw tui');
           }
+        }
+      },
+    },
+
+    sms: {
+      desc: 'Manage SMS / phone number (view, setup, change, disable)',
+      run: async () => {
+        const agent = getActiveAgent();
+        if (!agent) return;
+        log('');
+        log(hr());
+        heading('SMS / Phone Number');
+        log('');
+
+        // Get current config
+        let smsConfig: any = null;
+        try {
+          const resp = await fetch(`${apiBase}/api/agenticmail/sms/config`, {
+            headers: { 'Authorization': `Bearer ${agent.apiKey}` },
+          });
+          const data = await resp.json() as any;
+          smsConfig = data.sms;
+        } catch {}
+
+        if (smsConfig?.enabled) {
+          log(`  ${c.green('●')} SMS is ${c.green('enabled')}`);
+          log(`  ${c.dim('Phone number:')}    ${c.bold(smsConfig.phoneNumber)}`);
+          log(`  ${c.dim('Forwarding to:')}   ${smsConfig.forwardingEmail || c.dim('(agent email)')}`);
+          log(`  ${c.dim('Provider:')}        ${smsConfig.provider}`);
+          log(`  ${c.dim('Configured:')}      ${smsConfig.configuredAt ? new Date(smsConfig.configuredAt).toLocaleDateString() : 'unknown'}`);
+        } else if (smsConfig && !smsConfig.enabled) {
+          log(`  ${c.yellow('●')} SMS is ${c.yellow('disabled')}`);
+          log(`  ${c.dim('Phone number:')}    ${smsConfig.phoneNumber}`);
+        } else {
+          log(`  ${c.dim('●')} SMS is ${c.dim('not configured')}`);
+        }
+
+        log('');
+        log(`  ${c.bold('Options:')}`);
+        if (!smsConfig?.enabled) {
+          log(`    ${c.cyan('1')} Set up a phone number`);
+        } else {
+          log(`    ${c.cyan('1')} View SMS messages`);
+          log(`    ${c.cyan('2')} Change phone number`);
+          log(`    ${c.cyan('3')} Check for verification codes`);
+          log(`    ${c.cyan('4')} Disable SMS`);
+        }
+        log(`    ${c.dim('Enter')} Go back`);
+        log('');
+
+        const choice = await new Promise<string>(resolve => {
+          rl.question(`  ${c.bold('Choose:')} `, resolve);
+        });
+
+        if (!smsConfig?.enabled) {
+          // Setup flow
+          if (choice.trim() === '1') {
+            log('');
+            log(`  ${c.bold('Google Voice Setup (takes ~2 minutes):')}`);
+            log('');
+            log(`    1. Go to ${c.cyan('https://voice.google.com')}`);
+            log(`    2. Sign in with your Google account`);
+            log(`    3. Click "Choose a phone number"`);
+            log(`    4. Search by city or area code, pick a number`);
+            log(`    5. Verify with your existing phone`);
+            log(`    6. Go to Settings > Messages > Enable "Forward messages to email"`);
+            log('');
+            const phone = await new Promise<string>(resolve => {
+              rl.question(`  ${c.bold('Google Voice number')} ${c.dim('(e.g. +12125551234):')} `, resolve);
+            });
+            if (!phone.trim()) { info('Cancelled.'); return; }
+            const fwdEmail = await new Promise<string>(resolve => {
+              rl.question(`  ${c.bold('Forwarding email')} ${c.dim('(Enter for agent email):')} `, resolve);
+            });
+            try {
+              const resp = await fetch(`${apiBase}/api/agenticmail/sms/setup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agent.apiKey}` },
+                body: JSON.stringify({ phoneNumber: phone.trim(), forwardingEmail: fwdEmail.trim() || undefined }),
+              });
+              const data = await resp.json() as any;
+              if (data.success) {
+                ok(`Phone number saved: ${data.sms?.phoneNumber || phone.trim()}`);
+                info('Make sure SMS forwarding is enabled in Google Voice settings.');
+              } else {
+                fail(data.error || 'Setup failed');
+              }
+            } catch (err) { fail((err as Error).message); }
+          }
+        } else {
+          // Management flow
+          if (choice.trim() === '1') {
+            // View SMS messages
+            try {
+              const resp = await fetch(`${apiBase}/api/agenticmail/sms/messages?limit=20`, {
+                headers: { 'Authorization': `Bearer ${agent.apiKey}` },
+              });
+              const data = await resp.json() as any;
+              if (!data.messages?.length) {
+                info('No SMS messages yet.');
+              } else {
+                log('');
+                for (const msg of data.messages) {
+                  const dir = msg.direction === 'inbound' ? c.green('← IN ') : c.blue('→ OUT');
+                  const status = msg.status === 'received' ? '' : ` ${c.dim(`[${msg.status}]`)}`;
+                  const time = new Date(msg.createdAt).toLocaleString();
+                  log(`  ${dir} ${c.bold(msg.phoneNumber)}${status} ${c.dim(time)}`);
+                  log(`       ${msg.body.length > 80 ? msg.body.slice(0, 80) + '...' : msg.body}`);
+                  log('');
+                }
+                info(`${data.messages.length} message(s)`);
+              }
+            } catch (err) { fail((err as Error).message); }
+          } else if (choice.trim() === '2') {
+            // Change number
+            const newPhone = await new Promise<string>(resolve => {
+              rl.question(`  ${c.bold('New Google Voice number')} ${c.dim('(e.g. +12125551234):')} `, resolve);
+            });
+            if (!newPhone.trim()) { info('Cancelled.'); return; }
+            const newFwd = await new Promise<string>(resolve => {
+              rl.question(`  ${c.bold('Forwarding email')} ${c.dim('(Enter to keep current):')} `, resolve);
+            });
+            try {
+              const resp = await fetch(`${apiBase}/api/agenticmail/sms/setup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agent.apiKey}` },
+                body: JSON.stringify({ phoneNumber: newPhone.trim(), forwardingEmail: newFwd.trim() || undefined }),
+              });
+              const data = await resp.json() as any;
+              if (data.success) {
+                ok(`Phone number updated to: ${data.sms?.phoneNumber || newPhone.trim()}`);
+              } else {
+                fail(data.error || 'Update failed');
+              }
+            } catch (err) { fail((err as Error).message); }
+          } else if (choice.trim() === '3') {
+            // Check verification codes
+            try {
+              const resp = await fetch(`${apiBase}/api/agenticmail/sms/verification-code?minutes=30`, {
+                headers: { 'Authorization': `Bearer ${agent.apiKey}` },
+              });
+              const data = await resp.json() as any;
+              if (data.found) {
+                log('');
+                ok(`Verification code found: ${c.bold(c.green(data.code))}`);
+                log(`  ${c.dim('From:')} ${data.from}`);
+                log(`  ${c.dim('Message:')} ${data.body}`);
+                log(`  ${c.dim('Received:')} ${new Date(data.receivedAt).toLocaleString()}`);
+              } else {
+                info('No verification codes found in the last 30 minutes.');
+                info('Make sure Google Voice SMS forwarding is enabled and use /inbox to check for forwarded SMS emails.');
+              }
+            } catch (err) { fail((err as Error).message); }
+          } else if (choice.trim() === '4') {
+            // Disable SMS
+            const confirm = await new Promise<string>(resolve => {
+              rl.question(`  ${c.bold('Disable SMS?')} ${c.dim('This keeps your number saved but stops SMS features. (y/N)')} `, resolve);
+            });
+            if (confirm.toLowerCase().startsWith('y')) {
+              try {
+                const resp = await fetch(`${apiBase}/api/agenticmail/sms/disable`, {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${agent.apiKey}` },
+                });
+                const data = await resp.json() as any;
+                if (data.success) {
+                  ok('SMS disabled. Your number is still saved. Use /sms to re-enable anytime.');
+                } else {
+                  fail(data.error || 'Failed to disable');
+                }
+              } catch (err) { fail((err as Error).message); }
+            } else {
+              info('Cancelled.');
+            }
+          }
+        }
+        log('');
+      },
+    },
+
+    update: {
+      desc: 'Check for and install the latest AgenticMail version',
+      run: async () => {
+        log('');
+        log(hr());
+        heading('Update AgenticMail');
+        log('');
+
+        const { execSync } = await import('node:child_process');
+
+        // Get current version
+        let currentVersion = 'unknown';
+        try {
+          const pkg = await import('agenticmail/package.json', { with: { type: 'json' } });
+          currentVersion = pkg.default?.version ?? 'unknown';
+        } catch {
+          try {
+            const { readFileSync } = await import('node:fs');
+            const { join, dirname } = await import('node:path');
+            const { fileURLToPath } = await import('node:url');
+            const thisDir = dirname(fileURLToPath(import.meta.url));
+            const pkgPath = join(thisDir, '..', 'package.json');
+            const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+            currentVersion = pkg.version ?? 'unknown';
+          } catch {}
+        }
+        info(`Current version: ${c.bold(currentVersion)}`);
+
+        // Check latest version on npm
+        let latestVersion = 'unknown';
+        try {
+          latestVersion = execSync('npm view agenticmail version', { encoding: 'utf-8', timeout: 15000 }).trim();
+        } catch {
+          fail('Could not check npm for latest version. Check your internet connection.');
+          return;
+        }
+        info(`Latest version:  ${c.bold(latestVersion)}`);
+
+        if (currentVersion === latestVersion) {
+          ok('You are already on the latest version!');
+          log('');
+          return;
+        }
+
+        log('');
+        info(`New version available: ${c.yellow(currentVersion)} → ${c.green(latestVersion)}`);
+
+        // Check OpenClaw compatibility if OpenClaw is installed
+        let hasOpenClaw = false;
+        let openClawVersion = '';
+        try {
+          openClawVersion = execSync('openclaw --version 2>/dev/null || echo ""', { encoding: 'utf-8', timeout: 10000 }).trim();
+          if (openClawVersion) hasOpenClaw = true;
+        } catch {}
+
+        if (hasOpenClaw) {
+          info(`OpenClaw detected: ${c.bold(openClawVersion)}`);
+          // Check if the new version is compatible
+          try {
+            const peerDeps = execSync(`npm view agenticmail@${latestVersion} peerDependencies --json 2>/dev/null`, { encoding: 'utf-8', timeout: 15000 }).trim();
+            if (peerDeps) {
+              const deps = JSON.parse(peerDeps);
+              if (deps.openclaw) {
+                info(`Required OpenClaw version: ${c.bold(deps.openclaw)}`);
+              }
+            }
+          } catch {
+            // No peer deps or parse error - that's fine
+          }
+          info('OpenClaw plugin will also be updated.');
+        }
+
+        log('');
+        const confirm = await new Promise<string>(resolve => {
+          rl.question(`  ${c.bold('Update now?')} ${c.dim('(Y/n)')} `, resolve);
+        });
+
+        if (confirm.toLowerCase().startsWith('n')) {
+          info('Update cancelled.');
+          log('');
+          return;
+        }
+
+        log('');
+        info('Updating...');
+
+        try {
+          // Detect package manager
+          let pm = 'npm';
+          try {
+            execSync('pnpm --version', { stdio: 'ignore', timeout: 5000 });
+            pm = 'pnpm';
+          } catch {
+            try {
+              execSync('bun --version', { stdio: 'ignore', timeout: 5000 });
+              pm = 'bun';
+            } catch {}
+          }
+
+          // Check if installed globally or locally
+          let isGlobal = false;
+          try {
+            const globalList = execSync(`${pm === 'npm' ? 'npm' : pm} list -g agenticmail 2>/dev/null`, { encoding: 'utf-8', timeout: 10000 });
+            if (globalList.includes('agenticmail')) isGlobal = true;
+          } catch {}
+
+          const scope = isGlobal ? '-g' : '';
+          const installCmd = pm === 'bun'
+            ? `bun add ${scope} agenticmail@latest`
+            : `${pm} install ${scope} agenticmail@latest`;
+
+          info(`Running: ${c.dim(installCmd)}`);
+          execSync(installCmd, { stdio: 'inherit', timeout: 120000 });
+
+          // Also update OpenClaw plugin if present
+          if (hasOpenClaw) {
+            const pluginCmd = pm === 'bun'
+              ? `bun add ${scope} @agenticmail/openclaw@latest`
+              : `${pm} install ${scope} @agenticmail/openclaw@latest`;
+            info(`Updating OpenClaw plugin: ${c.dim(pluginCmd)}`);
+            try {
+              execSync(pluginCmd, { stdio: 'inherit', timeout: 120000 });
+              ok('OpenClaw plugin updated.');
+
+              // Restart OpenClaw gateway to pick up new version
+              try {
+                execSync('openclaw gateway restart', { stdio: 'pipe', timeout: 30000 });
+                ok('OpenClaw gateway restarted.');
+              } catch {
+                info(`Restart OpenClaw manually: ${c.green('openclaw gateway restart')}`);
+              }
+            } catch (err) {
+              log(`  ${c.yellow('!')} Plugin update failed: ${(err as Error).message}`);
+              info(`Update manually: ${c.green(pluginCmd)}`);
+            }
+          }
+
+          log('');
+          ok(`Updated to agenticmail@${latestVersion}`);
+          info('Restart the shell to use the new version.');
+          log('');
+        } catch (err) {
+          fail(`Update failed: ${(err as Error).message}`);
+          info(`Try manually: ${c.green('npm install -g agenticmail@latest')}`);
+          log('');
         }
       },
     },

@@ -25,6 +25,7 @@ import type { StalwartAdmin } from '../stalwart/admin.js';
 import type { AccountManager } from '../accounts/manager.js';
 import type { Agent, AgentRole } from '../accounts/types.js';
 import { DEFAULT_AGENT_NAME, DEFAULT_AGENT_ROLE } from '../accounts/types.js';
+import { SmsManager, SmsPoller, parseGoogleVoiceSms, type SmsConfig } from '../sms/manager.js';
 
 export interface LocalSmtpConfig {
   host: string;
@@ -56,6 +57,8 @@ export class GatewayManager {
   private tunnel: TunnelManager | null = null;
   private dnsConfigurator: DNSConfigurator | null = null;
   private domainPurchaser: DomainPurchaser | null = null;
+  private smsManager: SmsManager | null = null;
+  private smsPollers: Map<string, SmsPoller> = new Map();
 
   constructor(private options: GatewayManagerOptions) {
     this.db = options.db;
@@ -76,6 +79,9 @@ export class GatewayManager {
 
     // Load saved config from DB (may fail if migrations haven't run yet)
     try { this.loadConfig(); } catch { this.config = { mode: 'none' }; }
+
+    // Initialize SMS manager
+    try { this.smsManager = new SmsManager(options.db as any); } catch {}
   }
 
   /**
@@ -110,6 +116,32 @@ export class GatewayManager {
 
     // Deduplicate: skip if we've already delivered this message to this agent
     if (mail.messageId && this.isAlreadyDelivered(mail.messageId, agentName)) return;
+
+    // SMS detection: check if this is a Google Voice forwarded SMS
+    if (this.smsManager) {
+      try {
+        const smsBody = mail.text || mail.html || '';
+        const parsedSms = parseGoogleVoiceSms(smsBody, mail.from);
+        if (parsedSms) {
+          // Find the agent this belongs to and check if SMS is configured
+          const agent = this.accountManager ? await this.accountManager.getByName(agentName) : null;
+          const agentId = agent?.id;
+          if (agentId) {
+            const smsConfig = this.smsManager.getSmsConfig(agentId);
+            if (smsConfig?.enabled && smsConfig.sameAsRelay) {
+              this.smsManager.recordInbound(agentId, parsedSms);
+              console.log(`[GatewayManager] SMS received from ${parsedSms.from}: "${parsedSms.body.slice(0, 50)}..." → agent ${agentName}`);
+              // Record delivery so we don't re-process
+              if (mail.messageId) this.recordDelivery(mail.messageId, agentName);
+              // Still deliver the email too (agent might want to see raw), but we've recorded the SMS
+            }
+          }
+        }
+      } catch (err) {
+        // Non-fatal — continue with normal email delivery
+        debug('GatewayManager', `SMS detection error: ${(err as Error).message}`);
+      }
+    }
 
     // Check if this is a reply to a pending approval notification
     try {
@@ -954,11 +986,49 @@ export class GatewayManager {
     }
   }
 
+  // --- SMS Polling ---
+
+  /**
+   * Start SMS pollers for all agents that have separate GV Gmail credentials.
+   * Agents with sameAsRelay=true are handled in deliverInboundLocally.
+   */
+  private async startSmsPollers(): Promise<void> {
+    if (!this.smsManager || !this.accountManager) return;
+
+    // List all agents and check for SMS configs with separate credentials
+    const agents = this.db.prepare('SELECT id, name, metadata FROM agents').all() as Array<{ id: string; name: string; metadata: string }>;
+
+    for (const agent of agents) {
+      try {
+        const meta = JSON.parse(agent.metadata || '{}');
+        const smsConfig = meta.sms as SmsConfig | undefined;
+        if (!smsConfig?.enabled || !smsConfig.forwardingPassword || smsConfig.sameAsRelay) continue;
+
+        // This agent has separate GV Gmail — start a dedicated poller
+        const poller = new SmsPoller(this.smsManager, agent.id, smsConfig);
+        poller.onSmsReceived = (agentId, sms) => {
+          console.log(`[SmsPoller] SMS received for agent ${agent.name}: from ${sms.from}, body="${sms.body.slice(0, 50)}..."`);
+        };
+
+        this.smsPollers.set(agent.id, poller);
+        await poller.startPolling();
+        console.log(`[GatewayManager] SMS poller started for agent "${agent.name}" (${smsConfig.forwardingEmail})`);
+      } catch {
+        // Skip agents with invalid config
+      }
+    }
+  }
+
   // --- Lifecycle ---
 
   async shutdown(): Promise<void> {
     await this.relay.shutdown();
     this.tunnel?.stop();
+    // Stop all SMS pollers
+    for (const poller of this.smsPollers.values()) {
+      poller.stopPolling();
+    }
+    this.smsPollers.clear();
   }
 
   /**
@@ -979,6 +1049,15 @@ export class GatewayManager {
         await this.relay.startPolling();
       } catch (err) {
         console.error('[GatewayManager] Failed to resume relay:', err);
+      }
+    }
+
+    // Start SMS pollers for agents with separate GV Gmail credentials
+    if (this.smsManager && this.accountManager) {
+      try {
+        await this.startSmsPollers();
+      } catch (err) {
+        console.error('[GatewayManager] Failed to start SMS pollers:', err);
       }
     }
 

@@ -43,6 +43,13 @@ export interface AgenticMailConfig {
     mode?: 'relay' | 'domain' | 'none';
     autoResume?: boolean;
   };
+  sms?: {
+    enabled?: boolean;
+    phoneNumber?: string;
+    forwardingEmail?: string;
+    provider?: 'google_voice';
+    configuredAt?: string;
+  };
   masterKey: string;
   dataDir: string;
 }

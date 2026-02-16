@@ -2,7 +2,7 @@
 
 [OpenClaw](https://github.com/openclaw/openclaw) plugin for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives any OpenClaw agent full email capabilities, inter-agent messaging, task coordination, and outbound security.
 
-This plugin provides 54 tools, a complete email channel integration, automatic sub-agent provisioning, inter-agent message rate limiting, and a built-in follow-up system for blocked emails. It also includes a skill definition with system prompt guidelines that teach agents how to handle email professionally and securely.
+This plugin provides 63 tools, a complete email channel integration, automatic sub-agent provisioning, inter-agent message rate limiting, and a built-in follow-up system for blocked emails. It also includes a skill definition with system prompt guidelines that teach agents how to handle email professionally and securely.
 
 ## Install
 
@@ -108,7 +108,7 @@ Plugin configuration lives in `~/.openclaw/openclaw.json` (user config), not in 
 
 ---
 
-## Tools (54 total)
+## Tools (61 total)
 
 ### Core Email (8 tools)
 
@@ -272,6 +272,19 @@ Self-messaging is also prevented — an agent cannot send a message to itself.
 ---
 
 ## Skill Definition
+
+### SMS / Phone Number (8 tools)
+
+| Tool | Description |
+|------|-------------|
+| `agenticmail_sms_setup` | Configure Google Voice phone number for SMS access |
+| `agenticmail_sms_send` | Record and send SMS via Google Voice |
+| `agenticmail_sms_messages` | List inbound/outbound SMS messages |
+| `agenticmail_sms_check_code` | Extract verification/OTP codes from recent SMS |
+| `agenticmail_sms_read_voice` | Read SMS directly from Google Voice web (fastest method) |
+| `agenticmail_sms_record` | Record an SMS read from Google Voice web or any source |
+| `agenticmail_sms_parse_email` | Parse SMS from forwarded Google Voice email (fallback) |
+| `agenticmail_sms_config` | Get current SMS configuration |
 
 The plugin includes a skill at `skill/SKILL.md` that gets injected into the agent's system prompt. It covers:
 

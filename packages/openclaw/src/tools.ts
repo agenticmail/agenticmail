@@ -2105,4 +2105,165 @@ export function registerTools(
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });
+
+  // --- SMS / Google Voice Tools ---
+
+  reg('agenticmail_sms_setup', {
+    description: 'Configure SMS/phone number access via Google Voice. The user must have a Google Voice account with SMS-to-email forwarding enabled. This gives the agent a phone number for receiving verification codes and sending texts.',
+    parameters: {
+      phoneNumber: { type: 'string', required: true, description: 'Google Voice phone number (e.g. +12125551234)' },
+      forwardingEmail: { type: 'string', description: 'Email address Google Voice forwards SMS to (defaults to agent email)' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/sms/setup', {
+          phoneNumber: params.phoneNumber,
+          forwardingEmail: params.forwardingEmail,
+          provider: 'google_voice',
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_sms_send', {
+    description: 'Send an SMS text message via Google Voice. Records the message and provides instructions for sending via Google Voice web interface. The agent can automate the actual send using the browser tool on voice.google.com.',
+    parameters: {
+      to: { type: 'string', required: true, description: 'Recipient phone number' },
+      body: { type: 'string', required: true, description: 'Text message body' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/sms/send', {
+          to: params.to,
+          body: params.body,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_sms_messages', {
+    description: 'List SMS messages (inbound and outbound). Use direction filter to see only received or sent messages.',
+    parameters: {
+      direction: { type: 'string', description: 'Filter: "inbound" or "outbound" (default: both)' },
+      limit: { type: 'number', description: 'Max messages (default: 20)' },
+      offset: { type: 'number', description: 'Skip messages (default: 0)' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        if (params.direction) query.set('direction', params.direction);
+        if (params.limit) query.set('limit', String(params.limit));
+        if (params.offset) query.set('offset', String(params.offset));
+        return await apiRequest(c, 'GET', `/sms/messages?${query.toString()}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_sms_check_code', {
+    description: `Check for recent verification/OTP codes received via SMS. Scans inbound SMS for common code patterns (6-digit, 4-digit, alphanumeric). Use this after requesting a verification code during sign-up flows.
+
+RECOMMENDED FLOW for reading verification codes:
+1. FIRST (fastest): Open Google Voice directly in the browser:
+   - Navigate to https://voice.google.com/u/0/messages
+   - Take a screenshot or snapshot to read the latest messages
+   - The code will be visible in the message list (no click needed for recent ones)
+   - Use agenticmail_sms_record to save the SMS and extract the code
+
+2. FALLBACK: If browser is unavailable, this tool checks the SMS database
+   (populated by email forwarding from Google Voice, which can be delayed 1-5 minutes)`,
+    parameters: {
+      minutes: { type: 'number', description: 'How many minutes back to check (default: 10)' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = params.minutes ? `?minutes=${params.minutes}` : '';
+        return await apiRequest(c, 'GET', `/sms/verification-code${query}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_sms_read_voice', {
+    description: `Read SMS messages directly from Google Voice web interface (FASTEST method). Opens voice.google.com in the browser, reads recent messages, and returns any found SMS with verification codes extracted. This is the PRIMARY way to check for SMS - much faster than waiting for email forwarding.
+
+Use this when:
+- Waiting for a verification code after signing up for a service
+- Checking for recent SMS messages
+- Email forwarding hasn't delivered the SMS yet
+
+The agent must have browser access and a Google Voice session (logged into Google in the browser profile).`,
+    parameters: {},
+    handler: async (params: any) => {
+      // This tool returns instructions for the agent to use browser tools
+      // Since browser automation is done by the agent, we provide the URL and parsing guidance
+      try {
+        const c = await ctxForParams(ctx, params);
+        const configResp = await apiRequest(c, 'GET', '/sms/config');
+        const phoneNumber = configResp?.sms?.phoneNumber || 'unknown';
+
+        return {
+          method: 'google_voice_web',
+          phoneNumber,
+          instructions: [
+            'Open the browser to: https://voice.google.com/u/0/messages',
+            'Take a screenshot to see the message list',
+            'Recent SMS messages appear in the left sidebar with sender number and preview text',
+            'For verification codes, the code is usually visible in the preview without clicking',
+            'If you need the full message, click on the conversation',
+            'After reading, use agenticmail_sms_record to save the SMS to the database',
+          ],
+          browserUrl: 'https://voice.google.com/u/0/messages',
+          tip: 'This is much faster than email forwarding. Google Voice web shows messages instantly.',
+        };
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_sms_record', {
+    description: 'Record an SMS message that you read from Google Voice web or any other source. Saves it to the SMS database and extracts any verification codes. Use after reading a message from voice.google.com in the browser.',
+    parameters: {
+      from: { type: 'string', required: true, description: 'Sender phone number (e.g. +12065551234 or (206) 338-7285)' },
+      body: { type: 'string', required: true, description: 'The SMS message text' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/sms/record', {
+          from: params.from,
+          body: params.body,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_sms_parse_email', {
+    description: 'Parse an SMS from a forwarded Google Voice email. Use this when you receive an email from Google Voice containing an SMS. Extracts the sender number, message body, and any verification codes.',
+    parameters: {
+      emailBody: { type: 'string', required: true, description: 'The email body text to parse' },
+      emailFrom: { type: 'string', description: 'The email sender address' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/sms/parse-email', {
+          emailBody: params.emailBody,
+          emailFrom: params.emailFrom,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_sms_config', {
+    description: 'Get the current SMS/phone number configuration for this agent. Shows whether SMS is enabled, the phone number, and forwarding email.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/sms/config');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
 }

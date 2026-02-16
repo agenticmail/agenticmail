@@ -768,6 +768,94 @@ export const toolDefinitions = [
       required: ['action'],
     },
   },
+
+  // --- SMS / Google Voice Tools ---
+  {
+    name: 'sms_setup',
+    description: 'Configure SMS/phone number access via Google Voice. The user must have a Google Voice account with SMS-to-email forwarding enabled. This gives the agent a phone number for receiving verification codes and sending texts.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        phoneNumber: { type: 'string', description: 'Google Voice phone number (e.g. +12125551234)' },
+        forwardingEmail: { type: 'string', description: 'Email address Google Voice forwards SMS to (defaults to agent email)' },
+      },
+      required: ['phoneNumber'],
+    },
+  },
+  {
+    name: 'sms_send',
+    description: 'Send an SMS text message via Google Voice. Records the message and provides instructions for sending via Google Voice web interface. The agent can automate the actual send using browser automation on voice.google.com.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        to: { type: 'string', description: 'Recipient phone number' },
+        body: { type: 'string', description: 'Text message body' },
+      },
+      required: ['to', 'body'],
+    },
+  },
+  {
+    name: 'sms_messages',
+    description: 'List SMS messages (inbound and outbound). Use direction filter to see only received or sent messages.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        direction: { type: 'string', enum: ['inbound', 'outbound'], description: 'Filter by direction' },
+        limit: { type: 'number', description: 'Max messages (default: 20)' },
+        offset: { type: 'number', description: 'Skip messages (default: 0)' },
+      },
+    },
+  },
+  {
+    name: 'sms_check_code',
+    description: 'Check for recent verification/OTP codes received via SMS. Scans inbound SMS for common code patterns (6-digit, 4-digit, alphanumeric). Use this after requesting a verification code during sign-up flows.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        minutes: { type: 'number', description: 'How many minutes back to check (default: 10)' },
+      },
+    },
+  },
+  {
+    name: 'sms_parse_email',
+    description: 'Parse an SMS from a forwarded Google Voice email. Use this when you receive an email from Google Voice containing an SMS. Extracts the sender number, message body, and any verification codes.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        emailBody: { type: 'string', description: 'The email body text to parse' },
+        emailFrom: { type: 'string', description: 'The email sender address' },
+      },
+      required: ['emailBody'],
+    },
+  },
+  {
+    name: 'sms_config',
+    description: 'Get the current SMS/phone number configuration for this agent. Shows whether SMS is enabled, the phone number, and forwarding email.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'sms_read_voice',
+    description: 'Get instructions and URL for reading SMS directly from Google Voice web (FASTEST method). Returns the voice.google.com URL and guidance for browser-based SMS reading. Primary method - much faster than email forwarding.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'sms_record',
+    description: 'Record an SMS message read from Google Voice web or any other source. Saves to SMS database and extracts verification codes. Use after reading a message from voice.google.com.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        from: { type: 'string', description: 'Sender phone number' },
+        body: { type: 'string', description: 'SMS message text' },
+      },
+      required: ['from', 'body'],
+    },
+  },
 ];
 
 // Tools that require master key access
@@ -1966,6 +2054,78 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         return withReminders(`You cannot ${action} pending emails. Only the owner (human) can approve or reject blocked emails. Please inform the owner and wait for their decision.`);
       }
       throw new Error('Invalid action. Use: list or get');
+    }
+
+    // --- SMS / Google Voice Tools ---
+
+    case 'sms_setup': {
+      const result = await apiRequest('POST', '/sms/setup', {
+        phoneNumber: args.phoneNumber,
+        forwardingEmail: args.forwardingEmail,
+        provider: 'google_voice',
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'sms_send': {
+      const result = await apiRequest('POST', '/sms/send', {
+        to: args.to,
+        body: args.body,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'sms_messages': {
+      const query = new URLSearchParams();
+      if (args.direction) query.set('direction', String(args.direction));
+      if (args.limit) query.set('limit', String(args.limit));
+      if (args.offset) query.set('offset', String(args.offset));
+      const result = await apiRequest('GET', `/sms/messages?${query.toString()}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'sms_check_code': {
+      const query = args.minutes ? `?minutes=${args.minutes}` : '';
+      const result = await apiRequest('GET', `/sms/verification-code${query}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'sms_parse_email': {
+      const result = await apiRequest('POST', '/sms/parse-email', {
+        emailBody: args.emailBody,
+        emailFrom: args.emailFrom,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'sms_config': {
+      const result = await apiRequest('GET', '/sms/config');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'sms_read_voice': {
+      const configResult = await apiRequest('GET', '/sms/config');
+      const phone = configResult?.sms?.phoneNumber || 'unknown';
+      return JSON.stringify({
+        method: 'google_voice_web',
+        phoneNumber: phone,
+        browserUrl: 'https://voice.google.com/u/0/messages',
+        instructions: [
+          'Open the browser to: https://voice.google.com/u/0/messages',
+          'Take a screenshot to see the message list',
+          'Recent SMS messages appear in the sidebar with sender and preview',
+          'After reading, use sms_record to save the SMS to the database',
+        ],
+        tip: 'This is much faster than email forwarding. Messages appear instantly.',
+      }, null, 2);
+    }
+
+    case 'sms_record': {
+      const result = await apiRequest('POST', '/sms/record', {
+        from: args.from,
+        body: args.body,
+      });
+      return JSON.stringify(result, null, 2);
     }
 
     default:

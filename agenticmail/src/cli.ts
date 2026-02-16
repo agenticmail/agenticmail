@@ -373,7 +373,7 @@ async function cmdSetup() {
   log(`  needs to send and receive real email.`);
   log('');
   const hasOpenClaw = existsSync(join(homedir(), '.openclaw', 'openclaw.json'));
-  const totalSteps = hasOpenClaw ? 5 : 4;
+  const totalSteps = hasOpenClaw ? 6 : 5;
 
   log(`  Here's what we'll do:`);
   log(`    ${c.dim('1.')} Check your system for required tools`);
@@ -643,10 +643,126 @@ async function cmdSetup() {
     info('No problem! You can set up email anytime by running this again.');
   }
 
-  // Step 5: OpenClaw integration (only if detected)
+  // Step 5: Phone number / SMS (optional)
+  if (serverReady) {
+    log('');
+    log(`  ${c.bold(`Step 5 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Phone number access (optional)')}`);
+    log('');
+    log(`  ${c.dim('Give your AI agent a phone number via Google Voice.')}`);
+    log(`  ${c.dim('This lets agents receive verification codes and send texts.')}`);
+    log('');
+
+    const wantSms = await ask(`  ${c.bold('Set up phone number access?')} ${c.dim('(y/N)')} `);
+    if (wantSms.toLowerCase().startsWith('y')) {
+      log('');
+      log(`  ${c.bold('What this does:')}`);
+      log(`    Your AI agent gets a real phone number it can use to:`);
+      log(`    ${c.dim('*')} Receive verification codes when signing up for services`);
+      log(`    ${c.dim('*')} Send and receive text messages`);
+      log(`    ${c.dim('*')} Verify accounts on platforms that require phone numbers`);
+      log('');
+      log(`  ${c.bold('How it works:')}`);
+      log(`    Google Voice gives you a free US phone number. When someone`);
+      log(`    texts that number, Google forwards it to your email. Your`);
+      log(`    agent reads the email and extracts the message or code.`);
+      log('');
+
+      const hasVoice = await ask(`  ${c.bold('Do you already have a Google Voice number?')} ${c.dim('(y/N)')} `);
+
+      if (!hasVoice.toLowerCase().startsWith('y')) {
+        log('');
+        log(`  ${c.bold('No problem! Setting up Google Voice takes about 2 minutes:')}`);
+        log('');
+        log(`  ${c.cyan('Step 1:')} Open ${c.bold(c.cyan('https://voice.google.com'))} in your browser`);
+        log(`  ${c.cyan('Step 2:')} Sign in with your Google account`);
+        log(`  ${c.cyan('Step 3:')} Click ${c.bold('"Choose a phone number"')}`);
+        log(`  ${c.cyan('Step 4:')} Search for a number by city or area code`);
+        log(`  ${c.cyan('Step 5:')} Pick a number and click ${c.bold('"Verify"')}`);
+        log(`         ${c.dim('(Google will verify via your existing phone number)')}`);
+        log(`  ${c.cyan('Step 6:')} Once verified, go to ${c.bold('Settings')} (gear icon)`);
+        log(`  ${c.cyan('Step 7:')} Under Messages, enable ${c.bold('"Forward messages to email"')}`);
+        log('');
+        log(`  ${c.dim('That\'s it! Come back here when you have your number.')}`);
+        log('');
+        const ready = await ask(`  ${c.bold('Press Enter when you have your Google Voice number ready...')} `);
+        // Consume the Enter; user pressed it when ready
+      }
+
+      log('');
+      const phoneNumber = await ask(`  ${c.bold('Your Google Voice phone number')} ${c.dim('(e.g. +12125551234):')} `);
+      if (phoneNumber.trim()) {
+        // Validate phone number format
+        const digits = phoneNumber.replace(/[^+\d]/g, '').replace(/\D/g, '');
+        if (digits.length < 10) {
+          log(`  ${c.yellow('!')} That doesn't look like a valid phone number (need at least 10 digits).`);
+          info('You can set this up later in the shell with /sms or via the agenticmail_sms_setup tool.');
+        } else {
+          const forwardEmail = await ask(`  ${c.bold('Email Google Voice forwards SMS to')} ${c.dim('(Enter to use agent email):')} `);
+
+          // Save via API (to agent metadata) if server is running, else to config file
+          try {
+            const apiBase = `http://${result.config.api.host}:${result.config.api.port}`;
+            const resp = await fetch(`${apiBase}/api/agenticmail/sms/setup`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${result.config.masterKey}`,
+              },
+              body: JSON.stringify({
+                phoneNumber: phoneNumber.trim(),
+                forwardingEmail: forwardEmail.trim() || undefined,
+              }),
+            });
+            const data = await resp.json() as any;
+            if (data.success) {
+              log('');
+              log(`  ${c.green('✔')} Phone number saved: ${c.bold(data.sms?.phoneNumber || phoneNumber.trim())}`);
+              log('');
+              log(`  ${c.bold('Important:')} Make sure you enabled SMS forwarding in Google Voice:`);
+              log(`    ${c.dim('voice.google.com > Settings > Messages > Forward messages to email')}`);
+              log('');
+              log(`  ${c.dim('Your agent can now receive verification codes and text messages.')}`);
+              log(`  ${c.dim('Manage SMS anytime in the shell with /sms')}`);
+            } else {
+              throw new Error(data.error || 'API call failed');
+            }
+          } catch {
+            // Fallback: save to config file
+            try {
+              const { readFileSync, writeFileSync } = await import('node:fs');
+              const { join } = await import('node:path');
+              const os = await import('node:os');
+              const configPath = join(result.config.dataDir || os.homedir() + '/.agenticmail', 'config.json');
+              let fileConfig: any = {};
+              try { fileConfig = JSON.parse(readFileSync(configPath, 'utf-8')); } catch {}
+              fileConfig.sms = {
+                enabled: true,
+                phoneNumber: phoneNumber.trim(),
+                forwardingEmail: forwardEmail.trim() || '',
+                provider: 'google_voice',
+                configuredAt: new Date().toISOString(),
+              };
+              writeFileSync(configPath, JSON.stringify(fileConfig, null, 2), { encoding: 'utf-8', mode: 0o600 });
+              log(`  ${c.green('✔')} Phone number saved: ${c.bold(phoneNumber.trim())}`);
+              log(`  ${c.dim('Make sure SMS forwarding is enabled in Google Voice settings.')}`);
+            } catch (err) {
+              log(`  ${c.yellow('!')} Could not save: ${(err as Error).message}`);
+              log(`  ${c.dim('Set up later in the shell with /sms')}`);
+            }
+          }
+        }
+      } else {
+        info('Skipped. Set up anytime in the shell with /sms');
+      }
+    } else {
+      info('Skipped. Add a phone number anytime with /sms in the shell.');
+    }
+  }
+
+  // Step 6: OpenClaw integration (only if detected)
   if (hasOpenClaw && serverReady) {
     log('');
-    log(`  ${c.bold(`Step 5 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Configure OpenClaw integration')}`);
+    log(`  ${c.bold(`Step 6 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Configure OpenClaw integration')}`);
     log('');
     await registerWithOpenClaw(result.config);
   }
@@ -1357,14 +1473,15 @@ async function cmdOpenClaw() {
   log(`  This will:`);
   log(`    ${c.dim('1.')} Set up the mail server infrastructure`);
   log(`    ${c.dim('2.')} Create an agent email account`);
-  log(`    ${c.dim('3.')} Configure the OpenClaw plugin`);
-  log(`    ${c.dim('4.')} Restart the OpenClaw gateway`);
+  log(`    ${c.dim('3.')} Set up phone number access ${c.green('NEW')}`);
+  log(`    ${c.dim('4.')} Configure the OpenClaw plugin`);
+  log(`    ${c.dim('5.')} Restart the OpenClaw gateway`);
   log('');
 
   const setup = new SetupManager();
 
   // ── Step 1: Infrastructure ──────────────────────────────────────
-  log(`  ${c.bold('Step 1 of 5')} ${c.dim('—')} ${c.bold('Checking infrastructure')}`);
+  log(`  ${c.bold('Step 1 of 6')} ${c.dim('—')} ${c.bold('Checking infrastructure')}`);
   log('');
 
   let config: SetupConfig;
@@ -1435,7 +1552,7 @@ async function cmdOpenClaw() {
   log('');
 
   // ── Step 2: Start API temporarily ───────────────────────────────
-  log(`  ${c.bold('Step 2 of 5')} ${c.dim('—')} ${c.bold('Starting server')}`);
+  log(`  ${c.bold('Step 2 of 6')} ${c.dim('—')} ${c.bold('Starting server')}`);
   log('');
 
   const apiHost = config.api.host;
@@ -1471,7 +1588,7 @@ async function cmdOpenClaw() {
   log('');
 
   // ── Step 3: Create agent account ────────────────────────────────
-  log(`  ${c.bold('Step 3 of 5')} ${c.dim('—')} ${c.bold('Agent account')}`);
+  log(`  ${c.bold('Step 3 of 6')} ${c.dim('—')} ${c.bold('Agent account')}`);
   log('');
 
   let agentApiKey: string | undefined;
@@ -1658,8 +1775,228 @@ async function cmdOpenClaw() {
 
   log('');
 
-  // ── Step 4: Configure OpenClaw ──────────────────────────────────
-  log(`  ${c.bold('Step 4 of 5')} ${c.dim('—')} ${c.bold('Installing plugin + configuring OpenClaw')}`);
+  // ── Step 4: Phone number / SMS (optional) ─────────────────────
+  log(`  ${c.bold('Step 4 of 6')} ${c.dim('—')} ${c.bold('Phone number access')} ${c.green('NEW')}`);
+  log('');
+  log(`  ${c.dim('Give your AI agent a phone number via Google Voice.')}`);
+  log(`  ${c.dim('Agents can receive verification codes and send texts.')}`);
+  log('');
+
+  // Check if SMS is already configured
+  let smsAlreadyConfigured = false;
+  if (agentApiKey) {
+    try {
+      const smsResp = await fetch(`${apiBase}/api/agenticmail/sms/config`, {
+        headers: { 'Authorization': `Bearer ${agentApiKey}` },
+        signal: AbortSignal.timeout(3_000),
+      });
+      const smsData = await smsResp.json() as any;
+      if (smsData.sms?.enabled) {
+        smsAlreadyConfigured = true;
+        ok(`SMS already configured: ${c.bold(smsData.sms.phoneNumber)}`);
+      }
+    } catch {}
+  }
+
+  if (!smsAlreadyConfigured) {
+    const wantSms = await ask(`  ${c.bold('Set up phone number access?')} ${c.dim('(y/N)')} `);
+    if (wantSms.toLowerCase().startsWith('y')) {
+      log('');
+
+      const hasVoice = await ask(`  ${c.bold('Do you already have a Google Voice number?')} ${c.dim('(y/N)')} `);
+      if (!hasVoice.toLowerCase().startsWith('y')) {
+        log('');
+        log(`  ${c.bold('Google Voice Setup (takes about 2 minutes):')}`);
+        log('');
+        log(`  ${c.cyan('Step 1:')} Open ${c.bold(c.cyan('https://voice.google.com'))} in your browser`);
+        log(`  ${c.cyan('Step 2:')} Sign in with your Google account`);
+        log(`  ${c.cyan('Step 3:')} Click ${c.bold('"Choose a phone number"')}`);
+        log(`  ${c.cyan('Step 4:')} Search for a number by city or area code`);
+        log(`  ${c.cyan('Step 5:')} Pick a number and click ${c.bold('"Verify"')}`);
+        log(`         ${c.dim('(Google will send a code to your existing phone to verify)')}`);
+        log(`  ${c.cyan('Step 6:')} Once verified, go to ${c.bold('Settings')} (gear icon)`);
+        log(`  ${c.cyan('Step 7:')} Under Messages, enable ${c.bold('"Forward messages to email"')}`);
+        log('');
+        log(`  ${c.dim('Come back here when you have your number.')}`);
+        log('');
+        await ask(`  ${c.bold('Press Enter when ready...')} `);
+      }
+
+      log('');
+      const phoneNumber = await ask(`  ${c.bold('Your Google Voice number')} ${c.dim('(e.g. +12125551234):')} `);
+      if (phoneNumber.trim()) {
+        const digits = phoneNumber.replace(/[^+\d]/g, '').replace(/\D/g, '');
+        if (digits.length < 10) {
+          log(`  ${c.yellow('!')} That doesn't look like a valid phone number.`);
+          info('You can set this up later in the shell with /sms');
+        } else {
+          // Google Voice ONLY forwards SMS to the Gmail it's registered with.
+          // If user's relay email differs from GV Gmail, we need separate credentials.
+          let forwardingEmail: string | undefined;
+          let forwardingPassword: string | undefined;
+          let relayEmail = '';
+          let relayProvider = '';
+          try {
+            const gwResp = await fetch(`${apiBase}/api/agenticmail/gateway/status`, {
+              headers: { 'Authorization': `Bearer ${config.masterKey}` },
+              signal: AbortSignal.timeout(5_000),
+            });
+            const gwData = await gwResp.json() as any;
+            if (gwData.mode === 'relay' && gwData.relay?.email) {
+              relayEmail = gwData.relay.email;
+              relayProvider = gwData.relay.provider || '';
+            } else if (gwData.mode === 'domain') {
+              relayProvider = 'domain';
+            }
+          } catch {}
+
+          log('');
+          log(`  ┌─────────────────────────────────────────────────────────┐`);
+          log(`  │  ${c.red(c.bold('READ THIS'))} — Google Voice email matching is ${c.red(c.bold('critical'))}  │`);
+          log(`  └─────────────────────────────────────────────────────────┘`);
+          log('');
+          log(`  Google Voice forwards SMS ${c.bold('ONLY')} to the ${c.green(c.bold('Gmail account'))}`);
+          log(`  you used to ${c.green(c.bold('sign up'))} for Google Voice.`);
+          log('');
+          log(`  ${c.yellow('If your agent can\'t read that Gmail, it will')} ${c.red(c.bold('NEVER'))}`);
+          log(`  ${c.yellow('receive any SMS messages.')}`);
+          log('');
+
+          if (relayEmail) {
+            const isGmail = relayEmail.toLowerCase().endsWith('@gmail.com');
+            log(`  Your email relay: ${c.bold(c.cyan(relayEmail))}`);
+            if (!isGmail) {
+              // Non-Gmail relay (Outlook, domain, etc.) — definitely needs separate Gmail
+              log('');
+              log(`  ${c.red(c.bold('!!'))} Your relay is ${c.bold('not Gmail')}. Google Voice won't forward here.`);
+              log(`  ${c.red(c.bold('!!'))} You ${c.bold('must')} provide the Gmail you used for Google Voice.`);
+              log('');
+              const gvEmail = await ask(`  ${c.green(c.bold('Gmail used for Google Voice:'))} `);
+              if (gvEmail.trim() && gvEmail.toLowerCase().includes('@gmail.com')) {
+                log('');
+                log(`  ${c.dim('Get an app password at:')} ${c.cyan('https://myaccount.google.com/apppasswords')}`);
+                const gvPass = await ask(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
+                if (gvPass.trim()) {
+                  forwardingEmail = gvEmail.trim();
+                  forwardingPassword = gvPass.trim();
+                } else {
+                  log(`  ${c.red('!')} No password. ${c.yellow('SMS will not work without this.')}`);
+                  log(`  ${c.dim('Fix later with /sms in the shell.')}`);
+                }
+              } else if (gvEmail.trim()) {
+                log(`  ${c.red('!')} Google Voice requires a ${c.bold('Gmail')} address (ends in @gmail.com).`);
+                log(`  ${c.dim('Fix later with /sms in the shell.')}`);
+              } else {
+                log(`  ${c.yellow('!')} Skipped. ${c.dim('SMS will not work until you provide this.')}`);
+                log(`  ${c.dim('Fix later with /sms in the shell.')}`);
+              }
+            } else {
+              // Gmail relay — but could be a DIFFERENT Gmail
+              log('');
+              log(`  ${c.yellow('?')} Did you sign up for Google Voice with ${c.bold('this same Gmail')}?`);
+              log(`    ${c.dim('If you used a different Gmail for Google Voice, say no.')}`);
+              log('');
+              const sameEmail = await ask(`  ${c.bold('Same Gmail as Google Voice?')} ${c.dim('(Y/n)')} `);
+              if (sameEmail.toLowerCase().startsWith('n')) {
+                log('');
+                log(`  ${c.yellow(c.bold('Different Gmail detected.'))} Your agent needs access to the`);
+                log(`  Google Voice Gmail to receive SMS.`);
+                log('');
+                const gvEmail = await ask(`  ${c.green(c.bold('Gmail used for Google Voice:'))} `);
+                if (gvEmail.trim() && gvEmail.toLowerCase().includes('@gmail.com')) {
+                  if (gvEmail.trim().toLowerCase() === relayEmail.toLowerCase()) {
+                    log(`  ${c.green('!')} That's the same email as your relay — you're all set!`);
+                  } else {
+                    log('');
+                    log(`  ${c.dim('Get an app password at:')} ${c.cyan('https://myaccount.google.com/apppasswords')}`);
+                    const gvPass = await ask(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
+                    if (gvPass.trim()) {
+                      forwardingEmail = gvEmail.trim();
+                      forwardingPassword = gvPass.trim();
+                    } else {
+                      log(`  ${c.red('!')} No password. ${c.yellow('SMS will not work without this.')}`);
+                      log(`  ${c.dim('Fix later with /sms in the shell.')}`);
+                    }
+                  }
+                } else if (gvEmail.trim()) {
+                  log(`  ${c.red('!')} Google Voice requires a ${c.bold('Gmail')} address.`);
+                  log(`  ${c.dim('Fix later with /sms in the shell.')}`);
+                } else {
+                  log(`  ${c.yellow('!')} Skipped. ${c.dim('SMS may not work if emails don\'t match.')}`);
+                  log(`  ${c.dim('Fix later with /sms in the shell.')}`);
+                }
+              }
+              // If yes (default) — relay Gmail = GV Gmail, no extra creds needed
+            }
+          } else if (relayProvider === 'domain') {
+            // Domain mode — no relay, definitely needs Gmail for GV
+            log(`  ${c.yellow('!')} You're using ${c.bold('domain mode')} (no Gmail relay).`);
+            log(`  ${c.yellow('!')} Google Voice needs a Gmail. Provide the one you signed up with.`);
+            log('');
+            const gvEmail = await ask(`  ${c.green(c.bold('Gmail used for Google Voice:'))} `);
+            if (gvEmail.trim() && gvEmail.toLowerCase().includes('@gmail.com')) {
+              log('');
+              log(`  ${c.dim('Get an app password at:')} ${c.cyan('https://myaccount.google.com/apppasswords')}`);
+              const gvPass = await ask(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
+              if (gvPass.trim()) {
+                forwardingEmail = gvEmail.trim();
+                forwardingPassword = gvPass.trim();
+              } else {
+                log(`  ${c.red('!')} No password. ${c.yellow('SMS will not work without this.')}`);
+                log(`  ${c.dim('Fix later with /sms in the shell.')}`);
+              }
+            } else {
+              log(`  ${c.yellow('!')} Skipped. ${c.dim('SMS will not work until you provide this.')}`);
+              log(`  ${c.dim('Fix later with /sms in the shell.')}`);
+            }
+          } else {
+            // No gateway configured yet — ask for Gmail
+            log(`  ${c.dim('No email relay detected yet.')}`);
+            log('');
+            const gvEmail = await ask(`  ${c.green(c.bold('Gmail used for Google Voice:'))} `);
+            if (gvEmail.trim() && gvEmail.includes('@')) {
+              forwardingEmail = gvEmail.trim();
+            }
+          }
+
+          // Save config
+          if (agentApiKey) {
+            try {
+              const body: Record<string, string> = { phoneNumber: phoneNumber.trim() };
+              if (forwardingEmail) body.forwardingEmail = forwardingEmail;
+              if (forwardingPassword) body.forwardingPassword = forwardingPassword;
+              const resp = await fetch(`${apiBase}/api/agenticmail/sms/setup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agentApiKey}` },
+                body: JSON.stringify(body),
+              });
+              const data = await resp.json() as any;
+              if (data.success) {
+                log('');
+                ok(`Phone number saved: ${c.bold(data.sms?.phoneNumber || phoneNumber.trim())}`);
+                if (forwardingEmail) {
+                  ok(`SMS forwarding via: ${c.bold(forwardingEmail)}`);
+                }
+                log(`  ${c.dim('Remember: enable "Forward messages to email" in Google Voice settings')}`);
+                log(`  ${c.dim('Manage SMS anytime in the shell with /sms')}`);
+              } else {
+                fail(data.error || 'Setup failed');
+              }
+            } catch (err) { fail((err as Error).message); }
+          }
+        }
+      } else {
+        info('Skipped. Use /sms in the shell anytime.');
+      }
+    } else {
+      info('Skipped. Add a phone number anytime with /sms in the shell.');
+    }
+  }
+
+  log('');
+
+  // ── Step 5: Configure OpenClaw ──────────────────────────────────
+  log(`  ${c.bold('Step 5 of 6')} ${c.dim('—')} ${c.bold('Installing plugin + configuring OpenClaw')}`);
   log('');
 
   // Resolve the @agenticmail/openclaw plugin directory
@@ -1745,7 +2082,7 @@ async function cmdOpenClaw() {
 
   // ── Step 5: Restart OpenClaw gateway ──────────────────────────
   log('');
-  log(`  ${c.bold('Step 5 of 5')} ${c.dim('—')} ${c.bold('Restarting OpenClaw gateway')}`);
+  log(`  ${c.bold('Step 6 of 6')} ${c.dim('—')} ${c.bold('Restarting OpenClaw gateway')}`);
   log('');
 
   let gatewayRestarted = false;
@@ -1802,19 +2139,67 @@ async function cmdOpenClaw() {
   }
   log(`  ${c.dim('Master Key:')}  ${c.yellow(config.masterKey)}`);
   log(`  ${c.dim('Server:')}      ${c.cyan(apiBase)}`);
+
+  // Show phone number if SMS is configured
+  let smsPhone = '';
+  if (agentApiKey) {
+    try {
+      const smsResp = await fetch(`${apiBase}/api/agenticmail/sms/config`, {
+        headers: { 'Authorization': `Bearer ${agentApiKey}` },
+        signal: AbortSignal.timeout(3_000),
+      });
+      const smsData = await smsResp.json() as any;
+      if (smsData.sms?.enabled && smsData.sms?.phoneNumber) {
+        smsPhone = smsData.sms.phoneNumber;
+        log(`  ${c.dim('Phone:')}      ${c.green(smsPhone)} ${c.dim('via Google Voice')}`);
+      }
+    } catch {}
+  }
+
+  // Also check other agents for phone numbers
+  if (!smsPhone) {
+    try {
+      const acctResp = await fetch(`${apiBase}/api/agenticmail/accounts`, {
+        headers: { 'Authorization': `Bearer ${config.masterKey}` },
+        signal: AbortSignal.timeout(3_000),
+      });
+      const acctData = await acctResp.json() as any;
+      for (const a of (acctData.agents || [])) {
+        const smsConf = a.metadata?.sms;
+        if (smsConf?.enabled && smsConf.phoneNumber) {
+          smsPhone = smsConf.phoneNumber;
+          log(`  ${c.dim('Phone:')}      ${c.green(smsPhone)} ${c.dim('via Google Voice')} ${c.dim('(' + a.name + ')')}`);
+          break;
+        }
+      }
+    } catch {}
+  }
+
   log('');
   if (gatewayRestarted) {
-    log(`  Your agent now has ${c.bold('54 email tools')} available!`);
+    log(`  Your agent now has ${c.bold('63 email + SMS tools')} available!`);
     log(`  Try: ${c.dim('"Send an email to test@example.com"')}`);
     log('');
     log(`  ${c.bold('🎀 AgenticMail Coordination')} ${c.dim('(auto-configured)')}`);
     log(`    Your agent can now use ${c.cyan('agenticmail_call_agent')} to call other agents`);
     log(`    with structured task queues, push notifications, and auto-spawned sessions.`);
     log(`    This replaces sessions_spawn for coordinated multi-agent work.`);
+    log('');
+    if (smsPhone) {
+      log(`  ${c.bold('📱 SMS & Phone Access')} ${c.green('ACTIVE')}`);
+      log(`    Phone: ${c.bold(smsPhone)} via Google Voice`);
+      log(`    Your agent can receive verification codes and send texts.`);
+      log(`    Manage with ${c.cyan('/sms')} in the shell.`);
+    } else {
+      log(`  ${c.bold('📱 SMS & Phone Access')} ${c.dim('(Google Voice)')}`);
+      log(`    Your agent can receive verification codes and send texts.`);
+      log(`    SMS messages are auto-detected from Google Voice email forwarding.`);
+      log(`    Set up with ${c.cyan('/sms')} in the shell or during setup wizard.`);
+    }
   } else {
     log(`  ${c.bold('Next step:')}`);
     log(`    Restart your OpenClaw gateway, then your agent will`);
-    log(`    have ${c.bold('54 email tools')} available!`);
+    log(`    have ${c.bold('63 email + SMS tools')} available!`);
   }
   log('');
 
@@ -2012,6 +2397,107 @@ async function cmdStop() {
   log('');
 }
 
+async function cmdUpdate() {
+  const { execSync } = await import('node:child_process');
+
+  log('');
+  log(`  ${c.dim('─'.repeat(50))}`);
+  log(`  ${c.bold('Update AgenticMail')}`);
+  log('');
+
+  // Current version
+  let currentVersion = 'unknown';
+  try {
+    const { readFileSync } = await import('node:fs');
+    const { join, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const thisDir = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(readFileSync(join(thisDir, '..', 'package.json'), 'utf-8'));
+    currentVersion = pkg.version ?? 'unknown';
+  } catch {}
+  info(`Current version: ${c.bold(currentVersion)}`);
+
+  // Latest version
+  let latestVersion = 'unknown';
+  try {
+    latestVersion = execSync('npm view agenticmail version', { encoding: 'utf-8', timeout: 15000 }).trim();
+  } catch {
+    fail('Could not check npm. Check your internet connection.');
+    process.exit(1);
+  }
+  info(`Latest version:  ${c.bold(latestVersion)}`);
+
+  if (currentVersion === latestVersion) {
+    ok('Already on the latest version!');
+    log('');
+    process.exit(0);
+  }
+
+  info(`New version available: ${c.yellow(currentVersion)} → ${c.green(latestVersion)}`);
+  log('');
+
+  // OpenClaw compatibility check
+  let hasOpenClaw = false;
+  try {
+    execSync('which openclaw', { stdio: 'ignore', timeout: 5000 });
+    hasOpenClaw = true;
+    const ocVersion = execSync('openclaw --version 2>/dev/null || echo "?"', { encoding: 'utf-8', timeout: 10000 }).trim();
+    info(`OpenClaw detected: ${c.bold(ocVersion)}`);
+  } catch {}
+
+  // Detect package manager
+  let pm = 'npm';
+  try { execSync('pnpm --version', { stdio: 'ignore', timeout: 5000 }); pm = 'pnpm'; } catch {
+    try { execSync('bun --version', { stdio: 'ignore', timeout: 5000 }); pm = 'bun'; } catch {}
+  }
+
+  // Global or local?
+  let isGlobal = false;
+  try {
+    const list = execSync(`npm list -g agenticmail 2>/dev/null`, { encoding: 'utf-8', timeout: 10000 });
+    if (list.includes('agenticmail@')) isGlobal = true;
+  } catch {}
+
+  const scope = isGlobal ? '-g' : '';
+  const installCmd = pm === 'bun'
+    ? `bun add ${scope} agenticmail@latest`.trim()
+    : `${pm} install ${scope} agenticmail@latest`.trim();
+
+  info(`Running: ${c.dim(installCmd)}`);
+  try {
+    execSync(installCmd, { stdio: 'inherit', timeout: 120000 });
+    ok(`Updated to agenticmail@${latestVersion}`);
+  } catch (err) {
+    fail(`Update failed: ${(err as Error).message}`);
+    info(`Try: ${c.green('npm install -g agenticmail@latest')}`);
+    process.exit(1);
+  }
+
+  // Update OpenClaw plugin too
+  if (hasOpenClaw) {
+    const pluginCmd = pm === 'bun'
+      ? `bun add ${scope} @agenticmail/openclaw@latest`.trim()
+      : `${pm} install ${scope} @agenticmail/openclaw@latest`.trim();
+    info(`Updating OpenClaw plugin: ${c.dim(pluginCmd)}`);
+    try {
+      execSync(pluginCmd, { stdio: 'inherit', timeout: 120000 });
+      ok('OpenClaw plugin updated.');
+      try {
+        execSync('openclaw gateway restart', { stdio: 'pipe', timeout: 30000 });
+        ok('OpenClaw gateway restarted.');
+      } catch {
+        info(`Restart OpenClaw: ${c.green('openclaw gateway restart')}`);
+      }
+    } catch {
+      info(`Update plugin manually: ${c.green(pluginCmd)}`);
+    }
+  }
+
+  log('');
+  ok('Update complete!');
+  log('');
+}
+
 // --- Main ---
 
 const command = process.argv[2];
@@ -2032,6 +2518,9 @@ switch (command) {
   case 'openclaw':
     cmdOpenClaw().catch(err => { console.error(err); process.exit(1); });
     break;
+  case 'update':
+    cmdUpdate().catch(err => { console.error(err); process.exit(1); });
+    break;
   case 'help':
   case '--help':
   case '-h':
@@ -2045,6 +2534,7 @@ switch (command) {
     log(`    ${c.green('agenticmail stop')}      Stop the server`);
     log(`    ${c.green('agenticmail status')}    See what's running`);
     log(`    ${c.green('agenticmail openclaw')}  Set up AgenticMail for OpenClaw`);
+    log(`    ${c.green('agenticmail update')}    Update to the latest version`);
     log('');
     process.exit(0);
   default:

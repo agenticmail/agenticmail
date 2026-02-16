@@ -36,7 +36,10 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Internet email connectivity** — two gateway modes to send/receive real email (Gmail relay or custom domain with DKIM/SPF/DMARC).
 - **Security guardrails** — outbound scanning prevents agents from leaking API keys, passwords, or PII. Blocked emails require human approval.
 - **Agent collaboration** — agents can email each other, assign tasks, and make synchronous RPC calls.
-- **Tool integrations** — 54 MCP tools for any AI client, 54 OpenClaw tools, and a 36-command interactive shell.
+- **SMS / Phone number access** — integrate Google Voice for SMS receive/send, verification code extraction, and phone number access for AI agents.
+- **Smart orchestration** — `call_agent` replaces basic sub-agent spawning with auto mode detection, dynamic timeouts, runtime tool discovery, and async execution for long-running tasks.
+- **Tool integrations** — 62 MCP tools for any AI client, 63 OpenClaw tools, and a 43-command interactive shell.
+- **Self-updating** — `agenticmail update` checks npm, verifies OpenClaw compatibility, and updates both packages automatically.
 
 ---
 
@@ -96,12 +99,29 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **DKIM/SPF/DMARC** — automatic DNS setup in domain mode for email authentication
 - **Rate limiting** — configurable per-endpoint rate limits
 
+### SMS / Phone Number Access
+- **Google Voice integration** — give agents a real phone number via Google Voice
+- **Direct Voice web reading** (primary, instant) — reads SMS directly from voice.google.com via browser
+- **Email forwarding** (fallback) — Google Voice forwards SMS to email, agent auto-detects and records them during relay polling
+- **Separate Gmail polling** — for users whose GV Gmail differs from relay email, runs a dedicated IMAP poll
+- **Verification codes** — automatic extraction of OTP/verification codes from SMS (4-8 digit, alphanumeric, Google G-codes)
+- **Send SMS** — record outbound messages, send via Google Voice web automation
+- **Smart setup wizard** — validates Gmail/GV email matching, warns about mismatches, collects separate credentials when needed
+
+### Smart Orchestration (call_agent)
+- **Auto mode detection** — reads task complexity, picks light/standard/full mode automatically
+- **Dynamic timeouts** — 60s for quick tasks, 5+ minutes for deep research, 1 hour for async
+- **Runtime tool discovery** — probes host config for available tools instead of static deny lists
+- **Async execution** — long-running tasks run independently, auto-compact context, email results when done
+- **Structured RPC** — sub-agents return JSON, not raw text
+
 ### Integrations
-- **MCP server** — 54 tools for any MCP-compatible AI client
-- **OpenClaw plugin** — 54 tools with skill definition and system prompt guidelines
+- **MCP server** — 60 tools for any MCP-compatible AI client
+- **OpenClaw plugin** — 63 tools with skill definition and system prompt guidelines
 - **REST API** — 75+ endpoints, OpenAPI-style, Bearer token auth
 - **SSE events** — real-time inbox notifications via Server-Sent Events
-- **Interactive CLI** — 36 shell commands with arrow key navigation, body previews, retry logic
+- **Interactive CLI** — 44 shell commands with arrow key navigation, body previews, retry logic
+- **Self-updating** — `agenticmail update` or `/update` in shell, with OpenClaw compatibility check
 
 ---
 
@@ -111,9 +131,9 @@ AI agents need to communicate with the real world. Email is the universal commun
                   ┌──────────────────────────────────────────────────┐
                   │                    AgenticMail                    │
                   │                                                  │
- AI Client ─MCP─> │  @agenticmail/mcp    (54 tools, stdio transport) │
+ AI Client ─MCP─> │  @agenticmail/mcp    (62 tools, stdio transport) │
                   │       │                                          │
- OpenClaw ─────>  │  @agenticmail/openclaw  (54 tools, plugin)       │
+ OpenClaw ─────>  │  @agenticmail/openclaw  (63 tools, plugin)       │
                   │       │                                          │
  HTTP clients──>  │       ▼                                          │
                   │  @agenticmail/api     (Express, 75+ endpoints)   │
@@ -359,8 +379,8 @@ This is a TypeScript monorepo with 5 packages:
 | [`agenticmail`](./agenticmail) | CLI, setup wizard, interactive shell. Install this to get started. | `npm i -g agenticmail` |
 | [`@agenticmail/core`](./packages/core) | Core SDK — accounts, SMTP/IMAP, gateway, spam filter, outbound guard, storage | `npm i @agenticmail/core` |
 | [`@agenticmail/api`](./packages/api) | Express REST API server with 75+ endpoints | `npm i @agenticmail/api` |
-| [`@agenticmail/mcp`](./packages/mcp) | MCP server with 54 tools for any MCP-compatible AI client | `npm i -g @agenticmail/mcp` |
-| [`@agenticmail/openclaw`](./packages/openclaw) | OpenClaw plugin with 54 tools and skill definition | `openclaw plugin install agenticmail` |
+| [`@agenticmail/mcp`](./packages/mcp) | MCP server with 62 tools for any MCP-compatible AI client | `npm i -g @agenticmail/mcp` |
+| [`@agenticmail/openclaw`](./packages/openclaw) | OpenClaw plugin with 63 tools and skill definition | `openclaw plugin install agenticmail` |
 
 **Dependency graph:**
 ```
@@ -423,7 +443,7 @@ See the [API package README](./packages/api) for complete endpoint documentation
 
 ## MCP Integration
 
-The MCP server exposes 54 tools to any MCP-compatible AI client via stdio transport.
+The MCP server exposes 62 tools to any MCP-compatible AI client via stdio transport.
 
 ### Setup
 
@@ -541,7 +561,7 @@ See the [OpenClaw package README](./packages/openclaw) for the full tool list.
 
 ## Interactive Shell
 
-The CLI includes a full-featured interactive shell with 36+ commands:
+The CLI includes a full-featured interactive shell with 44 commands:
 
 ```
 agenticmail> /inbox
@@ -723,7 +743,7 @@ agenticmail/
 ├── agenticmail/           # CLI facade package (npm: agenticmail)
 │   └── src/
 │       ├── cli.ts         # CLI entry point (setup, start, status)
-│       ├── shell.ts       # Interactive REPL (36 commands)
+│       ├── shell.ts       # Interactive REPL (44 commands)
 │       └── index.ts       # Re-exports from @agenticmail/core
 ├── packages/
 │   ├── core/              # @agenticmail/core
@@ -744,11 +764,11 @@ agenticmail/
 │   ├── mcp/               # @agenticmail/mcp
 │   │   └── src/
 │   │       ├── index.ts   # MCP server entry (stdio transport)
-│   │       ├── tools.ts   # 54 tool definitions and handlers
+│   │       ├── tools.ts   # 61 tool definitions and handlers
 │   │       └── resources.ts
 │   └── openclaw/          # @agenticmail/openclaw
 │       ├── index.ts       # Plugin entry, system prompt
-│       ├── src/tools.ts   # 54 tool definitions and handlers
+│       ├── src/tools.ts   # 61 tool definitions and handlers
 │       └── skill/         # SKILL.md, reference docs, scripts
 ├── docker-compose.yml     # Stalwart mail server
 ├── .env.example           # Environment variable template

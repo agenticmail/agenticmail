@@ -2,7 +2,7 @@
 
 The main package for [AgenticMail](https://github.com/agenticmail/agenticmail) — email infrastructure for AI agents. This is the package you install to get started.
 
-It bundles a setup wizard, API server launcher, and a full interactive shell with 36 commands for managing agents, sending and receiving email, configuring gateways, and more. It also re-exports everything from `@agenticmail/core` so you can use it as an SDK.
+It bundles a setup wizard, API server launcher, and a full interactive shell with 44 commands for managing agents, sending and receiving email, configuring gateways, and more. It also re-exports everything from `@agenticmail/core` so you can use it as an SDK.
 
 ## Install
 
@@ -42,7 +42,11 @@ Running `agenticmail setup` walks you through everything needed to get email wor
 
 3. **Service startup** — starts Docker if needed, ensures Stalwart is running and healthy.
 
-4. **Email connection** — this is where you choose how your agents connect to the outside world:
+4. **Email connection** — this is where you choose how your agents connect to the outside world.
+
+5. **Phone number access (optional)** — set up Google Voice for SMS. Agents can receive verification codes and send texts. The wizard validates Gmail/Google Voice email matching, warns about mismatches, and collects separate credentials when needed. SMS reading prioritizes direct Google Voice web access (instant) with email forwarding as fallback.
+
+6. **OpenClaw integration** — if OpenClaw is detected, automatically registers the plugin.
 
 ### Relay Mode (Recommended for Getting Started)
 
@@ -99,7 +103,7 @@ If the server crashes, you get clear error output showing what went wrong.
 
 ## The Interactive Shell
 
-The shell is the main way to interact with AgenticMail. It provides 36 commands organized by category, with arrow-key navigation, color-coded output, and keyboard shortcuts.
+The shell is the main way to interact with AgenticMail. It provides 44 commands organized by category, with arrow-key navigation, color-coded output, and keyboard shortcuts.
 
 ### Getting Around
 
@@ -182,7 +186,16 @@ The shell is the main way to interact with AgenticMail. It provides 36 commands 
 |---------|-------------|
 | `/help` | Show all available commands with descriptions. |
 | `/clear` | Clear the screen. |
+| `/update` | Check for and install the latest AgenticMail version. Auto-detects OpenClaw and updates both. |
 | `/exit` | Exit the shell (also `/quit`). Stops the server and cleans up. |
+
+### CLI Update Command
+
+```bash
+agenticmail update
+```
+
+Checks npm for the latest version, compares with your current install, and updates in-place. If OpenClaw is detected, it also updates `@agenticmail/openclaw` and restarts the gateway automatically. Works with npm, pnpm, and bun.
 
 ---
 
