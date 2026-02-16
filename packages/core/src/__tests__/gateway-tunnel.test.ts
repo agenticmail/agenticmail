@@ -46,16 +46,20 @@ describe('TunnelManager', () => {
   });
 
   describe('createIngress', () => {
-    it('delegates to cloudflare client', async () => {
+    it('delegates to cloudflare client with apiService option', async () => {
       mockCf.createTunnelRoute.mockResolvedValue(undefined);
       await tunnel.createIngress('t1', 'example.com');
-      expect(mockCf.createTunnelRoute).toHaveBeenCalledWith('t1', 'example.com', 'http://localhost:8080');
+      expect(mockCf.createTunnelRoute).toHaveBeenCalledWith('t1', 'example.com', 'http://localhost:8080', {
+        apiService: 'http://localhost:3100',
+      });
     });
 
-    it('uses custom http port', async () => {
+    it('uses custom http port and api port', async () => {
       mockCf.createTunnelRoute.mockResolvedValue(undefined);
       await tunnel.createIngress('t1', 'example.com', 25, 9090);
-      expect(mockCf.createTunnelRoute).toHaveBeenCalledWith('t1', 'example.com', 'http://localhost:9090');
+      expect(mockCf.createTunnelRoute).toHaveBeenCalledWith('t1', 'example.com', 'http://localhost:9090', {
+        apiService: 'http://localhost:3100',
+      });
     });
   });
 

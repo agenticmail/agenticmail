@@ -69,30 +69,12 @@ describe('DomainPurchaser', () => {
   });
 
   describe('purchase', () => {
-    it('verifies availability then purchases', async () => {
-      mockCf.checkAvailability.mockResolvedValue({ available: true, premium: false });
-      mockCf.purchaseDomain.mockResolvedValue({ domain: 'mybot.com', status: 'pending' });
-
-      const result = await purchaser.purchase('mybot.com');
-      expect(result.domain).toBe('mybot.com');
-      expect(result.status).toBe('pending');
-      expect(mockCf.checkAvailability).toHaveBeenCalledWith('mybot.com');
-      expect(mockCf.purchaseDomain).toHaveBeenCalledWith('mybot.com', true);
+    it('always throws because Cloudflare API does not support programmatic purchases', async () => {
+      await expect(purchaser.purchase('mybot.com')).rejects.toThrow('Cloudflare API does not support domain purchases');
     });
 
-    it('throws when domain is not available', async () => {
-      mockCf.checkAvailability.mockResolvedValue({ available: false, premium: false });
-
-      await expect(purchaser.purchase('taken.com')).rejects.toThrow('not available');
-      expect(mockCf.purchaseDomain).not.toHaveBeenCalled();
-    });
-
-    it('passes autoRenew option through', async () => {
-      mockCf.checkAvailability.mockResolvedValue({ available: true, premium: false });
-      mockCf.purchaseDomain.mockResolvedValue({ domain: 'mybot.com', status: 'pending' });
-
-      await purchaser.purchase('mybot.com', false);
-      expect(mockCf.purchaseDomain).toHaveBeenCalledWith('mybot.com', false);
+    it('throws regardless of autoRenew option', async () => {
+      await expect(purchaser.purchase('mybot.com', false)).rejects.toThrow('Cloudflare API does not support domain purchases');
     });
   });
 

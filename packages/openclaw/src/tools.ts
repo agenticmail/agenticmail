@@ -563,7 +563,7 @@ export function registerTools(
       html: { type: 'string', description: 'HTML body' },
       cc: { type: 'string', description: 'CC recipients' },
       inReplyTo: { type: 'string', description: 'Message-ID to reply to' },
-      references: { type: 'array', description: 'Message-IDs for threading' },
+      references: { type: 'array', items: { type: 'string' }, description: 'Message-IDs for threading' },
       attachments: {
         type: 'array',
         items: {
@@ -943,7 +943,7 @@ export function registerTools(
   reg('agenticmail_batch_delete', {
     description: 'Delete multiple emails by UIDs',
     parameters: {
-      uids: { type: 'array', required: true, description: 'UIDs to delete' },
+      uids: { type: 'array', items: { type: 'number' }, required: true, description: 'UIDs to delete' },
       folder: { type: 'string', description: 'Folder (default: INBOX)' },
     },
     handler: async (params: any) => {
@@ -958,7 +958,7 @@ export function registerTools(
   reg('agenticmail_batch_mark_read', {
     description: 'Mark multiple emails as read',
     parameters: {
-      uids: { type: 'array', required: true, description: 'UIDs to mark as read' },
+      uids: { type: 'array', items: { type: 'number' }, required: true, description: 'UIDs to mark as read' },
       folder: { type: 'string', description: 'Folder (default: INBOX)' },
     },
     handler: async (params: any) => {
@@ -1236,7 +1236,7 @@ export function registerTools(
   reg('agenticmail_purchase_domain', {
     description: 'Search for available domains via Cloudflare Registrar (requires master key). NOTE: Cloudflare API only supports READ access for registrar — domains must be purchased manually. Use this tool to CHECK availability, then direct the user to purchase at https://dash.cloudflare.com/?to=/:account/domain-registration or from Namecheap/other registrars (then point nameservers to Cloudflare).',
     parameters: {
-      keywords: { type: 'array', required: true, description: 'Search keywords' },
+      keywords: { type: 'array', items: { type: 'string' }, required: true, description: 'Search keywords' },
       tld: { type: 'string', description: 'Preferred TLD' },
     },
     handler: async (params: any) => {
@@ -1390,7 +1390,7 @@ export function registerTools(
   reg('agenticmail_batch_mark_unread', {
     description: 'Mark multiple emails as unread',
     parameters: {
-      uids: { type: 'array', required: true, description: 'UIDs to mark as unread' },
+      uids: { type: 'array', items: { type: 'number' }, required: true, description: 'UIDs to mark as unread' },
       folder: { type: 'string', description: 'Folder (default: INBOX)' },
     },
     handler: async (params: any) => {
@@ -1711,7 +1711,7 @@ export function registerTools(
   reg('agenticmail_batch_move', {
     description: 'Move multiple emails to another folder',
     parameters: {
-      uids: { type: 'array', required: true, description: 'UIDs to move' },
+      uids: { type: 'array', items: { type: 'number' }, required: true, description: 'UIDs to move' },
       from: { type: 'string', description: 'Source folder (default: INBOX)' },
       to: { type: 'string', required: true, description: 'Destination folder' },
     },
@@ -1729,7 +1729,7 @@ export function registerTools(
   reg('agenticmail_batch_read', {
     description: 'Read multiple emails at once by UIDs. Returns full parsed content for each. Much more efficient than reading one at a time — saves tokens by batching N reads into 1 call.',
     parameters: {
-      uids: { type: 'array', required: true, description: 'Array of UIDs to read' },
+      uids: { type: 'array', items: { type: 'number' }, required: true, description: 'Array of UIDs to read' },
       folder: { type: 'string', description: 'Folder (default: INBOX)' },
     },
     handler: async (params: any) => {

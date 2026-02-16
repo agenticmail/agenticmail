@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

@@ -14,25 +14,22 @@ describe('DNSConfigurator', () => {
   });
 
   describe('configureForEmail', () => {
-    it('creates MX, SPF, and DMARC records', async () => {
-      const result = await dns.configureForEmail('example.com', 'zone-1');
+    it('creates SPF and DMARC records (MX managed by Email Routing)', async () => {
+      const result = await dns.configureForEmail('example.com', 'zone-1', { serverIp: '1.2.3.4' });
 
-      expect(mockCf.createDnsRecord).toHaveBeenCalledTimes(3);
+      // Only SPF + DMARC are created; MX is managed by Cloudflare Email Routing
+      expect(mockCf.createDnsRecord).toHaveBeenCalledTimes(2);
+
+      // Records array includes the MX entry (informational) + SPF + DMARC
       expect(result.records).toHaveLength(3);
 
-      // MX record
-      const mxCall = mockCf.createDnsRecord.mock.calls[0];
-      expect(mxCall[0]).toBe('zone-1');
-      expect(mxCall[1].type).toBe('MX');
-      expect(mxCall[1].priority).toBe(10);
-
       // SPF record
-      const spfCall = mockCf.createDnsRecord.mock.calls[1];
+      const spfCall = mockCf.createDnsRecord.mock.calls[0];
       expect(spfCall[1].type).toBe('TXT');
       expect(spfCall[1].content).toContain('v=spf1');
 
       // DMARC record
-      const dmarcCall = mockCf.createDnsRecord.mock.calls[2];
+      const dmarcCall = mockCf.createDnsRecord.mock.calls[1];
       expect(dmarcCall[1].type).toBe('TXT');
       expect(dmarcCall[1].name).toBe('_dmarc.example.com');
       expect(dmarcCall[1].content).toContain('v=DMARC1');
@@ -43,25 +40,29 @@ describe('DNSConfigurator', () => {
       const result = await dns.configureForEmail('example.com', 'zone-1', {
         dkimSelector: 'mail',
         dkimPublicKey: 'MIGfMA0GCSq...',
+        serverIp: '1.2.3.4',
       });
 
-      expect(mockCf.createDnsRecord).toHaveBeenCalledTimes(4);
+      // SPF + DMARC + DKIM = 3 createDnsRecord calls
+      expect(mockCf.createDnsRecord).toHaveBeenCalledTimes(3);
+      // Records: MX (informational) + SPF + DMARC + DKIM = 4
       expect(result.records).toHaveLength(4);
 
-      const dkimCall = mockCf.createDnsRecord.mock.calls[3];
+      const dkimCall = mockCf.createDnsRecord.mock.calls[2];
       expect(dkimCall[1].name).toBe('mail._domainkey.example.com');
       expect(dkimCall[1].content).toContain('v=DKIM1');
       expect(dkimCall[1].content).toContain('MIGfMA0GCSq...');
     });
 
     it('does not create DKIM record without key', async () => {
-      await dns.configureForEmail('example.com', 'zone-1');
-      expect(mockCf.createDnsRecord).toHaveBeenCalledTimes(3);
+      await dns.configureForEmail('example.com', 'zone-1', { serverIp: '1.2.3.4' });
+      // Only SPF + DMARC
+      expect(mockCf.createDnsRecord).toHaveBeenCalledTimes(2);
     });
 
     it('returns correct record purposes', async () => {
-      const result = await dns.configureForEmail('example.com', 'zone-1');
-      expect(result.records[0].purpose).toBe('Mail delivery');
+      const result = await dns.configureForEmail('example.com', 'zone-1', { serverIp: '1.2.3.4' });
+      expect(result.records[0].purpose).toContain('Email Worker');
       expect(result.records[1].purpose).toContain('SPF');
       expect(result.records[2].purpose).toContain('DMARC');
     });
