@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/openclaw",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "OpenClaw plugin and skill for AgenticMail",
   "type": "module",
   "main": "dist/index.js",
@@ -14,6 +14,7 @@
   "files": [
     "dist",
     "openclaw.plugin.json",
+    "scripts",
     "skill",
     "README.md",
     "REFERENCE.md",
@@ -27,6 +28,7 @@
   "scripts": {
     "build": "tsup index.ts --format esm --dts --clean",
     "test": "vitest run --passWithNoTests",
+    "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {},
