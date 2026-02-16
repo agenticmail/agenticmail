@@ -3012,10 +3012,93 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
     },
 
     setup: {
-      desc: 'Re-run the setup wizard',
+      desc: 'Set up email connection',
       run: async () => {
         log('');
-        info('Run: agenticmail setup');
+        log(`  ${c.bold('Email Setup')}`);
+        log('');
+        log(`  ${c.cyan('1.')} Gmail`);
+        log(`  ${c.cyan('2.')} Outlook / Hotmail`);
+        log(`  ${c.cyan('3.')} Skip`);
+        log('');
+        const provChoice = await question(`  ${c.dim('>')}: `);
+        if (isBack(provChoice)) { log(''); return; }
+        const ch = provChoice.trim();
+        if (ch === '3') { info('Skipped. You can run /setup anytime.'); log(''); return; }
+
+        let provider: string;
+        if (ch === '1') provider = 'gmail';
+        else if (ch === '2') provider = 'outlook';
+        else { fail('Invalid choice.'); log(''); return; }
+
+        const email = await question(`  ${c.cyan('Your email address:')} `);
+        if (isBack(email) || !email.trim()) { log(''); return; }
+        log('');
+
+        if (provider === 'gmail') {
+          info('You need a Gmail App Password.');
+          info(`Go to ${c.cyan('https://myaccount.google.com/apppasswords')}`);
+          info('Create one and paste it below (spaces are fine).');
+        } else {
+          info('You need an Outlook App Password from your account security settings.');
+        }
+        log('');
+
+        const agentNameInput = await question(`  ${c.cyan('Agent name')} ${c.dim('(secretary)')}: `);
+        if (isBack(agentNameInput)) { log(''); return; }
+        const agentName = agentNameInput.trim() || 'secretary';
+
+        // Retry loop for password (up to 3 attempts)
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const rawPassword = await question(`  ${c.cyan('App password:')} `);
+          if (isBack(rawPassword)) { log(''); return; }
+          const password = rawPassword.replace(/\s+/g, '');
+          if (!password) { fail('Password cannot be empty.'); continue; }
+
+          log('');
+          info('Connecting...');
+
+          try {
+            const resp = await apiFetch('/api/agenticmail/gateway/relay', {
+              method: 'POST',
+              body: JSON.stringify({ provider, email: email.trim(), password, agentName }),
+              signal: AbortSignal.timeout(30_000),
+            });
+
+            if (!resp.ok) {
+              const text = await resp.text();
+              let parsed: any = {};
+              try { parsed = JSON.parse(text); } catch {}
+              const error = parsed.error || text;
+
+              const isAuth = /Username and Password not accepted|Invalid login|Authentication failed|AUTHENTICATIONFAILED|Invalid credentials|535/.test(error);
+              if (isAuth && attempt < 3) {
+                fail('Incorrect email or password.');
+                info(`Let's try again. (attempt ${attempt} of 3)`);
+                log('');
+                continue;
+              }
+              fail(error.slice(0, 200));
+              log('');
+              return;
+            }
+
+            const data = await resp.json() as any;
+            ok('Email connected!');
+            if (data.agent) {
+              ok(`Agent ${c.bold('"' + data.agent.name + '"')} is ready!`);
+              log(`    ${c.dim('Email:')} ${c.cyan(data.agent.subAddress)}`);
+              log(`    ${c.dim('Key:')}   ${c.yellow(data.agent.apiKey)}`);
+              currentAgent = { name: data.agent.name, email: data.agent.email || data.agent.subAddress, apiKey: data.agent.apiKey };
+            }
+            log('');
+            return;
+          } catch (err) {
+            fail(`Connection failed: ${errMsg(err)}`);
+            log('');
+            return;
+          }
+        }
         log('');
       },
     },
