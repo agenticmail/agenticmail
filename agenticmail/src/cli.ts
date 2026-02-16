@@ -771,8 +771,33 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
     } catch { /* ignore */ }
 
     if (!agentApiKey) {
-      info('No agent found — OpenClaw config will be linked when you run setup again after connecting your email.');
-      return;
+      // Auto-create a default agent so OpenClaw can be configured immediately
+      const createSpinner = new Spinner('config', 'Creating default agent...');
+      createSpinner.start();
+      try {
+        const base = `http://${config.api.host}:${config.api.port}`;
+        const createResp = await fetch(`${base}/api/agenticmail/accounts`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.masterKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name: 'secretary', role: 'secretary' }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (createResp.ok) {
+          const agent = await createResp.json() as any;
+          agentApiKey = agent.apiKey;
+          createSpinner.succeed(`Default agent ${c.bold('"secretary"')} created`);
+        } else {
+          const errText = await createResp.text();
+          createSpinner.fail(`Could not create agent: ${errText}`);
+          return;
+        }
+      } catch (err) {
+        createSpinner.fail(`Could not create agent: ${(err as Error).message}`);
+        return;
+      }
     }
 
     const apiUrl = `http://${config.api.host}:${config.api.port}`;
