@@ -432,7 +432,44 @@ async function cmdSetup() {
       process.exit(1);
     }
   } else {
-    ok(`${c.bold('Mail Server')} ${c.dim('— already running')}`);
+    // Stalwart is running — verify our credentials work (may be stale after reinstall)
+    try {
+      const authCheck = await fetch(`${result.config.stalwart.url}/api/principal`, {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(`${result.config.stalwart.adminUser}:${result.config.stalwart.adminPassword}`).toString('base64'),
+        },
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (authCheck.status === 401) {
+        // Credentials mismatch — container has old password (leftover volume after reinstall)
+        const spinner = new Spinner('stalwart', 'Resetting mail server (stale credentials)...');
+        spinner.start();
+        try {
+          const { execFileSync } = await import('node:child_process');
+          // Remove container and its anonymous volumes
+          execFileSync('docker', ['rm', '-f', 'agenticmail-stalwart'], { timeout: 15_000, stdio: 'ignore' });
+          // Find and remove the named volume (project name varies)
+          try {
+            const volumes = execFileSync('docker', ['volume', 'ls', '-q', '--filter', 'name=stalwart-data'],
+              { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+            for (const vol of volumes.split('\n').filter(Boolean)) {
+              execFileSync('docker', ['volume', 'rm', vol], { timeout: 10_000, stdio: 'ignore' });
+            }
+          } catch { /* volume may not exist */ }
+          // Re-create with new credentials
+          await setup.ensureStalwart();
+          spinner.succeed(`${c.bold('Mail Server')} — recreated with fresh credentials`);
+        } catch (err) {
+          spinner.fail(`Couldn't reset mail server: ${(err as Error).message}`);
+          process.exit(1);
+        }
+      } else {
+        ok(`${c.bold('Mail Server')} ${c.dim('— already running')}`);
+      }
+    } catch {
+      // Can't reach Stalwart API — might be starting up, proceed anyway
+      ok(`${c.bold('Mail Server')} ${c.dim('— already running')}`);
+    }
     await new Promise(r => setTimeout(r, 300));
   }
 
