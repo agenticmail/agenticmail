@@ -632,6 +632,31 @@ function printSummary(result: { configPath: string; config: SetupConfig }, exitA
   }
 }
 
+async function restartOpenClawGateway(): Promise<void> {
+  let hasOpenClawCli = false;
+  try {
+    const { execSync } = await import('node:child_process');
+    execSync('which openclaw', { stdio: 'ignore' });
+    hasOpenClawCli = true;
+  } catch { /* not found */ }
+
+  if (hasOpenClawCli) {
+    log('');
+    const restartSpinner = new Spinner('gateway', 'Restarting OpenClaw gateway...');
+    restartSpinner.start();
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('openclaw gateway restart', { stdio: 'pipe', timeout: 30_000 });
+      restartSpinner.succeed('OpenClaw gateway restarted');
+    } catch {
+      restartSpinner.fail('Gateway restart failed');
+      log(`    Run manually: ${c.green('openclaw gateway restart')}`);
+    }
+  } else {
+    info(`Restart OpenClaw to pick up the changes: ${c.green('openclaw gateway restart')}`);
+  }
+}
+
 /**
  * If OpenClaw is installed, register the AgenticMail plugin automatically.
  * Uses the same helpers as `agenticmail openclaw` so the result is identical.
@@ -644,47 +669,44 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
     const raw = readFileSync(openclawConfigPath, 'utf-8');
     const existing = JSON5.parse(raw);
 
+    // Always update @agenticmail/openclaw to latest (ensures schema fixes etc.)
+    const installSpinner = new Spinner('plugin', 'Updating @agenticmail/openclaw...');
+    installSpinner.start();
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('npm i @agenticmail/openclaw@latest', {
+        cwd: homedir(),
+        timeout: 60_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      installSpinner.succeed('Updated @agenticmail/openclaw');
+    } catch (err) {
+      installSpinner.fail(`Could not update: ${(err as Error).message}`);
+    }
+
+    // Find the @agenticmail/openclaw plugin directory
+    let pluginDir = resolveOpenClawPluginDir();
+    if (!pluginDir) {
+      fail('Could not find @agenticmail/openclaw after install');
+      info(`Install manually: ${c.green('npm i @agenticmail/openclaw@latest')}`);
+      return;
+    }
+
     // Check if already registered with a valid API key AND a working plugin path
     const existingEntry = existing.plugins?.entries?.agenticmail;
     if (existingEntry?.config?.apiKey) {
-      // Verify the plugin path actually exists
       const existingPaths: string[] = existing.plugins?.load?.paths ?? [];
       const pluginFound = existingPaths.some((p: string) =>
         existsSync(join(p, 'openclaw.plugin.json'))
       );
       if (pluginFound) {
         ok(`OpenClaw integration already configured`);
+        // Still restart gateway to pick up updated plugin code
+        await restartOpenClawGateway();
         return;
       }
       // Plugin path is missing/broken — fall through to re-configure
     }
-
-    // Find the @agenticmail/openclaw plugin directory — install if missing
-    let pluginDir = resolveOpenClawPluginDir();
-    if (!pluginDir) {
-      const installSpinner = new Spinner('plugin', 'Installing @agenticmail/openclaw...');
-      installSpinner.start();
-      try {
-        const { execSync } = await import('node:child_process');
-        // Install to home dir so it persists (not in npx cache)
-        execSync('npm i @agenticmail/openclaw', {
-          cwd: homedir(),
-          timeout: 60_000,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-        installSpinner.succeed('Installed @agenticmail/openclaw');
-        pluginDir = resolveOpenClawPluginDir();
-      } catch (err) {
-        installSpinner.fail(`Could not install: ${(err as Error).message}`);
-        info(`Install manually: ${c.green('npm i @agenticmail/openclaw')}`);
-        return;
-      }
-    }
-    if (!pluginDir) {
-      fail('Could not find @agenticmail/openclaw after install');
-      return;
-    }
-
     // Get an agent API key from the running server
     let agentApiKey: string | undefined;
     try {
@@ -708,7 +730,7 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
     const updated = mergePluginConfig(existing, apiUrl, config.masterKey, agentApiKey, pluginDir);
     writeFileSync(openclawConfigPath, JSON.stringify(updated, null, 2) + '\n');
 
-    if (pluginDir) ok(`Plugin found: ${c.cyan(pluginDir)}`);
+    ok(`Plugin found: ${c.cyan(pluginDir)}`);
     ok(`OpenClaw config updated: ${c.cyan(openclawConfigPath)}`);
 
     // Check if hooks were newly enabled
@@ -717,28 +739,7 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
     }
 
     // Restart OpenClaw gateway so it picks up the plugin immediately
-    let hasOpenClawCli = false;
-    try {
-      const { execSync } = await import('node:child_process');
-      execSync('which openclaw', { stdio: 'ignore' });
-      hasOpenClawCli = true;
-    } catch { /* not found */ }
-
-    if (hasOpenClawCli) {
-      log('');
-      const restartSpinner = new Spinner('gateway', 'Restarting OpenClaw gateway...');
-      restartSpinner.start();
-      try {
-        const { execSync } = await import('node:child_process');
-        execSync('openclaw gateway restart', { stdio: 'pipe', timeout: 30_000 });
-        restartSpinner.succeed('OpenClaw gateway restarted');
-      } catch {
-        restartSpinner.fail('Gateway restart failed');
-        log(`    Run manually: ${c.green('openclaw gateway restart')}`);
-      }
-    } else {
-      info(`Restart OpenClaw to pick up the changes: ${c.green('openclaw gateway restart')}`);
-    }
+    await restartOpenClawGateway();
   } catch {
     // Don't fail setup if OpenClaw integration fails
   }

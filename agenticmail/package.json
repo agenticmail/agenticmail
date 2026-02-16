@@ -1,6 +1,6 @@
 {
   "name": "agenticmail",
-  "version": "0.3.18",
+  "version": "0.3.19",
   "description": "Email infrastructure for AI agents — send and receive real email programmatically",
   "type": "module",
   "main": "dist/index.js",
