@@ -457,24 +457,8 @@ async function cmdSetup() {
   // Step 4: Email connection
   log(`  ${c.bold('Step 4 of 4')} ${c.dim('—')} ${c.bold('Connect your email')}`);
   log('');
-  log(`  How should your AI agent send and receive email?`);
-  log('');
-  log(`  ${c.cyan('1.')} Use my Gmail or Outlook`);
-  log(`     ${c.dim('Easiest option — connect your existing email account.')}`);
-  log(`     ${c.dim('Your agent emails as you+agent@gmail.com')}`);
-  log('');
-  log(`  ${c.cyan('2.')} Use my own domain`);
-  log(`     ${c.dim('Your agent gets a custom address like agent@yourcompany.com')}`);
-  log(`     ${c.dim('Requires a Cloudflare account and a domain.')}`);
-  log('');
-  log(`  ${c.cyan('3.')} Skip for now`);
-  log(`     ${c.dim('You can always set this up later.')}`);
-  log('');
 
-  const choice = await pick(`  ${c.magenta('>')} `, ['1', '2', '3']);
-  log('');
-
-  // Start the API server (needed for email config, and we'll keep it running)
+  // Start the API server first (needed to check gateway status + email config)
   const serverSpinner = new Spinner('server', 'Starting the server...');
   serverSpinner.start();
 
@@ -532,6 +516,65 @@ async function cmdSetup() {
     }
   }
 
+  // Check if there's already an email connection configured
+  let existingEmail: string | null = null;
+  let existingProvider: string | null = null;
+  if (serverReady) {
+    try {
+      const base = `http://${result.config.api.host}:${result.config.api.port}`;
+      const statusResp = await fetch(`${base}/api/agenticmail/gateway/status`, {
+        headers: { 'Authorization': `Bearer ${result.config.masterKey}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (statusResp.ok) {
+        const status = await statusResp.json() as any;
+        if (status.mode === 'relay' && status.relay?.email) {
+          existingEmail = status.relay.email;
+          existingProvider = status.relay.provider || 'custom';
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  let choice: string;
+
+  if (existingEmail) {
+    const provLabel = existingProvider === 'gmail' ? 'Gmail' : existingProvider === 'outlook' ? 'Outlook' : existingProvider;
+    log('');
+    ok(`Email already connected: ${c.cyan(existingEmail)} ${c.dim(`(${provLabel})`)}`);
+    log('');
+    log(`  ${c.cyan('1.')} Keep current email`);
+    log(`  ${c.cyan('2.')} Remove and connect a different email`);
+    log(`  ${c.cyan('3.')} Set up a custom domain instead`);
+    log('');
+    const existChoice = await pick(`  ${c.magenta('>')} `, ['1', '2', '3']);
+    if (existChoice === '1') {
+      choice = '3'; // skip — keep existing
+      log('');
+      ok(`Keeping ${c.cyan(existingEmail)}`);
+    } else if (existChoice === '3') {
+      choice = '2'; // domain setup
+    } else {
+      choice = '1'; // relay setup (replace)
+    }
+  } else {
+    log(`  How should your AI agent send and receive email?`);
+    log('');
+    log(`  ${c.cyan('1.')} Use my Gmail or Outlook`);
+    log(`     ${c.dim('Easiest option — connect your existing email account.')}`);
+    log(`     ${c.dim('Your agent emails as you+agent@gmail.com')}`);
+    log('');
+    log(`  ${c.cyan('2.')} Use my own domain`);
+    log(`     ${c.dim('Your agent gets a custom address like agent@yourcompany.com')}`);
+    log(`     ${c.dim('Requires a Cloudflare account and a domain.')}`);
+    log('');
+    log(`  ${c.cyan('3.')} Skip for now`);
+    log(`     ${c.dim('You can always set this up later.')}`);
+    log('');
+    choice = await pick(`  ${c.magenta('>')} `, ['1', '2', '3']);
+  }
+  log('');
+
   if (choice === '1' || choice === '2') {
     if (!serverReady) {
       info('You can configure email later by running: agenticmail setup');
@@ -546,7 +589,7 @@ async function cmdSetup() {
     } else {
       await setupDomain(result.config);
     }
-  } else {
+  } else if (!existingEmail) {
     info('No problem! You can set up email anytime by running this again.');
   }
 
