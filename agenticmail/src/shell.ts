@@ -3070,6 +3070,49 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
         log('');
         log(`  ${c.bold('Email Setup')}`);
         log('');
+
+        // Check if there's already a relay configured
+        let existingEmail: string | null = null;
+        let existingProvider: string | null = null;
+        try {
+          const statusResp = await apiFetch('/api/agenticmail/gateway/status');
+          if (statusResp.ok) {
+            const status = await statusResp.json() as any;
+            if (status.mode === 'relay' && status.relay?.email) {
+              existingEmail = status.relay.email;
+              existingProvider = status.relay.provider || 'custom';
+            }
+          }
+        } catch { /* ignore — proceed with fresh setup */ }
+
+        if (existingEmail) {
+          const provLabel = existingProvider === 'gmail' ? 'Gmail' : existingProvider === 'outlook' ? 'Outlook' : existingProvider;
+          log(`  ${c.dim('Currently connected:')} ${c.cyan(existingEmail)} ${c.dim(`(${provLabel})`)}`);
+          log('');
+          log(`  ${c.green('[1]')} Keep current email`);
+          log(`  ${c.green('[2]')} Remove and connect a different email`);
+          log(`  ${c.green('[3]')} Set up a custom domain`);
+          log('');
+          const existChoice = await question(`  ${c.dim('>')}: `);
+          if (isBack(existChoice)) { log(''); return; }
+          const ec = existChoice.trim();
+          if (ec === '1' || !ec) {
+            ok(`Keeping ${c.cyan(existingEmail)}`);
+            log('');
+            return;
+          }
+          if (ec === '3') {
+            info('Custom domain setup is available via the API.');
+            info(`Run: ${c.cyan('POST /api/agenticmail/gateway/domain')}`);
+            info('You need a Cloudflare account with API token and account ID.');
+            log('');
+            return;
+          }
+          if (ec !== '2') { fail('Invalid choice.'); log(''); return; }
+          // ec === '2' — fall through to fresh setup below
+          log('');
+        }
+
         log(`  ${c.cyan('1.')} Gmail`);
         log(`  ${c.cyan('2.')} Outlook / Hotmail`);
         log(`  ${c.cyan('3.')} Skip`);
