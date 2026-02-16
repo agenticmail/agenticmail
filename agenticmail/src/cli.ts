@@ -644,14 +644,28 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
     const raw = readFileSync(openclawConfigPath, 'utf-8');
     const existing = JSON5.parse(raw);
 
-    // Check if already registered with a valid API key
-    if (existing.plugins?.entries?.agenticmail?.config?.apiKey) {
-      ok(`OpenClaw integration already configured`);
-      return;
+    // Check if already registered with a valid API key AND a working plugin path
+    const existingEntry = existing.plugins?.entries?.agenticmail;
+    if (existingEntry?.config?.apiKey) {
+      // Verify the plugin path actually exists
+      const existingPaths: string[] = existing.plugins?.load?.paths ?? [];
+      const pluginFound = existingPaths.some((p: string) =>
+        existsSync(join(p, 'openclaw.plugin.json'))
+      );
+      if (pluginFound) {
+        ok(`OpenClaw integration already configured`);
+        return;
+      }
+      // Plugin path is missing/broken — fall through to re-configure
     }
 
     // Find the @agenticmail/openclaw plugin directory
     const pluginDir = resolveOpenClawPluginDir();
+    if (!pluginDir) {
+      info(`Install the OpenClaw plugin first: ${c.green('npm i @agenticmail/openclaw')}`);
+      info(`Then run: ${c.green('agenticmail openclaw')}`);
+      return;
+    }
 
     // Get an agent API key from the running server
     let agentApiKey: string | undefined;
@@ -1083,30 +1097,60 @@ async function setupDomain(config: SetupConfig) {
  * Tries node_modules lookup, then relative paths from CLI binary.
  */
 function resolveOpenClawPluginDir(): string | null {
+  const pluginMarker = 'openclaw.plugin.json';
+  const pkgPath = join('node_modules', '@agenticmail', 'openclaw');
+
   // Strategy 1: Walk up from CLI binary to find node_modules/@agenticmail/openclaw
   const thisDir = dirname(fileURLToPath(import.meta.url));
   let dir = thisDir;
   for (let i = 0; i < 10; i++) {
-    const candidate = join(dir, 'node_modules', '@agenticmail', 'openclaw');
-    if (existsSync(join(candidate, 'openclaw.plugin.json'))) return realpathSync(candidate);
+    const candidate = join(dir, pkgPath);
+    if (existsSync(join(candidate, pluginMarker))) return realpathSync(candidate);
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
 
   // Strategy 2: Relative to CLI binary (monorepo layout — dist/ or src/)
-  const candidates = [
+  const monorepo = [
     join(thisDir, '..', '..', 'packages', 'openclaw'),
     join(thisDir, '..', 'packages', 'openclaw'),
   ];
-  for (const p of candidates) {
-    if (existsSync(join(p, 'openclaw.plugin.json'))) return p;
+  for (const p of monorepo) {
+    if (existsSync(join(p, pluginMarker))) return p;
   }
 
-  // Strategy 3: Check global npm prefix
+  // Strategy 3: User's CWD and home directory node_modules
+  // (covers `npm i @agenticmail/openclaw` from ~ or project dir via npx)
+  const userDirs = [
+    join(process.cwd(), pkgPath),
+    join(homedir(), pkgPath),
+  ];
+  for (const p of userDirs) {
+    if (existsSync(join(p, pluginMarker))) {
+      try { return realpathSync(p); } catch { return p; }
+    }
+  }
+
+  // Strategy 4: Global npm prefix (npm i -g @agenticmail/openclaw)
   try {
-    const require = createRequire(import.meta.url);
-    const resolved = require.resolve('@agenticmail/openclaw/openclaw.plugin.json');
+    const cp = createRequire(import.meta.url)('node:child_process');
+    const prefix = cp.execSync('npm prefix -g', { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    const globalCandidates = [
+      join(prefix, 'lib', pkgPath),
+      join(prefix, pkgPath),
+    ];
+    for (const p of globalCandidates) {
+      if (existsSync(join(p, pluginMarker))) {
+        try { return realpathSync(p); } catch { return p; }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Strategy 5: createRequire resolution
+  try {
+    const req = createRequire(import.meta.url);
+    const resolved = req.resolve('@agenticmail/openclaw/openclaw.plugin.json');
     return dirname(resolved);
   } catch { /* not resolvable */ }
 
