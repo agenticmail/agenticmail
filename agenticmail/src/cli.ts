@@ -634,65 +634,27 @@ function printSummary(result: { configPath: string; config: SetupConfig }, exitA
 
 /**
  * If OpenClaw is installed, register the AgenticMail plugin automatically.
- * Writes to ~/.openclaw/openclaw.json so OpenClaw discovers AgenticMail on next start.
+ * Uses the same helpers as `agenticmail openclaw` so the result is identical.
  */
 async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
-  const openclawConfig = join(homedir(), '.openclaw', 'openclaw.json');
-  if (!existsSync(openclawConfig)) return; // OpenClaw not installed
+  const openclawConfigPath = findOpenClawConfig();
+  if (!openclawConfigPath) return; // OpenClaw not installed
 
   try {
-    const raw = readFileSync(openclawConfig, 'utf8');
-    const ocConfig = JSON.parse(raw);
+    const raw = readFileSync(openclawConfigPath, 'utf-8');
+    const existing = JSON5.parse(raw);
 
-    // Check if already registered
-    if (ocConfig.plugins?.entries?.agenticmail?.config?.apiKey) {
+    // Check if already registered with a valid API key
+    if (existing.plugins?.entries?.agenticmail?.config?.apiKey) {
       ok(`OpenClaw integration already configured`);
       return;
     }
 
-    // Find where @agenticmail/openclaw is installed
-    let pluginPath: string | null = null;
-    try {
-      const resolved = import.meta.resolve('@agenticmail/openclaw');
-      const resolvedPath = fileURLToPath(resolved);
-      // Go up from dist/index.js to the package root
-      pluginPath = dirname(dirname(resolvedPath));
-    } catch { /* not resolvable via import.meta */ }
-
-    if (!pluginPath) {
-      // Walk up from this script to find node_modules/@agenticmail/openclaw
-      const thisDir = dirname(fileURLToPath(import.meta.url));
-      let dir = thisDir;
-      for (let i = 0; i < 10; i++) {
-        const candidate = join(dir, 'node_modules', '@agenticmail', 'openclaw');
-        if (existsSync(join(candidate, 'package.json'))) { pluginPath = candidate; break; }
-        const parent = dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-      }
-    }
-
-    if (!pluginPath) {
-      // Check global npm prefix
-      try {
-        const { execSync } = await import('node:child_process');
-        const prefix = execSync('npm prefix -g', { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-        const globalCandidate = join(prefix, 'lib', 'node_modules', '@agenticmail', 'openclaw');
-        if (existsSync(join(globalCandidate, 'package.json'))) pluginPath = globalCandidate;
-        if (!pluginPath) {
-          const globalCandidate2 = join(prefix, 'node_modules', '@agenticmail', 'openclaw');
-          if (existsSync(join(globalCandidate2, 'package.json'))) pluginPath = globalCandidate2;
-        }
-      } catch { /* ignore */ }
-    }
-
-    if (!pluginPath) return; // @agenticmail/openclaw not installed, skip silently
-
-    // Resolve symlinks to get the real path
-    try { pluginPath = realpathSync(pluginPath); } catch { /* keep as-is */ }
+    // Find the @agenticmail/openclaw plugin directory
+    const pluginDir = resolveOpenClawPluginDir();
 
     // Get an agent API key from the running server
-    let apiKey = '';
+    let agentApiKey: string | undefined;
     try {
       const base = `http://${config.api.host}:${config.api.port}`;
       const resp = await fetch(`${base}/api/agenticmail/accounts`, {
@@ -702,38 +664,25 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
       if (resp.ok) {
         const data = await resp.json() as any;
         const agents = data.agents || data || [];
-        if (agents.length > 0) {
-          apiKey = agents[0].apiKey;
-        }
+        if (agents.length > 0) agentApiKey = agents[0].apiKey;
       }
     } catch { /* ignore */ }
 
-    if (!apiKey) return; // No agents yet, can't configure
+    if (!agentApiKey) return; // No agents yet, can't configure
 
-    // Build the plugin config
-    if (!ocConfig.plugins) ocConfig.plugins = {};
-    if (!ocConfig.plugins.load) ocConfig.plugins.load = {};
-    if (!ocConfig.plugins.load.paths) ocConfig.plugins.load.paths = [];
-    if (!ocConfig.plugins.entries) ocConfig.plugins.entries = {};
+    const apiUrl = `http://${config.api.host}:${config.api.port}`;
 
-    // Add plugin path if not already present
-    if (!ocConfig.plugins.load.paths.includes(pluginPath)) {
-      ocConfig.plugins.load.paths.push(pluginPath);
+    // Use the same mergePluginConfig as `agenticmail openclaw` — identical output
+    const updated = mergePluginConfig(existing, apiUrl, config.masterKey, agentApiKey, pluginDir);
+    writeFileSync(openclawConfigPath, JSON.stringify(updated, null, 2) + '\n');
+
+    if (pluginDir) ok(`Plugin found: ${c.cyan(pluginDir)}`);
+    ok(`OpenClaw config updated: ${c.cyan(openclawConfigPath)}`);
+
+    // Check if hooks were newly enabled
+    if (!existing?.hooks?.enabled && updated?.hooks?.enabled) {
+      ok(`${c.bold('Agent auto-spawn')} enabled — call_agent will auto-create sessions`);
     }
-
-    // Add plugin entry
-    ocConfig.plugins.entries.agenticmail = {
-      enabled: true,
-      config: {
-        apiUrl: `http://${config.api.host}:${config.api.port}`,
-        apiKey,
-        masterKey: config.masterKey,
-      },
-    };
-
-    writeFileSync(openclawConfig, JSON.stringify(ocConfig, null, 2) + '\n', 'utf8');
-    ok(`OpenClaw config updated: ${c.cyan(openclawConfig)}`);
-    if (pluginPath) ok(`Plugin found: ${c.cyan(pluginPath)}`);
 
     // Restart OpenClaw gateway so it picks up the plugin immediately
     let hasOpenClawCli = false;
