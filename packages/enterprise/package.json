@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/enterprise",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AgenticMail Enterprise — cloud-hosted AI agent identity, email, auth & compliance for organizations",
   "type": "module",
   "bin": {
@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts --format esm",
+    "build": "tsup src/index.ts src/cli.ts --format esm --external better-sqlite3 --external mongodb --external mysql2 --external @libsql/client --external @aws-sdk/client-dynamodb --external @aws-sdk/lib-dynamodb && mkdir -p dist/dashboard && cp src/dashboard/index.html dist/dashboard/",
     "dev": "tsx src/cli.ts"
   },
   "keywords": [

@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgenticMail Enterprise</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f; --surface: #12121a; --border: #1e1e2e; --border-hover: #2e2e4e;
+      --text: #e4e4ef; --text-dim: #8888a0; --text-muted: #55556a;
+      --primary: #6366f1; --primary-hover: #818cf8; --primary-dim: rgba(99,102,241,0.15);
+      --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;
+      --radius: 8px; --radius-lg: 12px;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+    #root { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+    .sidebar-logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+    .sidebar-logo h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+    .sidebar-logo span { color: var(--primary); }
+    .sidebar-logo p { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; font-size: 13px; color: var(--text-dim); cursor: pointer; transition: all 0.15s; border: none; background: none; width: 100%; text-align: left; }
+    .nav-item:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+    .nav-item.active { color: var(--primary); background: var(--primary-dim); border-right: 2px solid var(--primary); }
+    .nav-section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 16px 20px 6px; }
+
+    /* Main content */
+    .main { flex: 1; margin-left: 240px; padding: 32px; max-width: 1200px; }
+    .page-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.02em; }
+    .page-desc { font-size: 13px; color: var(--text-dim); margin-bottom: 24px; }
+
+    /* Cards */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+    .card-title { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Stats grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
+    .stat-card .label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
+    .stat-card .value.primary { color: var(--primary); }
+    .stat-card .value.success { color: var(--success); }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 12px; color: var(--text-muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+    td { padding: 12px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* Badge */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: rgba(34,197,94,0.15); color: var(--success); }
+    .badge-archived { background: rgba(136,136,160,0.15); color: var(--text-dim); }
+    .badge-suspended { background: rgba(239,68,68,0.15); color: var(--danger); }
+    .badge-owner { background: rgba(245,158,11,0.15); color: var(--warning); }
+    .badge-admin { background: rgba(99,102,241,0.15); color: var(--primary); }
+    .badge-member { background: rgba(136,136,160,0.1); color: var(--text-dim); }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); transition: all 0.15s; }
+    .btn:hover { border-color: var(--border-hover); background: rgba(255,255,255,0.05); }
+    .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-danger { color: var(--danger); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    /* Input */
+    .input { padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; width: 100%; outline: none; transition: border-color 0.15s; }
+    .input:focus { border-color: var(--primary); }
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+    select.input { appearance: none; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; width: 440px; max-width: 90vw; }
+    .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+    /* Audit log */
+    .audit-item { padding: 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .audit-item:last-child { border-bottom: none; }
+    .audit-time { font-size: 11px; color: var(--text-muted); }
+    .audit-action { color: var(--primary); font-weight: 500; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 20px; font-size: 13px; z-index: 200; animation: slideUp 0.2s ease; }
+    .toast.success { border-color: var(--success); }
+    .toast.error { border-color: var(--danger); }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Empty state */
+    .empty { text-align: center; padding: 48px 20px; color: var(--text-muted); }
+    .empty-icon { font-size: 32px; margin-bottom: 8px; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .sidebar { width: 60px; }
+      .sidebar-logo h1, .sidebar-logo p, .nav-item span, .nav-section { display: none; }
+      .nav-item { justify-content: center; padding: 12px; }
+      .main { margin-left: 60px; padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script>
+    const { useState, useEffect, useCallback, createElement: h, Fragment } = React;
+
+    // ─── API Client ─────────────────────────────────────
+    const API_BASE = '/api';
+    let authToken = localStorage.getItem('am_token');
+
+    async function api(path, opts = {}) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const resp = await fetch(`${API_BASE}${path}`, { ...opts, headers: { ...headers, ...opts.headers } });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    // ─── Toast ──────────────────────────────────────────
+    function Toast({ message, type, onDone }) {
+      useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t); }, []);
+      return h('div', { className: `toast ${type}` }, message);
+    }
+
+    // ─── Login ──────────────────────────────────────────
+    function LoginPage({ onLogin }) {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      async function handleSubmit(e) {
+        e.preventDefault();
+        setLoading(true); setError('');
+        try {
+          const data = await fetch('/auth/login', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+          }).then(r => r.json());
+          if (data.error) throw new Error(data.error);
+          authToken = data.token;
+          localStorage.setItem('am_token', data.token);
+          onLogin(data.user);
+        } catch (err) { setError(err.message); }
+        setLoading(false);
+      }
+
+      return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: 20 } },
+        h('form', { onSubmit: handleSubmit, style: { width: 360 } },
+          h('div', { style: { textAlign: 'center', marginBottom: 32 } },
+            h('h1', { style: { fontSize: 20, fontWeight: 700 } }, '🏢 ', h('span', { style: { color: 'var(--primary)' } }, 'AgenticMail'), ' Enterprise'),
+            h('p', { style: { fontSize: 13, color: 'var(--text-dim)', marginTop: 4 } }, 'Sign in to your dashboard'),
+          ),
+          error && h('div', { style: { background: 'rgba(239,68,68,0.1)', border: '1px solid var(--danger)', borderRadius: 'var(--radius)', padding: '8px 12px', marginBottom: 16, fontSize: 13, color: 'var(--danger)' } }, error),
+          h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Email'), h('input', { className: 'input', type: 'email', value: email, onChange: e => setEmail(e.target.value), required: true, autoFocus: true })),
+          h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Password'), h('input', { className: 'input', type: 'password', value: password, onChange: e => setPassword(e.target.value), required: true })),
+          h('button', { className: 'btn btn-primary', type: 'submit', disabled: loading, style: { width: '100%', justifyContent: 'center', marginTop: 8 } }, loading ? 'Signing in...' : 'Sign In'),
+        )
+      );
+    }
+
+    // ─── Modal ──────────────────────────────────────────
+    function Modal({ title, children, onClose, actions }) {
+      return h('div', { className: 'modal-overlay', onClick: e => e.target === e.currentTarget && onClose() },
+        h('div', { className: 'modal' },
+          h('div', { className: 'modal-title' }, title),
+          children,
+          actions && h('div', { className: 'modal-actions' }, actions),
+        )
+      );
+    }
+
+    // ─── Dashboard Page ─────────────────────────────────
+    function DashboardPage() {
+      const [stats, setStats] = useState(null);
+      const [audit, setAudit] = useState([]);
+      useEffect(() => {
+        api('/stats').then(setStats).catch(() => {});
+        api('/audit?limit=10').then(d => setAudit(d.events || [])).catch(() => {});
+      }, []);
+      if (!stats) return h('div', { className: 'page-desc' }, 'Loading...');
+      return h(Fragment, null,
+        h('h2', { className: 'page-title' }, 'Dashboard'),
+        h('p', { className: 'page-desc' }, 'Overview of your AgenticMail instance'),
+        h('div', { className: 'stats-grid' },
+          h('div', { className: 'stat-card' }, h('div', { className: 'label' }, 'Total Agents'), h('div', { className: 'value primary' }, stats.totalAgents)),
+          h('div', { className: 'stat-card' }, h('div', { className: 'label' }, 'Active Agents'), h('div', { className: 'value success' }, stats.activeAgents)),
+          h('div', { className: 'stat-card' }, h('div', { className: 'label' }, 'Users'), h('div', { className: 'value' }, stats.totalUsers)),
+          h('div', { className: 'stat-card' }, h('div', { className: 'label' }, 'Audit Events'), h('div', { className: 'value' }, stats.totalAuditEvents)),
+        ),
+        h('div', { className: 'card' },
+          h('div', { className: 'card-title' }, 'Recent Activity'),
+          audit.length === 0
+            ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '📋'), 'No activity yet')
+            : audit.map(e => h('div', { className: 'audit-item', key: e.id },
+                h('span', { className: 'audit-action' }, e.action), ' on ', h('span', null, e.resource),
+                h('div', { className: 'audit-time' }, new Date(e.timestamp).toLocaleString(), e.ip ? ` · ${e.ip}` : ''),
+              ))
+        ),
+      );
+    }
+
+    // ─── Agents Page ────────────────────────────────────
+    function AgentsPage({ showToast }) {
+      const [agents, setAgents] = useState([]);
+      const [showCreate, setShowCreate] = useState(false);
+      const [form, setForm] = useState({ name: '', email: '', role: 'assistant' });
+      const [loading, setLoading] = useState(false);
+
+      const load = useCallback(() => { api('/agents').then(d => setAgents(d.agents || [])).catch(() => {}); }, []);
+      useEffect(load, []);
+
+      async function handleCreate(e) {
+        e.preventDefault(); setLoading(true);
+        try {
+          await api('/agents', { method: 'POST', body: JSON.stringify(form) });
+          showToast('Agent created', 'success');
+          setShowCreate(false); setForm({ name: '', email: '', role: 'assistant' }); load();
+        } catch (err) { showToast(err.message, 'error'); }
+        setLoading(false);
+      }
+
+      async function archiveAgent(id) {
+        try { await api(`/agents/${id}/archive`, { method: 'POST' }); showToast('Agent archived', 'success'); load(); }
+        catch (err) { showToast(err.message, 'error'); }
+      }
+
+      return h(Fragment, null,
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 } },
+          h('div', null, h('h2', { className: 'page-title' }, 'Agents'), h('p', { className: 'page-desc', style: { marginBottom: 0 } }, 'Manage AI agent identities')),
+          h('button', { className: 'btn btn-primary', onClick: () => setShowCreate(true) }, '+ New Agent'),
+        ),
+        h('div', { className: 'card' },
+          h('div', { className: 'table-wrap' },
+            agents.length === 0
+              ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '🤖'), 'No agents yet')
+              : h('table', null,
+                  h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Email'), h('th', null, 'Role'), h('th', null, 'Status'), h('th', null, 'Created'), h('th', null, ''))),
+                  h('tbody', null, agents.map(a => h('tr', { key: a.id },
+                    h('td', { style: { fontWeight: 600 } }, a.name),
+                    h('td', { style: { color: 'var(--text-dim)' } }, a.email),
+                    h('td', null, a.role),
+                    h('td', null, h('span', { className: `badge badge-${a.status}` }, a.status)),
+                    h('td', { style: { color: 'var(--text-muted)', fontSize: 12 } }, new Date(a.createdAt).toLocaleDateString()),
+                    h('td', null, a.status === 'active' && h('button', { className: 'btn btn-sm btn-danger', onClick: () => archiveAgent(a.id) }, 'Archive')),
+                  )))
+                )
+          )
+        ),
+        showCreate && h(Modal, { title: 'Create Agent', onClose: () => setShowCreate(false),
+          actions: [
+            h('button', { className: 'btn', onClick: () => setShowCreate(false) }, 'Cancel'),
+            h('button', { className: 'btn btn-primary', onClick: handleCreate, disabled: loading }, loading ? 'Creating...' : 'Create'),
+          ] },
+          h('form', { onSubmit: handleCreate },
+            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Name'), h('input', { className: 'input', value: form.name, onChange: e => setForm({ ...form, name: e.target.value }), required: true, autoFocus: true, placeholder: 'e.g. researcher' })),
+            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Email (optional)'), h('input', { className: 'input', value: form.email, onChange: e => setForm({ ...form, email: e.target.value }), placeholder: 'auto-generated if blank' })),
+            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Role'), h('select', { className: 'input', value: form.role, onChange: e => setForm({ ...form, role: e.target.value }) },
+              ['assistant', 'secretary', 'researcher', 'writer', 'custom'].map(r => h('option', { key: r, value: r }, r))
+            )),
+          )
+        ),
+      );
+    }
+
+    // ─── Users Page ─────────────────────────────────────
+    function UsersPage({ showToast }) {
+      const [users, setUsers] = useState([]);
+      const [showCreate, setShowCreate] = useState(false);
+      const [form, setForm] = useState({ email: '', name: '', role: 'member', password: '' });
+      const [loading, setLoading] = useState(false);
+
+      const load = useCallback(() => { api('/users').then(d => setUsers(d.users || [])).catch(() => {}); }, []);
+      useEffect(load, []);
+
+      async function handleCreate(e) {
+        e.preventDefault(); setLoading(true);
+        try {
+          await api('/users', { method: 'POST', body: JSON.stringify(form) });
+          showToast('User created', 'success');
+          setShowCreate(false); setForm({ email: '', name: '', role: 'member', password: '' }); load();
+        } catch (err) { showToast(err.message, 'error'); }
+        setLoading(false);
+      }
+
+      return h(Fragment, null,
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 } },
+          h('div', null, h('h2', { className: 'page-title' }, 'Users'), h('p', { className: 'page-desc', style: { marginBottom: 0 } }, 'Manage team members')),
+          h('button', { className: 'btn btn-primary', onClick: () => setShowCreate(true) }, '+ New User'),
+        ),
+        h('div', { className: 'card' },
+          h('div', { className: 'table-wrap' },
+            users.length === 0
+              ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '👥'), 'No users yet')
+              : h('table', null,
+                  h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Email'), h('th', null, 'Role'), h('th', null, 'Last Login'))),
+                  h('tbody', null, users.map(u => h('tr', { key: u.id },
+                    h('td', { style: { fontWeight: 600 } }, u.name),
+                    h('td', { style: { color: 'var(--text-dim)' } }, u.email),
+                    h('td', null, h('span', { className: `badge badge-${u.role}` }, u.role)),
+                    h('td', { style: { color: 'var(--text-muted)', fontSize: 12 } }, u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'),
+                  )))
+                )
+          )
+        ),
+        showCreate && h(Modal, { title: 'Create User', onClose: () => setShowCreate(false),
+          actions: [
+            h('button', { className: 'btn', onClick: () => setShowCreate(false) }, 'Cancel'),
+            h('button', { className: 'btn btn-primary', onClick: handleCreate, disabled: loading }, loading ? 'Creating...' : 'Create'),
+          ] },
+          h('form', { onSubmit: handleCreate },
+            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Name'), h('input', { className: 'input', value: form.name, onChange: e => setForm({ ...form, name: e.target.value }), required: true, autoFocus: true })),
+            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Email'), h('input', { className: 'input', type: 'email', value: form.email, onChange: e => setForm({ ...form, email: e.target.value }), required: true })),
+            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Role'), h('select', { className: 'input', value: form.role, onChange: e => setForm({ ...form, role: e.target.value }) },
+              ['owner', 'admin', 'member', 'viewer'].map(r => h('option', { key: r, value: r }, r))
+            )),
+            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Password'), h('input', { className: 'input', type: 'password', value: form.password, onChange: e => setForm({ ...form, password: e.target.value }), required: true, minLength: 8 })),
+          )
+        ),
+      );
+    }
+
+    // ─── API Keys Page ──────────────────────────────────
+    function ApiKeysPage({ showToast }) {
+      const [keys, setKeys] = useState([]);
+      const [showCreate, setShowCreate] = useState(false);
+      const [newKeyPlaintext, setNewKeyPlaintext] = useState('');
+      const [form, setForm] = useState({ name: '' });
+      const [loading, setLoading] = useState(false);
+
+      const load = useCallback(() => { api('/api-keys').then(d => setKeys(d.keys || [])).catch(() => {}); }, []);
+      useEffect(load, []);
+
+      async function handleCreate(e) {
+        e.preventDefault(); setLoading(true);
+        try {
+          const data = await api('/api-keys', { method: 'POST', body: JSON.stringify({ name: form.name }) });
+          setNewKeyPlaintext(data.plaintext);
+          showToast('API key created', 'success');
+          setForm({ name: '' }); load();
+        } catch (err) { showToast(err.message, 'error'); }
+        setLoading(false);
+      }
+
+      async function revokeKey(id) {
+        try { await api(`/api-keys/${id}`, { method: 'DELETE' }); showToast('Key revoked', 'success'); load(); }
+        catch (err) { showToast(err.message, 'error'); }
+      }
+
+      return h(Fragment, null,
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 } },
+          h('div', null, h('h2', { className: 'page-title' }, 'API Keys'), h('p', { className: 'page-desc', style: { marginBottom: 0 } }, 'Manage programmatic access')),
+          h('button', { className: 'btn btn-primary', onClick: () => setShowCreate(true) }, '+ New Key'),
+        ),
+        newKeyPlaintext && h('div', { className: 'card', style: { borderColor: 'var(--warning)', background: 'rgba(245,158,11,0.05)' } },
+          h('div', { style: { fontSize: 13, fontWeight: 600, color: 'var(--warning)', marginBottom: 8 } }, '⚠️ Copy this key now — it won\'t be shown again'),
+          h('code', { style: { display: 'block', background: 'var(--bg)', padding: '10px 14px', borderRadius: 'var(--radius)', fontSize: 13, wordBreak: 'break-all', cursor: 'pointer' }, onClick: () => { navigator.clipboard.writeText(newKeyPlaintext); showToast('Copied!', 'success'); } }, newKeyPlaintext),
+          h('button', { className: 'btn btn-sm', style: { marginTop: 8 }, onClick: () => setNewKeyPlaintext('') }, 'Dismiss'),
+        ),
+        h('div', { className: 'card' },
+          h('div', { className: 'table-wrap' },
+            keys.length === 0
+              ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '🔑'), 'No API keys')
+              : h('table', null,
+                  h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Key Prefix'), h('th', null, 'Scopes'), h('th', null, 'Last Used'), h('th', null, 'Status'), h('th', null, ''))),
+                  h('tbody', null, keys.map(k => h('tr', { key: k.id },
+                    h('td', { style: { fontWeight: 600 } }, k.name),
+                    h('td', null, h('code', { style: { fontSize: 12 } }, k.keyPrefix + '...')),
+                    h('td', { style: { fontSize: 12 } }, (k.scopes || []).join(', ') || '*'),
+                    h('td', { style: { color: 'var(--text-muted)', fontSize: 12 } }, k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : 'Never'),
+                    h('td', null, h('span', { className: `badge ${k.revoked ? 'badge-archived' : 'badge-active'}` }, k.revoked ? 'revoked' : 'active')),
+                    h('td', null, !k.revoked && h('button', { className: 'btn btn-sm btn-danger', onClick: () => revokeKey(k.id) }, 'Revoke')),
+                  )))
+                )
+          )
+        ),
+        showCreate && h(Modal, { title: 'Create API Key', onClose: () => setShowCreate(false),
+          actions: [
+            h('button', { className: 'btn', onClick: () => setShowCreate(false) }, 'Cancel'),
+            h('button', { className: 'btn btn-primary', onClick: handleCreate, disabled: loading }, loading ? 'Creating...' : 'Create'),
+          ] },
+          h('form', { onSubmit: handleCreate },
+            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Key Name'), h('input', { className: 'input', value: form.name, onChange: e => setForm({ ...form, name: e.target.value }), required: true, autoFocus: true, placeholder: 'e.g. CI/CD pipeline' })),
+          )
+        ),
+      );
+    }
+
+    // ─── Audit Page ─────────────────────────────────────
+    function AuditPage() {
+      const [events, setEvents] = useState([]);
+      const [total, setTotal] = useState(0);
+      const [page, setPage] = useState(0);
+      const pageSize = 25;
+
+      useEffect(() => {
+        api(`/audit?limit=${pageSize}&offset=${page * pageSize}`).then(d => { setEvents(d.events || []); setTotal(d.total || 0); }).catch(() => {});
+      }, [page]);
+
+      return h(Fragment, null,
+        h('h2', { className: 'page-title' }, 'Audit Log'),
+        h('p', { className: 'page-desc' }, `${total} total events`),
+        h('div', { className: 'card' },
+          events.length === 0
+            ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '📋'), 'No audit events')
+            : h(Fragment, null,
+                h('div', { className: 'table-wrap' },
+                  h('table', null,
+                    h('thead', null, h('tr', null, h('th', null, 'Time'), h('th', null, 'Actor'), h('th', null, 'Action'), h('th', null, 'Resource'), h('th', null, 'IP'))),
+                    h('tbody', null, events.map(e => h('tr', { key: e.id },
+                      h('td', { style: { fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, new Date(e.timestamp).toLocaleString()),
+                      h('td', null, e.actor),
+                      h('td', null, h('span', { className: 'audit-action' }, e.action)),
+                      h('td', { style: { fontSize: 12 } }, e.resource),
+                      h('td', { style: { fontSize: 12, color: 'var(--text-muted)' } }, e.ip || '-'),
+                    )))
+                  )
+                ),
+                h('div', { style: { display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 } },
+                  h('button', { className: 'btn btn-sm', disabled: page === 0, onClick: () => setPage(p => p - 1) }, '← Prev'),
+                  h('span', { style: { padding: '4px 12px', fontSize: 12, color: 'var(--text-muted)' } }, `Page ${page + 1} of ${Math.ceil(total / pageSize) || 1}`),
+                  h('button', { className: 'btn btn-sm', disabled: (page + 1) * pageSize >= total, onClick: () => setPage(p => p + 1) }, 'Next →'),
+                )
+              )
+        ),
+      );
+    }
+
+    // ─── Settings Page ──────────────────────────────────
+    function SettingsPage({ showToast }) {
+      const [settings, setSettings] = useState(null);
+      const [form, setForm] = useState({});
+      const [retention, setRetention] = useState(null);
+      const [loading, setLoading] = useState(false);
+
+      useEffect(() => {
+        api('/settings').then(d => { setSettings(d); setForm({ name: d.name || '', domain: d.domain || '', primaryColor: d.primaryColor || '#6366f1', logoUrl: d.logoUrl || '' }); }).catch(() => {});
+        api('/retention').then(setRetention).catch(() => {});
+      }, []);
+
+      async function saveSettings(e) {
+        e.preventDefault(); setLoading(true);
+        try { await api('/settings', { method: 'PATCH', body: JSON.stringify(form) }); showToast('Settings saved', 'success'); }
+        catch (err) { showToast(err.message, 'error'); }
+        setLoading(false);
+      }
+
+      if (!settings) return h('div', { className: 'page-desc' }, 'Loading...');
+
+      return h(Fragment, null,
+        h('h2', { className: 'page-title' }, 'Settings'),
+        h('p', { className: 'page-desc' }, 'Configure your organization'),
+        h('div', { className: 'card' },
+          h('div', { className: 'card-title' }, 'General'),
+          h('form', { onSubmit: saveSettings },
+            h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 } },
+              h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Organization Name'), h('input', { className: 'input', value: form.name, onChange: e => setForm({ ...form, name: e.target.value }) })),
+              h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Domain'), h('input', { className: 'input', value: form.domain, onChange: e => setForm({ ...form, domain: e.target.value }), placeholder: 'agents.acme.com' })),
+              h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Primary Color'), h('input', { className: 'input', type: 'color', value: form.primaryColor, onChange: e => setForm({ ...form, primaryColor: e.target.value }), style: { height: 36, padding: 4 } })),
+              h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Logo URL'), h('input', { className: 'input', value: form.logoUrl, onChange: e => setForm({ ...form, logoUrl: e.target.value }), placeholder: 'https://...' })),
+            ),
+            h('button', { className: 'btn btn-primary', type: 'submit', disabled: loading, style: { marginTop: 8 } }, loading ? 'Saving...' : 'Save'),
+          ),
+        ),
+        h('div', { className: 'card' },
+          h('div', { className: 'card-title' }, 'Plan'),
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
+            h('span', { className: 'badge badge-active', style: { fontSize: 14, padding: '4px 12px' } }, (settings.plan || 'free').toUpperCase()),
+            h('span', { style: { fontSize: 13, color: 'var(--text-dim)' } }, `Subdomain: ${settings.subdomain || 'not set'}.agenticmail.cloud`),
+          ),
+        ),
+        retention && h('div', { className: 'card' },
+          h('div', { className: 'card-title' }, 'Data Retention'),
+          h('div', { style: { fontSize: 13 } },
+            h('div', null, 'Status: ', h('span', { style: { color: retention.enabled ? 'var(--success)' : 'var(--text-muted)' } }, retention.enabled ? 'Enabled' : 'Disabled')),
+            h('div', { style: { color: 'var(--text-dim)', marginTop: 4 } }, `Retain emails for ${retention.retainDays} days`, retention.archiveFirst ? ' (archive before delete)' : ''),
+          ),
+        ),
+      );
+    }
+
+    // ─── App ────────────────────────────────────────────
+    const PAGES = {
+      dashboard: { icon: '📊', label: 'Dashboard', component: DashboardPage },
+      agents: { icon: '🤖', label: 'Agents', component: AgentsPage },
+      users: { icon: '👥', label: 'Users', component: UsersPage },
+      'api-keys': { icon: '🔑', label: 'API Keys', component: ApiKeysPage },
+      audit: { icon: '📋', label: 'Audit Log', component: AuditPage },
+      settings: { icon: '⚙️', label: 'Settings', component: SettingsPage },
+    };
+
+    function App() {
+      const [user, setUser] = useState(null);
+      const [page, setPage] = useState('dashboard');
+      const [toast, setToast] = useState(null);
+      const [checkingAuth, setCheckingAuth] = useState(true);
+
+      const showToast = useCallback((message, type = 'success') => setToast({ message, type, key: Date.now() }), []);
+
+      useEffect(() => {
+        if (authToken) {
+          fetch('/auth/me', { headers: { Authorization: `Bearer ${authToken}` } })
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(u => { setUser(u); setCheckingAuth(false); })
+            .catch(() => { localStorage.removeItem('am_token'); authToken = null; setCheckingAuth(false); });
+        } else { setCheckingAuth(false); }
+      }, []);
+
+      if (checkingAuth) return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: 'var(--text-dim)' } }, 'Loading...');
+      if (!user) return h(LoginPage, { onLogin: setUser });
+
+      const PageComponent = PAGES[page]?.component || DashboardPage;
+
+      return h(Fragment, null,
+        h('div', { className: 'sidebar' },
+          h('div', { className: 'sidebar-logo' },
+            h('h1', null, '🏢 ', h('span', null, 'Agentic'), 'Mail'),
+            h('p', null, 'Enterprise'),
+          ),
+          h('div', { className: 'nav-section' }, 'Overview'),
+          Object.entries(PAGES).slice(0, 1).map(([key, { icon, label }]) =>
+            h('button', { key, className: `nav-item ${page === key ? 'active' : ''}`, onClick: () => setPage(key) }, icon, ' ', h('span', null, label))
+          ),
+          h('div', { className: 'nav-section' }, 'Manage'),
+          Object.entries(PAGES).slice(1, 4).map(([key, { icon, label }]) =>
+            h('button', { key, className: `nav-item ${page === key ? 'active' : ''}`, onClick: () => setPage(key) }, icon, ' ', h('span', null, label))
+          ),
+          h('div', { className: 'nav-section' }, 'System'),
+          Object.entries(PAGES).slice(4).map(([key, { icon, label }]) =>
+            h('button', { key, className: `nav-item ${page === key ? 'active' : ''}`, onClick: () => setPage(key) }, icon, ' ', h('span', null, label))
+          ),
+          h('div', { style: { marginTop: 'auto', padding: '16px 20px', borderTop: '1px solid var(--border)', fontSize: 12 } },
+            h('div', { style: { color: 'var(--text-dim)' } }, user.name),
+            h('div', { style: { color: 'var(--text-muted)', fontSize: 11 } }, user.email),
+            h('button', { style: { marginTop: 8, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, padding: 0 },
+              onClick: () => { localStorage.removeItem('am_token'); authToken = null; setUser(null); }
+            }, 'Sign out'),
+          ),
+        ),
+        h('div', { className: 'main' }, h(PageComponent, { showToast })),
+        toast && h(Toast, { ...toast, onDone: () => setToast(null) }),
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>

@@ -9,6 +9,9 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import type { DatabaseAdapter } from './db/adapter.js';
 import { createAdminRoutes } from './admin/routes.js';
 import { createAuthRoutes } from './auth/routes.js';
@@ -104,7 +107,7 @@ export function createServer(config: ServerConfig): ServerInstance {
 
   app.get('/health', (c) => c.json({
     status: 'ok',
-    version: '0.1.0',
+    version: '0.2.0',
     uptime: process.uptime(),
   }));
 
@@ -169,6 +172,30 @@ export function createServer(config: ServerConfig): ServerInstance {
   api.route('/', adminRoutes);
 
   app.route('/api', api);
+
+  // ─── Dashboard (Admin UI) ─────────────────────────────
+
+  let dashboardHtml: string | null = null;
+  function getDashboardHtml(): string {
+    if (!dashboardHtml) {
+      try {
+        const dir = dirname(fileURLToPath(import.meta.url));
+        dashboardHtml = readFileSync(join(dir, 'dashboard', 'index.html'), 'utf-8');
+      } catch {
+        // Fallback: try relative to cwd
+        try {
+          dashboardHtml = readFileSync(join(process.cwd(), 'node_modules', '@agenticmail', 'enterprise', 'dist', 'dashboard', 'index.html'), 'utf-8');
+        } catch {
+          dashboardHtml = '<html><body><h1>Dashboard not found</h1><p>The dashboard HTML file could not be located.</p></body></html>';
+        }
+      }
+    }
+    return dashboardHtml;
+  }
+
+  app.get('/', (c) => c.redirect('/dashboard'));
+  app.get('/dashboard', (c) => c.html(getDashboardHtml()));
+  app.get('/dashboard/*', (c) => c.html(getDashboardHtml()));
 
   // ─── 404 Handler ─────────────────────────────────────
 
