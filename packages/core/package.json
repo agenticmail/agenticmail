@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/core",
-  "version": "0.5.40",
+  "version": "0.5.41",
   "description": "Core SDK for AgenticMail — email, SMS, and phone number access for AI agents",
   "type": "module",
   "main": "dist/index.js",
@@ -8,6 +8,8 @@
   "exports": {
     ".": {
       "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
   },
@@ -18,8 +20,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean",
-    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run build"
