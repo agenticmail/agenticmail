@@ -103,6 +103,8 @@ const c = {
   yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
   cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
   magenta: (s: string) => `\x1b[35m${s}\x1b[0m`,
+  pink: (s: string) => `\x1b[38;5;205m${s}\x1b[0m`,
+  pinkBg: (s: string) => `\x1b[48;5;205m\x1b[97m${s}\x1b[0m`,
   dim: (s: string) => `\x1b[90m${s}\x1b[0m`,
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
   bgGreen: (s: string) => `\x1b[42m\x1b[30m${s}\x1b[0m`,
@@ -184,6 +186,7 @@ class Spinner {
   private msgChangeCounter = 0;
   private category: string;
   private currentMsg: string;
+  private progressPct = -1; // -1 = no progress bar
 
   constructor(category: string, initialMsg?: string) {
     this.category = category;
@@ -195,15 +198,26 @@ class Spinner {
     this.frameIdx = 0;
     this.msgIdx = 0;
     this.msgChangeCounter = 0;
+    this.progressPct = -1;
     const msgs = LOADING_MESSAGES[this.category] ?? LOADING_MESSAGES.general;
 
     this.interval = setInterval(() => {
       const frame = SPINNER_FRAMES[this.frameIdx % SPINNER_FRAMES.length];
-      process.stdout.write(`\r  ${c.cyan(frame)} ${c.yellow(this.currentMsg)}\x1b[K`);
+      if (this.progressPct >= 0) {
+        // Progress bar mode (pink)
+        const barWidth = 20;
+        const filled = Math.round((this.progressPct / 100) * barWidth);
+        const empty = barWidth - filled;
+        const bar = c.pink('█'.repeat(filled)) + c.dim('░'.repeat(empty));
+        const pctStr = c.pink(`${this.progressPct}%`);
+        process.stdout.write(`\r  ${c.pink(frame)} ${bar} ${pctStr} ${c.dim(this.currentMsg)}\x1b[K`);
+      } else {
+        process.stdout.write(`\r  ${c.cyan(frame)} ${c.yellow(this.currentMsg)}\x1b[K`);
+      }
       this.frameIdx++;
       this.msgChangeCounter++;
       // Change message every ~3 seconds (30 ticks at 100ms)
-      if (this.msgChangeCounter >= 30) {
+      if (this.msgChangeCounter >= 30 && this.progressPct < 0) {
         this.msgChangeCounter = 0;
         this.msgIdx = (this.msgIdx + 1) % msgs.length;
         this.currentMsg = msgs[this.msgIdx];
@@ -212,7 +226,14 @@ class Spinner {
   }
 
   update(msg: string): void {
-    this.currentMsg = msg;
+    // Check for progress protocol: __progress__:NN:message
+    const match = msg.match(/^__progress__:(\d+):(.*)$/);
+    if (match) {
+      this.progressPct = Math.min(100, parseInt(match[1], 10));
+      this.currentMsg = match[2];
+    } else {
+      this.currentMsg = msg;
+    }
     this.msgChangeCounter = 0;
   }
 
@@ -448,8 +469,10 @@ async function cmdSetup() {
   {
     const spinner = new Spinner('docker');
     spinner.start();
+    // Create a new SetupManager with progress callback wired to the spinner
+    const dockerSetup = new SetupManager((msg: string) => spinner.update(msg));
     try {
-      await setup.ensureDocker();
+      await dockerSetup.ensureDocker();
       spinner.succeed(`${c.bold('Docker')} — engine running`);
     } catch (err) {
       spinner.fail(`Couldn't start Docker: ${(err as Error).message}`);
@@ -466,8 +489,9 @@ async function cmdSetup() {
   if (!stalwart?.installed) {
     const spinner = new Spinner('stalwart');
     spinner.start();
+    const stalwartSetup = new SetupManager((msg: string) => spinner.update(msg));
     try {
-      await setup.ensureStalwart();
+      await stalwartSetup.ensureStalwart();
       spinner.succeed(`${c.bold('Mail Server')} — up and running!`);
     } catch (err) {
       spinner.fail(`Couldn't start the mail server: ${(err as Error).message}`);

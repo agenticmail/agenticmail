@@ -73,43 +73,115 @@ export class DependencyInstaller {
   }
 
   /**
-   * Attempt to start the Docker daemon.
-   * On macOS: opens Docker Desktop app.
-   * On Linux: tries systemctl.
+   * Attempt to start the Docker daemon using multiple strategies.
+   * On macOS: tries Docker Desktop app, then docker CLI commands.
+   * On Linux: tries systemctl, then dockerd direct, then snap.
    */
-  private startDockerDaemon(): void {
+  private startDockerDaemon(strategy?: string): void {
     const os = platform();
     if (os === 'darwin') {
-      // Try Docker Desktop app
-      try { execFileSync('open', ['-a', 'Docker'], { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
+      switch (strategy) {
+        case 'cli':
+          // Try starting via docker CLI (Docker Desktop may respond to this)
+          try { execSync('docker context use default 2>/dev/null; docker info', { timeout: 5_000, stdio: 'ignore' }); } catch { /* ignore */ }
+          break;
+        case 'reopen':
+          // Force-kill and reopen Docker Desktop
+          try { execSync('osascript -e \'quit app "Docker"\'', { timeout: 5_000, stdio: 'ignore' }); } catch { /* ignore */ }
+          // Small delay for process cleanup
+          try { execFileSync('sleep', ['2'], { timeout: 5_000, stdio: 'ignore' }); } catch { /* ignore */ }
+          try { execFileSync('open', ['-a', 'Docker'], { timeout: 10_000, stdio: 'ignore' }); } catch { /* ignore */ }
+          break;
+        case 'background':
+          // Try launching Docker.app directly via its binary
+          try {
+            const appBin = '/Applications/Docker.app/Contents/MacOS/Docker';
+            if (existsSync(appBin)) {
+              execSync(`"${appBin}" &`, { timeout: 5_000, stdio: 'ignore', shell: 'sh' });
+            }
+          } catch { /* ignore */ }
+          break;
+        default:
+          // Default: open Docker Desktop app
+          try { execFileSync('open', ['-a', 'Docker'], { timeout: 10_000, stdio: 'ignore' }); } catch { /* may already be starting */ }
+      }
     } else if (os === 'linux') {
-      try { execFileSync('sudo', ['systemctl', 'start', 'docker'], { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+      switch (strategy) {
+        case 'snap':
+          try { execFileSync('sudo', ['snap', 'start', 'docker'], { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+          break;
+        case 'service':
+          try { execFileSync('sudo', ['service', 'docker', 'start'], { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+          break;
+        default:
+          try { execFileSync('sudo', ['systemctl', 'start', 'docker'], { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+      }
     }
   }
 
   /**
-   * Wait for Docker daemon to be ready (up to 3 minutes).
-   * Docker Desktop can take 1-2+ minutes on first launch.
+   * Wait for Docker daemon to be ready, with automatic retry strategies.
+   * Tries multiple approaches to start Docker if the first one fails.
+   * Reports progress as a percentage (0-100).
    */
   private async waitForDocker(): Promise<void> {
-    this.onProgress('Waiting for Docker to start (this can take a minute)...');
-    const maxWait = 180_000; // 3 minutes
+    const os = platform();
+    const strategies = os === 'darwin'
+      ? ['default', 'cli', 'reopen', 'background']
+      : ['default', 'service', 'snap'];
+
+    const totalTime = 240_000; // 4 minutes total budget
+    const perStrategyTime = Math.floor(totalTime / strategies.length);
     const start = Date.now();
-    let attempts = 0;
-    while (Date.now() - start < maxWait) {
+    let strategyIdx = 0;
+
+    this.onProgress('__progress__:0:Starting Docker...');
+
+    while (Date.now() - start < totalTime) {
+      // Check if Docker is ready
       try {
         execFileSync('docker', ['info'], { timeout: 5_000, stdio: 'ignore' });
+        this.onProgress('__progress__:100:Docker is ready!');
         return;
       } catch { /* not ready yet */ }
-      attempts++;
-      if (attempts % 5 === 0) {
-        const elapsed = Math.round((Date.now() - start) / 1000);
-        this.onProgress(`Still waiting for Docker to start (${elapsed}s)...`);
+
+      const elapsed = Date.now() - start;
+      const pct = Math.min(95, Math.round((elapsed / totalTime) * 100));
+
+      // Switch to next strategy if current one has had enough time
+      const currentStrategyElapsed = elapsed - (strategyIdx * perStrategyTime);
+      if (currentStrategyElapsed >= perStrategyTime && strategyIdx < strategies.length - 1) {
+        strategyIdx++;
+        const strategy = strategies[strategyIdx];
+        const msgs: Record<string, string> = {
+          cli: 'Trying Docker CLI...',
+          reopen: 'Restarting Docker Desktop...',
+          background: 'Trying direct launch...',
+          service: 'Trying service command...',
+          snap: 'Trying snap...',
+        };
+        this.onProgress(`__progress__:${pct}:${msgs[strategy] || 'Trying another approach...'}`);
+        this.startDockerDaemon(strategy);
+      } else {
+        // Regular progress update
+        const msgs = [
+          'Starting Docker...',
+          'Waiting for Docker engine...',
+          'Docker is loading...',
+          'Almost there...',
+          'Still starting up...',
+          'First launch takes a bit longer...',
+          'Hang tight...',
+        ];
+        const msgIdx = Math.floor(elapsed / 10_000) % msgs.length;
+        this.onProgress(`__progress__:${pct}:${msgs[msgIdx]}`);
       }
+
       await new Promise(r => setTimeout(r, 3_000));
     }
+
     throw new Error(
-      'Docker daemon did not start in time. Open Docker Desktop manually, wait for it to finish loading, then run this again.'
+      'Docker could not be started automatically. Please open Docker Desktop manually, wait for it to finish loading, then run agenticmail again.'
     );
   }
 
@@ -130,21 +202,26 @@ export class DependencyInstaller {
       await this.waitForDocker();
     }
 
-    this.onProgress('Starting Stalwart mail server...');
+    this.onProgress('__progress__:10:Pulling mail server image...');
     execFileSync('docker', ['compose', '-f', composePath, 'up', '-d'], {
       timeout: 120_000,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
+    this.onProgress('__progress__:60:Waiting for mail server to start...');
+
     // Wait for Stalwart to be running (up to 30s)
     const maxWait = 30_000;
     const start = Date.now();
     while (Date.now() - start < maxWait) {
+      const pct = 60 + Math.round((Date.now() - start) / maxWait * 35);
+      this.onProgress(`__progress__:${Math.min(95, pct)}:Starting mail server...`);
       try {
         const output = execFileSync('docker', ['ps', '--filter', 'name=agenticmail-stalwart', '--format', '{{.Status}}'],
           { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] },
         ).toString().trim();
         if (output.toLowerCase().includes('up')) {
+          this.onProgress('__progress__:100:Mail server ready!');
           return;
         }
       } catch { /* ignore */ }
