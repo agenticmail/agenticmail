@@ -171,12 +171,50 @@ export function createServer(config: ServerConfig): ServerInstance {
   const adminRoutes = createAdminRoutes(config.db);
   api.route('/', adminRoutes);
 
-  // Engine routes (skills, permissions, deployment, approvals)
-  // Loaded lazily on first request to avoid top-level await
+  // Engine routes (skills, permissions, deployment, approvals, lifecycle, KB, etc.)
+  // Loaded lazily on first request to avoid top-level await.
+  // On first hit, also initializes the EngineDatabase and runs engine migrations.
+  let engineInitialized = false;
   api.all('/engine/*', async (c, next) => {
     try {
-      const { engineRoutes } = await import('./engine/routes.js');
-      // Replace this catch-all with the real router for subsequent requests
+      const { engineRoutes, setEngineDb } = await import('./engine/routes.js');
+      const { EngineDatabase } = await import('./engine/db-adapter.js');
+
+      // Initialize engine DB on first request
+      if (!engineInitialized) {
+        // Determine dialect from the adapter
+        const dbType = (config.db as any).type || (config.db as any).config?.type || 'sqlite';
+        const dialectMap: Record<string, string> = {
+          sqlite: 'sqlite', postgres: 'postgres', postgresql: 'postgres',
+          mysql: 'mysql', mariadb: 'mysql', turso: 'turso', libsql: 'turso',
+          mongodb: 'mongodb', dynamodb: 'dynamodb',
+        };
+        const dialect = (dialectMap[dbType] || 'sqlite') as any;
+
+        // Create an EngineDB wrapper around the existing DatabaseAdapter
+        const engineDbWrapper = {
+          run: async (sql: string, params?: any[]) => {
+            await (config.db as any).run?.(sql, params) ?? (config.db as any).query?.(sql, params);
+          },
+          get: async <T = any>(sql: string, params?: any[]): Promise<T | undefined> => {
+            if ((config.db as any).get) return (config.db as any).get(sql, params);
+            const rows = await (config.db as any).query?.(sql, params) ?? [];
+            return rows[0];
+          },
+          all: async <T = any>(sql: string, params?: any[]): Promise<T[]> => {
+            if ((config.db as any).all) return (config.db as any).all(sql, params);
+            return await (config.db as any).query?.(sql, params) ?? [];
+          },
+        };
+
+        const engineDb = new EngineDatabase(engineDbWrapper, dialect, (config.db as any).rawDriver);
+        const migrationResult = await engineDb.migrate();
+        console.log(`[engine] Migrations: ${migrationResult.applied} applied, ${migrationResult.total} total`);
+        setEngineDb(engineDb);
+        engineInitialized = true;
+      }
+
+      // Forward to engine routes
       const subPath = c.req.path.replace(/^\/api\/engine/, '') || '/';
       const subReq = new Request(new URL(subPath, 'http://localhost'), {
         method: c.req.method,
@@ -184,8 +222,9 @@ export function createServer(config: ServerConfig): ServerInstance {
         body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
       });
       return engineRoutes.fetch(subReq);
-    } catch {
-      return c.json({ error: 'Engine module not available' }, 501);
+    } catch (e: any) {
+      console.error('[engine] Error:', e.message);
+      return c.json({ error: 'Engine module not available', detail: e.message }, 501);
     }
   });
 

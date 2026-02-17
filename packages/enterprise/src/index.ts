@@ -49,6 +49,9 @@ export {
   ValidationError,
 } from './middleware/index.js';
 
+// Engine (managed agent deployment platform)
+export * from './engine/index.js';
+
 // Resilience (for custom integrations)
 export {
   withRetry,
