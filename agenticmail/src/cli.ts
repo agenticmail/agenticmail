@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import JSON5 from 'json5';
 import {
   SetupManager,
+  ServiceManager,
   type RelayProvider,
   type SetupConfig,
 } from '@agenticmail/core';
@@ -350,6 +351,9 @@ async function startApiServer(config: SetupConfig): Promise<boolean> {
   const { spawn } = await import('node:child_process');
   const apiEntry = resolveApiEntry();
   const env = configToEnv(config);
+
+  // Cache the API entry path so the auto-start service can find it
+  try { new ServiceManager().cacheApiEntryPath(apiEntry); } catch { /* ignore */ }
 
   const child = spawn(process.execPath, [apiEntry], {
     detached: true,
@@ -815,6 +819,25 @@ async function cmdSetup() {
     log(`  ${c.bold(`Step 6 of ${totalSteps}`)} ${c.dim('—')} ${c.bold('Configure OpenClaw integration')}`);
     log('');
     await registerWithOpenClaw(result.config);
+  }
+
+  // Auto-install the boot service so AgenticMail survives reboots
+  if (serverReady) {
+    const svcSpinner = new Spinner('general', 'Setting up auto-start...');
+    svcSpinner.start();
+    try {
+      const svc = new ServiceManager();
+      const svcResult = svc.install();
+      if (svcResult.installed) {
+        svcSpinner.succeed(`${c.bold('Auto-start')} — AgenticMail will start on boot`);
+      } else {
+        svcSpinner.fail(`Auto-start: ${svcResult.message}`);
+        info('You can set this up later with: agenticmail service install');
+      }
+    } catch (err) {
+      svcSpinner.fail(`Auto-start: ${(err as Error).message}`);
+    }
+    await new Promise(r => setTimeout(r, 300));
   }
 
   printSummary(result, false);
@@ -2369,6 +2392,24 @@ async function cmdStatus() {
   }
 
   log('');
+  log(`  ${c.bold('Auto-Start:')}`);
+  try {
+    const svc = new ServiceManager();
+    const svcStatus = svc.status();
+    if (svcStatus.installed) {
+      if (svcStatus.running) {
+        ok(`Enabled ${c.dim(`(${svcStatus.platform}) — starts on boot`)}`);
+      } else {
+        ok(`Installed ${c.dim(`(${svcStatus.platform})`)} — ${c.yellow('not currently running')}`);
+      }
+    } else {
+      fail(`Not installed ${c.dim('— run: agenticmail service install')}`);
+    }
+  } catch {
+    info('Could not check auto-start status');
+  }
+
+  log('');
 }
 
 async function cmdStart() {
@@ -2432,6 +2473,18 @@ async function cmdStart() {
     process.exit(1);
   }
 
+  // Ensure auto-start service is installed
+  try {
+    const svc = new ServiceManager();
+    const svcStatus = svc.status();
+    if (!svcStatus.installed) {
+      const svcResult = svc.install();
+      if (svcResult.installed) {
+        ok(`${c.bold('Auto-start')} enabled — survives reboots`);
+      }
+    }
+  } catch { /* don't fail start over this */ }
+
   // Interactive prompt — server keeps running in background after exit
   await interactiveShell({ config, onExit: () => {} });
 }
@@ -2439,11 +2492,95 @@ async function cmdStart() {
 async function cmdStop() {
   log('');
   const stopped = stopApiServer();
-  if (stopped) {
+
+  // Also stop the launchd/systemd managed process if running
+  const svc = new ServiceManager();
+  const svcStatus = svc.status();
+  if (svcStatus.installed && svcStatus.running) {
+    try {
+      if (svcStatus.platform === 'launchd') {
+        const { execFileSync } = await import('node:child_process');
+        execFileSync('launchctl', ['unload', svcStatus.servicePath!], { timeout: 10_000, stdio: 'ignore' });
+        // Re-load but don't start (keeps the service installed for next boot)
+      } else if (svcStatus.platform === 'systemd') {
+        const { execFileSync } = await import('node:child_process');
+        execFileSync('systemctl', ['--user', 'stop', 'agenticmail.service'], { timeout: 10_000, stdio: 'ignore' });
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (stopped || (svcStatus.installed && svcStatus.running)) {
     ok('AgenticMail server stopped');
+    if (svcStatus.installed) {
+      info('Auto-start is still enabled. It will restart on next boot.');
+      info(`To disable: ${c.green('agenticmail service uninstall')}`);
+    }
   } else {
     info('Server is not running');
   }
+  log('');
+}
+
+async function cmdService() {
+  const subCmd = process.argv[3] || 'status';
+  const svc = new ServiceManager();
+
+  log('');
+
+  switch (subCmd) {
+    case 'install': {
+      const result = svc.install();
+      if (result.installed) {
+        ok(`Auto-start service installed`);
+        info(result.message);
+        info('AgenticMail will now start automatically when your computer boots.');
+      } else {
+        fail(result.message);
+      }
+      break;
+    }
+    case 'uninstall':
+    case 'remove': {
+      const result = svc.uninstall();
+      if (result.removed) {
+        ok('Auto-start service removed');
+        info('AgenticMail will no longer start on boot.');
+      } else {
+        fail(result.message);
+      }
+      break;
+    }
+    case 'reinstall': {
+      const result = svc.reinstall();
+      if (result.installed) {
+        ok('Auto-start service reinstalled');
+        info(result.message);
+      } else {
+        fail(result.message);
+      }
+      break;
+    }
+    case 'status':
+    default: {
+      const status = svc.status();
+      log(`  ${c.bold('Auto-Start Service')}`);
+      log('');
+      if (status.installed) {
+        ok(`Installed ${c.dim(`(${status.platform})`)}`);
+        if (status.running) {
+          ok(`Running`);
+        } else {
+          fail(`Not running ${c.dim('— will start on next boot or: agenticmail service reinstall')}`);
+        }
+        info(`Service file: ${status.servicePath}`);
+      } else {
+        fail('Not installed');
+        info(`Install with: ${c.green('agenticmail service install')}`);
+      }
+      break;
+    }
+  }
+
   log('');
 }
 
@@ -2568,6 +2705,9 @@ switch (command) {
   case 'openclaw':
     cmdOpenClaw().catch(err => { console.error(err); process.exit(1); });
     break;
+  case 'service':
+    cmdService().then(() => { process.exit(0); }).catch(err => { console.error(err); process.exit(1); });
+    break;
   case 'update':
     cmdUpdate().catch(err => { console.error(err); process.exit(1); });
     break;
@@ -2584,6 +2724,7 @@ switch (command) {
     log(`    ${c.green('agenticmail stop')}      Stop the server`);
     log(`    ${c.green('agenticmail status')}    See what's running`);
     log(`    ${c.green('agenticmail openclaw')}  Set up AgenticMail for OpenClaw`);
+    log(`    ${c.green('agenticmail service')}   Manage auto-start (install/uninstall/status)`);
     log(`    ${c.green('agenticmail update')}    Update to the latest version`);
     log('');
     process.exit(0);

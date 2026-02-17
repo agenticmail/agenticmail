@@ -90,4 +90,4 @@ export type { SmsConfig, ParsedSms, SmsMessage } from './sms/index.js';
 export { debug, debugWarn } from './debug.js';
 
 // Setup & Dependencies
-export { SetupManager, DependencyChecker, DependencyInstaller, type DependencyStatus, type InstallProgress, type SetupConfig, type SetupResult } from './setup/index.js';
+export { SetupManager, DependencyChecker, DependencyInstaller, ServiceManager, type ServiceStatus, type DependencyStatus, type InstallProgress, type SetupConfig, type SetupResult } from './setup/index.js';

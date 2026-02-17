@@ -7,6 +7,7 @@ import { DependencyInstaller, type InstallProgress } from './installer.js';
 
 export { DependencyChecker, type DependencyStatus } from './deps.js';
 export { DependencyInstaller, type InstallProgress } from './installer.js';
+export { ServiceManager, type ServiceStatus } from './service.js';
 
 export interface SetupConfig {
   masterKey: string;
