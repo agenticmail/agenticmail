@@ -76,6 +76,66 @@ Agent emails use proper addresses like `secretary@yourdomain.com`.
 
 ---
 
+## CLI Commands
+
+All commands are available via `agenticmail <command>` or `npx agenticmail@latest <command>`.
+
+### Core Commands
+
+| Command | Description |
+|---------|-------------|
+| `agenticmail` | **Start the server.** Runs setup first if not initialized, then starts all services and opens the interactive shell. This is the default — just run `agenticmail` with no arguments. |
+| `agenticmail setup` | **Run the setup wizard.** Walks you through system checks, account creation, service startup, email connection, phone number setup, and OpenClaw integration. Safe to re-run anytime. |
+| `agenticmail start` | **Start the server and open the interactive shell.** Ensures Docker is running, Stalwart is up, and the API server is reachable. Automatically installs the auto-start service. |
+| `agenticmail stop` | **Stop the server.** Kills the background API server process. If auto-start is enabled, it will restart on next boot. |
+| `agenticmail status` | **Show what's running.** Displays Docker, Stalwart, API server, email connection, and auto-start service status. |
+
+### Integration Commands
+
+| Command | Description |
+|---------|-------------|
+| `agenticmail openclaw` | **Set up AgenticMail for OpenClaw.** Starts infrastructure, creates an agent, configures the plugin, enables agent auto-spawn via hooks, and restarts the OpenClaw gateway. |
+
+### Service Management (Auto-Start on Boot)
+
+AgenticMail installs a system service so your email server starts automatically when your computer boots — no manual intervention needed.
+
+| Command | Description |
+|---------|-------------|
+| `agenticmail service` | **Show auto-start status.** Whether the service is installed and running. |
+| `agenticmail service install` | **Install the auto-start service.** On boot, the startup script waits up to 10 minutes for Docker, checks Stalwart (starts it if needed), then launches the API server. |
+| `agenticmail service uninstall` | **Remove the auto-start service.** AgenticMail will no longer start on boot. |
+| `agenticmail service reinstall` | **Reinstall the service.** Use after config changes or updates to refresh the service file. |
+
+**How auto-start works on reboot:**
+1. Computer starts → Docker Desktop launches (its own auto-start)
+2. Stalwart mail server starts (`restart: unless-stopped` in Docker)
+3. AgenticMail startup script waits for Docker to be ready (up to 10 min)
+4. Script verifies Stalwart is running (auto-starts it if needed)
+5. API server starts and begins accepting requests
+6. If the server crashes, the system service automatically restarts it
+
+On macOS this uses a LaunchAgent (`~/Library/LaunchAgents/com.agenticmail.server.plist`). On Linux it uses a systemd user service (`~/.config/systemd/user/agenticmail.service`).
+
+### Maintenance Commands
+
+| Command | Description |
+|---------|-------------|
+| `agenticmail update` | **Update to the latest version.** Checks npm, updates the CLI and OpenClaw plugin, and restarts the gateway. |
+| `agenticmail help` | **Show available commands.** |
+
+### Logs
+
+Server logs are stored in `~/.agenticmail/logs/`:
+
+| File | Contents |
+|------|----------|
+| `server.log` | API server stdout |
+| `server.err.log` | API server stderr |
+| `startup.log` | Boot sequence log — Docker wait times, Stalwart checks, startup events |
+
+---
+
 ## Starting the Server
 
 `agenticmail start` does three things:
@@ -98,6 +158,7 @@ If the server crashes, you get clear error output showing what went wrong.
 - **Account setup** — whether the config file and database exist
 - **Server health** — API server connectivity and Stalwart reachability
 - **Email gateway** — current mode (relay or domain), provider name, domain name, polling status
+- **Auto-start** — whether the system service is installed and running
 
 ---
 

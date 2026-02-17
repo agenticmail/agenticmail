@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/openclaw",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "OpenClaw plugin and skill for AgenticMail",
   "type": "module",
   "main": "dist/index.js",
