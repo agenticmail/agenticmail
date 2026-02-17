@@ -117,7 +117,7 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Structured RPC** — sub-agents return JSON, not raw text
 
 ### Integrations
-- **MCP server** — 59 tools for any MCP-compatible AI client
+- **MCP server** — 60 tools for any MCP-compatible AI client
 - **OpenClaw plugin** — 63 tools with skill definition and system prompt guidelines
 - **REST API** — 75+ endpoints, OpenAPI-style, Bearer token auth
 - **SSE events** — real-time inbox notifications via Server-Sent Events

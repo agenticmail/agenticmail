@@ -22,6 +22,7 @@ import { createGatewayRoutes } from './routes/gateway.js';
 import { createFeatureRoutes } from './routes/features.js';
 import { createTaskRoutes } from './routes/tasks.js';
 import { createSmsRoutes } from './routes/sms.js';
+import { createStorageRoutes } from './routes/storage.js';
 
 export interface AppContext {
   config: AgenticMailConfig;
@@ -99,6 +100,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createFeatureRoutes(db, accountManager, config, gatewayManager));
   app.use('/api/agenticmail', createTaskRoutes(db, accountManager, config));
   app.use('/api/agenticmail', createSmsRoutes(db, accountManager, config, gatewayManager));
+  app.use('/api/agenticmail', createStorageRoutes(db as any, accountManager, config));
 
   // 404 handler for unmatched API routes
   app.use('/api/agenticmail', (_req, res) => {

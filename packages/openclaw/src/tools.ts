@@ -2240,6 +2240,65 @@ The agent must have browser access and a Google Voice session (logged into Googl
     },
   });
 
+  // ─── Storage Tools (Dynamic Tables) ──────────────────
+
+  reg('agenticmail_storage', {
+    description: 'Manage custom data tables for persistent agent storage. Agents can create their own tables, insert/query/update/delete rows, drop or archive tables, and add columns — all on whatever database the user deployed. Tables are sandboxed per-agent (prefixed with agt_) or shared across agents (prefixed with shared_). Use this for CRM data, research notes, tracking sheets, or any structured data the agent needs to persist.',
+    parameters: {
+      action: { type: 'string', required: true, description: 'create_table, list_tables, insert, query, update, delete_rows, drop_table, archive_table, unarchive_table, add_column' },
+      table: { type: 'string', description: 'Table name (your display name, not the internal prefixed name)' },
+      columns: { type: 'array', description: 'For create_table: array of {name, type, required?, default?, unique?, primaryKey?}. Types: text, integer, real, boolean, json, blob, timestamp' },
+      indexes: { type: 'array', description: 'For create_table: array of {columns: string[], unique?: boolean}' },
+      shared: { type: 'boolean', description: 'For create_table: if true, table is accessible by all agents (default: false, agent-private)' },
+      rows: { type: 'array', description: 'For insert: array of row objects to insert' },
+      where: { type: 'object', description: 'For query/update/delete_rows: filter conditions {column: value}. Supports null and arrays (IN)' },
+      set: { type: 'object', description: 'For update: fields to set {column: newValue}' },
+      orderBy: { type: 'string', description: 'For query: ORDER BY clause (e.g. "created_at DESC")' },
+      limit: { type: 'number', description: 'For query: max rows to return' },
+      offset: { type: 'number', description: 'For query: skip N rows' },
+      selectColumns: { type: 'array', description: 'For query: specific columns to select (default: all)' },
+      column: { type: 'object', description: 'For add_column: {name, type, required?, default?}' },
+      includeShared: { type: 'boolean', description: 'For list_tables: include shared tables (default: true)' },
+      includeArchived: { type: 'boolean', description: 'For list_tables: include archived tables (default: false)' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const action = params.action;
+
+        switch (action) {
+          case 'create_table':
+            return await apiRequest(c, 'POST', '/storage/tables', {
+              name: params.table, columns: params.columns, indexes: params.indexes, shared: params.shared,
+            });
+          case 'list_tables':
+            return await apiRequest(c, 'GET', `/storage/tables?includeShared=${params.includeShared !== false}&includeArchived=${params.includeArchived === true}`);
+          case 'insert':
+            return await apiRequest(c, 'POST', '/storage/insert', { table: params.table, rows: params.rows });
+          case 'query':
+            return await apiRequest(c, 'POST', '/storage/query', {
+              table: params.table, where: params.where, orderBy: params.orderBy,
+              limit: params.limit, offset: params.offset, columns: params.selectColumns,
+            });
+          case 'update':
+            return await apiRequest(c, 'POST', '/storage/update', { table: params.table, where: params.where, set: params.set });
+          case 'delete_rows':
+            return await apiRequest(c, 'POST', '/storage/delete-rows', { table: params.table, where: params.where });
+          case 'drop_table':
+            return await apiRequest(c, 'DELETE', `/storage/tables/${encodeURIComponent(params.table)}`);
+          case 'archive_table':
+            return await apiRequest(c, 'POST', `/storage/tables/${encodeURIComponent(params.table)}/archive`);
+          case 'unarchive_table':
+            return await apiRequest(c, 'POST', `/storage/tables/${encodeURIComponent(params.table)}/unarchive`);
+          case 'add_column':
+            return await apiRequest(c, 'POST', `/storage/tables/${encodeURIComponent(params.table)}/columns`, { column: params.column });
+          default:
+            return { error: `Unknown action "${action}". Valid: create_table, list_tables, insert, query, update, delete_rows, drop_table, archive_table, unarchive_table, add_column` };
+        }
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   reg('agenticmail_sms_config', {
     description: 'Get the current SMS/phone number configuration for this agent. Shows whether SMS is enabled, the phone number, and forwarding email.',
     parameters: {},

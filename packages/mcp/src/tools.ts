@@ -816,6 +816,31 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'storage',
+    description: 'Manage custom data tables for persistent agent storage. Create tables, insert/query/update/delete rows, drop or archive tables, add columns. Works on any database backend. Tables are sandboxed per-agent or shared.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        action: { type: 'string', description: 'create_table, list_tables, insert, query, update, delete_rows, drop_table, archive_table, unarchive_table, add_column' },
+        table: { type: 'string', description: 'Table name' },
+        columns: { type: 'array', description: 'For create_table: [{name, type, required?, default?, unique?, primaryKey?}]. Types: text, integer, real, boolean, json, blob, timestamp' },
+        indexes: { type: 'array', description: 'For create_table: [{columns: string[], unique?: boolean}]' },
+        shared: { type: 'boolean', description: 'For create_table: accessible by all agents' },
+        rows: { type: 'array', description: 'For insert: row objects to insert' },
+        where: { type: 'object', description: 'For query/update/delete_rows: filter {column: value}' },
+        set: { type: 'object', description: 'For update: {column: newValue}' },
+        orderBy: { type: 'string', description: 'For query: ORDER BY clause' },
+        limit: { type: 'number', description: 'For query: max rows' },
+        offset: { type: 'number', description: 'For query: skip rows' },
+        selectColumns: { type: 'array', description: 'For query: specific columns' },
+        column: { type: 'object', description: 'For add_column: {name, type, required?, default?}' },
+        includeShared: { type: 'boolean', description: 'For list_tables: include shared (default: true)' },
+        includeArchived: { type: 'boolean', description: 'For list_tables: include archived' },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'sms_config',
     description: 'Get the current SMS/phone number configuration for this agent. Shows whether SMS is enabled, the phone number, and forwarding email.',
     inputSchema: {
@@ -2076,6 +2101,46 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         emailBody: args.emailBody,
         emailFrom: args.emailFrom,
       });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'storage': {
+      const act = args.action as string;
+      let result: any;
+      switch (act) {
+        case 'create_table':
+          result = await apiRequest('POST', '/storage/tables', { name: args.table, columns: args.columns, indexes: args.indexes, shared: args.shared });
+          break;
+        case 'list_tables':
+          result = await apiRequest('GET', `/storage/tables?includeShared=${args.includeShared !== false}&includeArchived=${args.includeArchived === true}`);
+          break;
+        case 'insert':
+          result = await apiRequest('POST', '/storage/insert', { table: args.table, rows: args.rows });
+          break;
+        case 'query':
+          result = await apiRequest('POST', '/storage/query', { table: args.table, where: args.where, orderBy: args.orderBy, limit: args.limit, offset: args.offset, columns: args.selectColumns });
+          break;
+        case 'update':
+          result = await apiRequest('POST', '/storage/update', { table: args.table, where: args.where, set: args.set });
+          break;
+        case 'delete_rows':
+          result = await apiRequest('POST', '/storage/delete-rows', { table: args.table, where: args.where });
+          break;
+        case 'drop_table':
+          result = await apiRequest('DELETE', `/storage/tables/${encodeURIComponent(args.table as string)}`);
+          break;
+        case 'archive_table':
+          result = await apiRequest('POST', `/storage/tables/${encodeURIComponent(args.table as string)}/archive`);
+          break;
+        case 'unarchive_table':
+          result = await apiRequest('POST', `/storage/tables/${encodeURIComponent(args.table as string)}/unarchive`);
+          break;
+        case 'add_column':
+          result = await apiRequest('POST', `/storage/tables/${encodeURIComponent(args.table as string)}/columns`, { column: args.column });
+          break;
+        default:
+          result = { error: `Unknown action "${act}"` };
+      }
       return JSON.stringify(result, null, 2);
     }
 
