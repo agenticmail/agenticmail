@@ -2240,60 +2240,143 @@ The agent must have browser access and a Google Voice session (logged into Googl
     },
   });
 
-  // ─── Storage Tools (Dynamic Tables) ──────────────────
+  // ─── Storage Tools (Full DBMS) ──────────────────────
 
   reg('agenticmail_storage', {
-    description: 'Manage custom data tables for persistent agent storage. Agents can create their own tables, insert/query/update/delete rows, drop or archive tables, and add columns — all on whatever database the user deployed. Tables are sandboxed per-agent (prefixed with agt_) or shared across agents (prefixed with shared_). Use this for CRM data, research notes, tracking sheets, or any structured data the agent needs to persist.',
+    description: `Full database management for agents. Create/alter/drop tables, CRUD rows, manage indexes, run aggregations, import/export data, execute raw SQL, optimize & analyze — all on whatever database the user deployed (SQLite, Postgres, MySQL, Turso).
+
+Tables are sandboxed per-agent (agt_ prefix) or shared (shared_ prefix). Column types: text, integer, real, boolean, json, blob, timestamp. Auto-adds id + timestamps by default.
+
+WHERE filters support operators: {column: value} for equality, {column: {$gt: 5, $lt: 10}} for comparisons, {column: {$like: "%foo%"}} for pattern matching, {column: {$in: [1,2,3]}} for IN, {column: {$between: [lo, hi]}} for ranges, {column: {$is_null: true}} for null checks. Also: $gte, $lte, $ne, $ilike, $not_like, $not_in.`,
     parameters: {
-      action: { type: 'string', required: true, description: 'create_table, list_tables, insert, query, update, delete_rows, drop_table, archive_table, unarchive_table, add_column' },
-      table: { type: 'string', description: 'Table name (your display name, not the internal prefixed name)' },
-      columns: { type: 'array', description: 'For create_table: array of {name, type, required?, default?, unique?, primaryKey?}. Types: text, integer, real, boolean, json, blob, timestamp' },
-      indexes: { type: 'array', description: 'For create_table: array of {columns: string[], unique?: boolean}' },
-      shared: { type: 'boolean', description: 'For create_table: if true, table is accessible by all agents (default: false, agent-private)' },
-      rows: { type: 'array', description: 'For insert: array of row objects to insert' },
-      where: { type: 'object', description: 'For query/update/delete_rows: filter conditions {column: value}. Supports null and arrays (IN)' },
-      set: { type: 'object', description: 'For update: fields to set {column: newValue}' },
-      orderBy: { type: 'string', description: 'For query: ORDER BY clause (e.g. "created_at DESC")' },
-      limit: { type: 'number', description: 'For query: max rows to return' },
+      action: { type: 'string', required: true, description: 'create_table, list_tables, describe_table, insert, upsert, query, aggregate, update, delete_rows, truncate, drop_table, clone_table, rename_table, rename_column, add_column, drop_column, create_index, list_indexes, drop_index, reindex, archive_table, unarchive_table, export, import, sql, stats, vacuum, analyze, explain' },
+      table: { type: 'string', description: 'Table name (display name or internal prefixed name)' },
+      description: { type: 'string', description: 'For create_table: human-readable description' },
+      columns: { type: 'array', description: 'For create_table: [{name, type, required?, default?, unique?, primaryKey?, references?: {table, column, onDelete?}, check?}]' },
+      indexes: { type: 'array', description: 'For create_table/create_index: [{columns: string[], unique?: boolean, name?: string, where?: string}]' },
+      shared: { type: 'boolean', description: 'For create_table: accessible by all agents (default: false)' },
+      timestamps: { type: 'boolean', description: 'For create_table: auto-add created_at/updated_at (default: true)' },
+      rows: { type: 'array', description: 'For insert/upsert/import: array of row objects' },
+      where: { type: 'object', description: 'For query/update/delete_rows/export: filter conditions. Supports operators: {$gt, $gte, $lt, $lte, $ne, $like, $ilike, $not_like, $in, $not_in, $is_null, $between}' },
+      set: { type: 'object', description: 'For update: {column: newValue}' },
+      orderBy: { type: 'string', description: 'For query: ORDER BY clause' },
+      limit: { type: 'number', description: 'For query/export: max rows' },
       offset: { type: 'number', description: 'For query: skip N rows' },
-      selectColumns: { type: 'array', description: 'For query: specific columns to select (default: all)' },
-      column: { type: 'object', description: 'For add_column: {name, type, required?, default?}' },
-      includeShared: { type: 'boolean', description: 'For list_tables: include shared tables (default: true)' },
-      includeArchived: { type: 'boolean', description: 'For list_tables: include archived tables (default: false)' },
+      selectColumns: { type: 'array', description: 'For query: specific columns to select' },
+      distinct: { type: 'boolean', description: 'For query: SELECT DISTINCT' },
+      groupBy: { type: 'string', description: 'For query/aggregate: GROUP BY clause' },
+      having: { type: 'string', description: 'For query: HAVING clause' },
+      operations: { type: 'array', description: 'For aggregate: [{fn: "count"|"sum"|"avg"|"min"|"max"|"count_distinct", column?, alias?}]' },
+      column: { type: 'object', description: 'For add_column: {name, type, required?, default?, references?, check?}' },
+      columnName: { type: 'string', description: 'For drop_column: column name to drop' },
+      indexName: { type: 'string', description: 'For drop_index: index name' },
+      indexColumns: { type: 'array', description: 'For create_index: column names' },
+      indexUnique: { type: 'boolean', description: 'For create_index: unique index' },
+      indexWhere: { type: 'string', description: 'For create_index: partial index condition' },
+      newName: { type: 'string', description: 'For rename_table/rename_column: new name' },
+      oldName: { type: 'string', description: 'For rename_column: old column name' },
+      conflictColumn: { type: 'string', description: 'For upsert/import: column to detect conflicts on' },
+      onConflict: { type: 'string', description: 'For import: "skip"|"replace"|"error"' },
+      includeData: { type: 'boolean', description: 'For clone_table: include data (default: true)' },
+      format: { type: 'string', description: 'For export: "json"|"csv"' },
+      sql: { type: 'string', description: 'For sql/explain: raw SQL query' },
+      params: { type: 'array', description: 'For sql/explain: query parameters' },
+      includeShared: { type: 'boolean', description: 'For list_tables: include shared (default: true)' },
+      includeArchived: { type: 'boolean', description: 'For list_tables: include archived' },
     },
     handler: async (params: any) => {
       try {
         const c = await ctxForParams(ctx, params);
         const action = params.action;
+        const tbl = params.table ? encodeURIComponent(params.table) : '';
 
         switch (action) {
+          // ── DDL: Schema Definition ──
           case 'create_table':
             return await apiRequest(c, 'POST', '/storage/tables', {
-              name: params.table, columns: params.columns, indexes: params.indexes, shared: params.shared,
+              name: params.table, columns: params.columns, indexes: params.indexes,
+              shared: params.shared, description: params.description, timestamps: params.timestamps,
             });
           case 'list_tables':
             return await apiRequest(c, 'GET', `/storage/tables?includeShared=${params.includeShared !== false}&includeArchived=${params.includeArchived === true}`);
+          case 'describe_table':
+            return await apiRequest(c, 'GET', `/storage/tables/${tbl}/describe`);
+          case 'add_column':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/columns`, { column: params.column });
+          case 'drop_column':
+            return await apiRequest(c, 'DELETE', `/storage/tables/${tbl}/columns/${encodeURIComponent(params.columnName)}`);
+          case 'rename_table':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/rename`, { newName: params.newName });
+          case 'rename_column':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/rename-column`, { oldName: params.oldName, newName: params.newName });
+          case 'drop_table':
+            return await apiRequest(c, 'DELETE', `/storage/tables/${tbl}`);
+          case 'clone_table':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/clone`, { newName: params.newName, includeData: params.includeData });
+          case 'truncate':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/truncate`);
+
+          // ── Index Management ──
+          case 'create_index':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/indexes`, {
+              columns: params.indexColumns || params.columns, unique: params.indexUnique,
+              name: params.indexName, where: params.indexWhere,
+            });
+          case 'list_indexes':
+            return await apiRequest(c, 'GET', `/storage/tables/${tbl}/indexes`);
+          case 'drop_index':
+            return await apiRequest(c, 'DELETE', `/storage/tables/${tbl}/indexes/${encodeURIComponent(params.indexName)}`);
+          case 'reindex':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/reindex`);
+
+          // ── DML: Data Manipulation ──
           case 'insert':
             return await apiRequest(c, 'POST', '/storage/insert', { table: params.table, rows: params.rows });
+          case 'upsert':
+            return await apiRequest(c, 'POST', '/storage/upsert', { table: params.table, rows: params.rows, conflictColumn: params.conflictColumn });
           case 'query':
             return await apiRequest(c, 'POST', '/storage/query', {
               table: params.table, where: params.where, orderBy: params.orderBy,
               limit: params.limit, offset: params.offset, columns: params.selectColumns,
+              distinct: params.distinct, groupBy: params.groupBy, having: params.having,
+            });
+          case 'aggregate':
+            return await apiRequest(c, 'POST', '/storage/aggregate', {
+              table: params.table, where: params.where, operations: params.operations, groupBy: params.groupBy,
             });
           case 'update':
             return await apiRequest(c, 'POST', '/storage/update', { table: params.table, where: params.where, set: params.set });
           case 'delete_rows':
             return await apiRequest(c, 'POST', '/storage/delete-rows', { table: params.table, where: params.where });
-          case 'drop_table':
-            return await apiRequest(c, 'DELETE', `/storage/tables/${encodeURIComponent(params.table)}`);
+
+          // ── Archive & Lifecycle ──
           case 'archive_table':
-            return await apiRequest(c, 'POST', `/storage/tables/${encodeURIComponent(params.table)}/archive`);
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/archive`);
           case 'unarchive_table':
-            return await apiRequest(c, 'POST', `/storage/tables/${encodeURIComponent(params.table)}/unarchive`);
-          case 'add_column':
-            return await apiRequest(c, 'POST', `/storage/tables/${encodeURIComponent(params.table)}/columns`, { column: params.column });
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/unarchive`);
+
+          // ── Import / Export ──
+          case 'export':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/export`, { format: params.format, where: params.where, limit: params.limit });
+          case 'import':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/import`, { rows: params.rows, onConflict: params.onConflict, conflictColumn: params.conflictColumn });
+
+          // ── Raw SQL ──
+          case 'sql':
+            return await apiRequest(c, 'POST', '/storage/sql', { sql: params.sql, params: params.params });
+          case 'explain':
+            return await apiRequest(c, 'POST', '/storage/explain', { sql: params.sql, params: params.params });
+
+          // ── Maintenance ──
+          case 'stats':
+            return await apiRequest(c, 'GET', '/storage/stats');
+          case 'vacuum':
+            return await apiRequest(c, 'POST', '/storage/vacuum');
+          case 'analyze':
+            return await apiRequest(c, 'POST', `/storage/tables/${tbl}/analyze`);
+
           default:
-            return { error: `Unknown action "${action}". Valid: create_table, list_tables, insert, query, update, delete_rows, drop_table, archive_table, unarchive_table, add_column` };
+            return { error: `Unknown action "${action}". Valid actions: create_table, list_tables, describe_table, insert, upsert, query, aggregate, update, delete_rows, truncate, drop_table, clone_table, rename_table, rename_column, add_column, drop_column, create_index, list_indexes, drop_index, reindex, archive_table, unarchive_table, export, import, sql, stats, vacuum, analyze, explain` };
         }
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
