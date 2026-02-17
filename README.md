@@ -39,7 +39,7 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Agent collaboration** — agents can email each other, assign tasks, and make synchronous RPC calls.
 - **SMS / Phone number access** — integrate Google Voice for SMS receive/send, verification code extraction, and phone number access for AI agents.
 - **Smart orchestration** — `call_agent` replaces basic sub-agent spawning with auto mode detection, dynamic timeouts, runtime tool discovery, and async execution for long-running tasks.
-- **Tool integrations** — 62 MCP tools for any AI client, 63 OpenClaw tools, and a 43-command interactive shell.
+- **Tool integrations** — 62 MCP tools for any AI client, 63 OpenClaw tools, and a 44-command interactive shell.
 - **Self-updating** — `agenticmail update` checks npm, verifies OpenClaw compatibility, and updates both packages automatically.
 
 ---
@@ -117,7 +117,7 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Structured RPC** — sub-agents return JSON, not raw text
 
 ### Integrations
-- **MCP server** — 60 tools for any MCP-compatible AI client
+- **MCP server** — 62 tools for any MCP-compatible AI client
 - **OpenClaw plugin** — 63 tools with skill definition and system prompt guidelines
 - **REST API** — 75+ endpoints, OpenAPI-style, Bearer token auth
 - **SSE events** — real-time inbox notifications via Server-Sent Events
@@ -821,11 +821,11 @@ agenticmail/
 │   ├── mcp/               # @agenticmail/mcp
 │   │   └── src/
 │   │       ├── index.ts   # MCP server entry (stdio transport)
-│   │       ├── tools.ts   # 61 tool definitions and handlers
+│   │       ├── tools.ts   # 63 tool definitions and handlers
 │   │       └── resources.ts
 │   └── openclaw/          # @agenticmail/openclaw
 │       ├── index.ts       # Plugin entry, system prompt
-│       ├── src/tools.ts   # 61 tool definitions and handlers
+│       ├── src/tools.ts   # 63 tool definitions and handlers
 │       └── skill/         # SKILL.md, reference docs, scripts
 ├── docker-compose.yml     # Stalwart mail server
 ├── .env.example           # Environment variable template

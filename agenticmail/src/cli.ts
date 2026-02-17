@@ -2367,7 +2367,7 @@ async function cmdOpenClaw() {
 
   log('');
   if (gatewayRestarted) {
-    log(`  Your agent now has ${c.bold('63 email + SMS tools')} available!`);
+    log(`  Your agent now has ${c.bold('63 email, SMS & storage tools')} available!`);
     log(`  Try: ${c.dim('"Send an email to test@example.com"')}`);
     log('');
     log(`  ${c.bold('🎀 AgenticMail Coordination')} ${c.dim('(auto-configured)')}`);
