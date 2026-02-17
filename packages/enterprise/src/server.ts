@@ -107,7 +107,7 @@ export function createServer(config: ServerConfig): ServerInstance {
 
   app.get('/health', (c) => c.json({
     status: 'ok',
-    version: '0.2.0',
+    version: '0.2.2',
     uptime: process.uptime(),
   }));
 
