@@ -17,12 +17,13 @@ All dashboards connect to the same AgenticMail Enterprise API. They're interchan
 | **Express.js** | `express/app.js` | Express | `npm install express express-session && node app.js` |
 | **React** (built-in) | _Served at `/dashboard`_ | None (bundled) | Comes with the enterprise server |
 
+| **Go** | `go/main.go` | None (stdlib only) | `go run main.go` |
+| **Java** | `java/AgenticMailDashboard.java` | JDK 11+ | `javac AgenticMailDashboard.java && java AgenticMailDashboard` |
+| **C# / .NET** | `dotnet/Program.cs` | .NET 8+ | `dotnet new web && dotnet run` |
+
 ### Coming Soon
 | Language | Status |
 |----------|--------|
-| **Go** (net/http) | Planned |
-| **Java** (Spring Boot) | Planned |
-| **C# / .NET** (ASP.NET) | Planned |
 | **Laravel** (PHP framework) | Planned |
 | **Django** (Python framework) | Planned |
 | **Rails** (Ruby framework) | Planned |
