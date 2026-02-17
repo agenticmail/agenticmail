@@ -1,8 +1,8 @@
 # @agenticmail/api
 
-The API server for [AgenticMail](https://github.com/agenticmail/agenticmail) — the part that lets AI agents (and humans) talk to the email system over the network.
+The API server for [AgenticMail](https://github.com/agenticmail/agenticmail) — the part that lets AI agents (and humans) talk to the email and SMS system over the network.
 
-This package runs a web server that handles everything: sending email, reading inboxes, managing agents, real-time notifications, inter-agent messaging, spam filtering, outbound security scanning, and gateway configuration. Every feature in AgenticMail is accessible through this API.
+This package runs a web server that handles everything: sending email and SMS, reading inboxes, managing agents, phone number access, real-time notifications, inter-agent messaging, spam filtering, outbound security scanning, and gateway configuration. Every feature in AgenticMail is accessible through this API.
 
 ## Install
 

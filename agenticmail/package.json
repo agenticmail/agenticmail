@@ -1,7 +1,7 @@
 {
   "name": "agenticmail",
-  "version": "0.5.1",
-  "description": "Email infrastructure for AI agents — send and receive real email programmatically",
+  "version": "0.5.2",
+  "description": "Email and SMS infrastructure for AI agents \u2014 the first platform to give agents real email addresses and phone numbers",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -47,6 +47,8 @@
   "bugs": "https://github.com/agenticmail/agenticmail/issues",
   "keywords": [
     "email",
+    "sms",
+    "phone",
     "ai",
     "agent",
     "mail",
@@ -57,7 +59,11 @@
     "agenticmail",
     "llm",
     "gateway",
-    "cloudflare"
+    "cloudflare",
+    "google-voice",
+    "text-message",
+    "verification-code",
+    "openclaw"
   ],
   "publishConfig": {
     "access": "public"

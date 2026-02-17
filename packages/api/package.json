@@ -1,7 +1,7 @@
 {
   "name": "@agenticmail/api",
-  "version": "0.5.1",
-  "description": "REST API server for AgenticMail",
+  "version": "0.5.2",
+  "description": "REST API server for AgenticMail \u2014 email and SMS endpoints for AI agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -55,11 +55,14 @@
   "bugs": "https://github.com/agenticmail/agenticmail/issues",
   "keywords": [
     "email",
+    "sms",
+    "phone",
     "ai",
     "agent",
     "api",
     "agenticmail",
-    "express"
+    "express",
+    "google-voice"
   ],
   "publishConfig": {
     "access": "public"

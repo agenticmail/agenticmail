@@ -1,7 +1,7 @@
 {
   "name": "@agenticmail/core",
-  "version": "0.5.1",
-  "description": "Core SDK for AgenticMail — programmatic email for AI agents",
+  "version": "0.5.2",
+  "description": "Core SDK for AgenticMail \u2014 email, SMS, and phone number access for AI agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -52,6 +52,8 @@
   "bugs": "https://github.com/agenticmail/agenticmail/issues",
   "keywords": [
     "email",
+    "sms",
+    "phone",
     "ai",
     "agent",
     "mail",
@@ -59,7 +61,9 @@
     "imap",
     "agenticmail",
     "ai-agent",
-    "mcp"
+    "mcp",
+    "google-voice",
+    "text-message"
   ],
   "publishConfig": {
     "access": "public"

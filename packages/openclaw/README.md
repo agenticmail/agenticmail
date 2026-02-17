@@ -1,6 +1,6 @@
 # @agenticmail/openclaw
 
-[OpenClaw](https://github.com/openclaw/openclaw) plugin for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives any OpenClaw agent full email capabilities, inter-agent messaging, task coordination, and outbound security.
+[OpenClaw](https://github.com/openclaw/openclaw) plugin for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives any OpenClaw agent full email and SMS capabilities, phone number access, inter-agent messaging, task coordination, and outbound security.
 
 This plugin provides 63 tools, a complete email channel integration, automatic sub-agent provisioning, inter-agent message rate limiting, and a built-in follow-up system for blocked emails. It also includes a skill definition with system prompt guidelines that teach agents how to handle email professionally and securely.
 

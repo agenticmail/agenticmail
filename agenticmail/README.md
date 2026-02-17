@@ -1,8 +1,8 @@
 # agenticmail
 
-The main package for [AgenticMail](https://github.com/agenticmail/agenticmail) — email infrastructure for AI agents. This is the package you install to get started.
+The main package for [AgenticMail](https://github.com/agenticmail/agenticmail) — the first platform to give AI agents real email addresses and phone numbers. This is the package you install to get started.
 
-It bundles a setup wizard, API server launcher, and a full interactive shell with 44 commands for managing agents, sending and receiving email, configuring gateways, and more. It also re-exports everything from `@agenticmail/core` so you can use it as an SDK.
+It bundles a setup wizard, API server launcher, and a full interactive shell with 44 commands for managing agents, sending and receiving email and SMS, configuring gateways, and more. It also re-exports everything from `@agenticmail/core` so you can use it as an SDK.
 
 ## Install
 

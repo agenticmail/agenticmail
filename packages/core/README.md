@@ -1,6 +1,6 @@
 # @agenticmail/core
 
-Core SDK for [AgenticMail](https://github.com/agenticmail/agenticmail) — email infrastructure for AI agents.
+Core SDK for [AgenticMail](https://github.com/agenticmail/agenticmail) — the first platform to give AI agents real email addresses and phone numbers.
 
 This is the foundation layer that everything else builds on. If the API server, MCP server, OpenClaw plugin, and CLI are the ways people interact with AgenticMail, this package is what actually does the work underneath. It handles creating and managing AI agent accounts, sending and receiving real email, watching inboxes for new messages in real time, routing email to and from the internet (through Gmail relay or a custom domain with Cloudflare), filtering spam, scanning outgoing emails to prevent agents from leaking sensitive data, and storing everything in a local SQLite database.
 

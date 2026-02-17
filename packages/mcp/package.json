@@ -1,7 +1,7 @@
 {
   "name": "@agenticmail/mcp",
-  "version": "0.5.1",
-  "description": "MCP server for AgenticMail — use email from any MCP-compatible AI client",
+  "version": "0.5.2",
+  "description": "MCP server for AgenticMail \u2014 give any AI client real email and SMS capabilities",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -49,10 +49,13 @@
   "keywords": [
     "mcp",
     "email",
+    "sms",
+    "phone",
     "ai",
     "ai-agent",
     "agenticmail",
-    "model-context-protocol"
+    "model-context-protocol",
+    "google-voice"
   ],
   "publishConfig": {
     "access": "public"
