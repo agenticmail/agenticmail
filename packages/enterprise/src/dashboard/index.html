@@ -6,553 +6,876 @@
   <title>AgenticMail Enterprise</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Design Tokens ─────────────────────────────── */
     :root {
-      --bg: #0a0a0f; --surface: #12121a; --border: #1e1e2e; --border-hover: #2e2e4e;
-      --text: #e4e4ef; --text-dim: #8888a0; --text-muted: #55556a;
-      --primary: #6366f1; --primary-hover: #818cf8; --primary-dim: rgba(99,102,241,0.15);
-      --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;
-      --radius: 8px; --radius-lg: 12px;
+      --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      --radius-sm: 4px; --radius: 6px; --radius-lg: 10px; --radius-xl: 14px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.06);
+      --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      color-scheme: light dark;
     }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+
+    /* ── Light Mode (default) ──────────────────────── */
+    :root, [data-theme="light"] {
+      --bg-0: #f8f9fa; --bg-1: #ffffff; --bg-2: #f1f3f5; --bg-3: #e9ecef;
+      --border: #dee2e6; --border-subtle: #e9ecef; --border-strong: #ced4da;
+      --text-0: #212529; --text-1: #495057; --text-2: #868e96; --text-3: #adb5bd;
+      --accent: #228be6; --accent-hover: #1c7ed6; --accent-subtle: rgba(34,139,230,0.08); --accent-text: #ffffff;
+      --success: #2b8a3e; --success-subtle: rgba(43,138,62,0.08);
+      --warning: #e67700; --warning-subtle: rgba(230,119,0,0.08);
+      --danger: #c92a2a; --danger-subtle: rgba(201,42,42,0.08);
+      --info: #1971c2; --info-subtle: rgba(25,113,194,0.08);
+      --overlay: rgba(0,0,0,0.4);
+    }
+
+    /* ── Dark Mode ─────────────────────────────────── */
+    [data-theme="dark"] {
+      --bg-0: #0f1114; --bg-1: #16181d; --bg-2: #1c1f26; --bg-3: #252930;
+      --border: #2c3038; --border-subtle: #23272e; --border-strong: #3b414c;
+      --text-0: #e1e4e8; --text-1: #b0b8c4; --text-2: #6b7280; --text-3: #454d5a;
+      --accent: #4c9aed; --accent-hover: #6db3f5; --accent-subtle: rgba(76,154,237,0.1); --accent-text: #0f1114;
+      --success: #37b24d; --success-subtle: rgba(55,178,77,0.1);
+      --warning: #f08c00; --warning-subtle: rgba(240,140,0,0.1);
+      --danger: #f03e3e; --danger-subtle: rgba(240,62,62,0.1);
+      --info: #4dabf7; --info-subtle: rgba(77,171,247,0.1);
+      --overlay: rgba(0,0,0,0.65);
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+      --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg-0: #0f1114; --bg-1: #16181d; --bg-2: #1c1f26; --bg-3: #252930;
+        --border: #2c3038; --border-subtle: #23272e; --border-strong: #3b414c;
+        --text-0: #e1e4e8; --text-1: #b0b8c4; --text-2: #6b7280; --text-3: #454d5a;
+        --accent: #4c9aed; --accent-hover: #6db3f5; --accent-subtle: rgba(76,154,237,0.1); --accent-text: #0f1114;
+        --success: #37b24d; --success-subtle: rgba(55,178,77,0.1);
+        --warning: #f08c00; --warning-subtle: rgba(240,140,0,0.1);
+        --danger: #f03e3e; --danger-subtle: rgba(240,62,62,0.1);
+        --info: #4dabf7; --info-subtle: rgba(77,171,247,0.1);
+        --overlay: rgba(0,0,0,0.65);
+      }
+    }
+
+    /* ── Base ───────────────────────────────────────── */
+    body { font-family: var(--font); background: var(--bg-0); color: var(--text-0); line-height: 1.5; font-size: 14px; -webkit-font-smoothing: antialiased; }
     #root { display: flex; min-height: 100vh; }
 
-    /* Sidebar */
-    .sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
-    .sidebar-logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
-    .sidebar-logo h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
-    .sidebar-logo span { color: var(--primary); }
-    .sidebar-logo p { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; font-size: 13px; color: var(--text-dim); cursor: pointer; transition: all 0.15s; border: none; background: none; width: 100%; text-align: left; }
-    .nav-item:hover { color: var(--text); background: rgba(255,255,255,0.03); }
-    .nav-item.active { color: var(--primary); background: var(--primary-dim); border-right: 2px solid var(--primary); }
-    .nav-section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 16px 20px 6px; }
+    /* ── Sidebar ───────────────────────────────────── */
+    .sidebar { width: 220px; background: var(--bg-1); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+    .sidebar-header { padding: 16px 16px 12px; border-bottom: 1px solid var(--border-subtle); }
+    .sidebar-header h1 { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; display: flex; align-items: center; gap: 6px; }
+    .sidebar-header p { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+    .sidebar-nav { flex: 1; padding: 8px 0; overflow-y: auto; }
+    .nav-group { padding: 12px 12px 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
+    .nav-item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; margin: 1px 8px; font-size: 13px; color: var(--text-1); cursor: pointer; border-radius: var(--radius); border: none; background: none; width: calc(100% - 16px); text-align: left; transition: all var(--transition); }
+    .nav-item:hover { background: var(--bg-2); color: var(--text-0); }
+    .nav-item.active { background: var(--accent-subtle); color: var(--accent); font-weight: 500; }
+    .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .sidebar-footer { padding: 12px; border-top: 1px solid var(--border-subtle); }
 
-    /* Main content */
-    .main { flex: 1; margin-left: 240px; padding: 32px; max-width: 1200px; }
-    .page-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.02em; }
-    .page-desc { font-size: 13px; color: var(--text-dim); margin-bottom: 24px; }
+    /* ── Main ───────────────────────────────────────── */
+    .main { flex: 1; margin-left: 220px; min-height: 100vh; }
+    .topbar { height: 48px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: var(--bg-1); position: sticky; top: 0; z-index: 5; }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .topbar-right { display: flex; align-items: center; gap: 8px; }
+    .content { padding: 24px; max-width: 1280px; }
+    .page-header { margin-bottom: 20px; }
+    .page-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+    .page-desc { font-size: 13px; color: var(--text-2); margin-top: 2px; }
 
-    /* Cards */
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
-    .card-title { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    /* ── Cards ──────────────────────────────────────── */
+    .card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+    .card + .card { margin-top: 16px; }
+    .card-header { padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; }
+    .card-header h3 { font-size: 13px; font-weight: 600; }
+    .card-body { padding: 16px; }
+    .card-body-flush { padding: 0; }
 
-    /* Stats grid */
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
-    .stat-card .label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-    .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; letter-spacing: -0.02em; }
-    .stat-card .value.primary { color: var(--primary); }
-    .stat-card .value.success { color: var(--success); }
+    /* ── Stats Grid ─────────────────────────────────── */
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; }
+    .stat-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); }
+    .stat-value { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; }
+    .stat-value.accent { color: var(--accent); }
+    .stat-value.success { color: var(--success); }
+    .stat-value.warning { color: var(--warning); }
+    .stat-sub { font-size: 11px; color: var(--text-2); margin-top: 2px; }
 
-    /* Table */
-    .table-wrap { overflow-x: auto; }
+    /* ── Table ──────────────────────────────────────── */
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 10px 12px; color: var(--text-muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
-    td { padding: 12px; border-bottom: 1px solid var(--border); }
-    tr:hover td { background: rgba(255,255,255,0.02); }
+    th { text-align: left; padding: 8px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); border-bottom: 1px solid var(--border); background: var(--bg-2); }
+    td { padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg-2); }
+    .table-empty { text-align: center; padding: 32px 16px; color: var(--text-2); }
 
-    /* Badge */
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-    .badge-active { background: rgba(34,197,94,0.15); color: var(--success); }
-    .badge-archived { background: rgba(136,136,160,0.15); color: var(--text-dim); }
-    .badge-suspended { background: rgba(239,68,68,0.15); color: var(--danger); }
-    .badge-owner { background: rgba(245,158,11,0.15); color: var(--warning); }
-    .badge-admin { background: rgba(99,102,241,0.15); color: var(--primary); }
-    .badge-member { background: rgba(136,136,160,0.1); color: var(--text-dim); }
+    /* ── Badge ──────────────────────────────────────── */
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-success { background: var(--success-subtle); color: var(--success); }
+    .badge-warning { background: var(--warning-subtle); color: var(--warning); }
+    .badge-danger { background: var(--danger-subtle); color: var(--danger); }
+    .badge-info { background: var(--info-subtle); color: var(--info); }
+    .badge-neutral { background: var(--bg-3); color: var(--text-2); }
+    .badge-dot { width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; display: inline-block; }
+    .badge-dot.green { background: var(--success); }
+    .badge-dot.yellow { background: var(--warning); }
+    .badge-dot.red { background: var(--danger); }
 
-    /* Buttons */
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); transition: all 0.15s; }
-    .btn:hover { border-color: var(--border-hover); background: rgba(255,255,255,0.05); }
-    .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-    .btn-primary:hover { background: var(--primary-hover); }
+    /* ── Buttons ────────────────────────────────────── */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--bg-1); color: var(--text-0); transition: all var(--transition); white-space: nowrap; }
+    .btn:hover { border-color: var(--border-strong); background: var(--bg-2); }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+    .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
     .btn-danger { color: var(--danger); }
+    .btn-danger:hover { background: var(--danger-subtle); border-color: var(--danger); }
+    .btn-ghost { border: none; background: none; color: var(--text-1); padding: 6px 8px; }
+    .btn-ghost:hover { background: var(--bg-2); color: var(--text-0); }
     .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-icon { padding: 6px; width: 32px; height: 32px; }
+    .btn-group { display: flex; gap: 6px; }
 
-    /* Input */
-    .input { padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; width: 100%; outline: none; transition: border-color 0.15s; }
-    .input:focus { border-color: var(--primary); }
-    .form-group { margin-bottom: 14px; }
-    .form-label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
-    select.input { appearance: none; }
+    /* ── Inputs ─────────────────────────────────────── */
+    .input { padding: 7px 10px; background: var(--bg-0); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-0); font-size: 13px; font-family: var(--font); width: 100%; outline: none; transition: border-color var(--transition), box-shadow var(--transition); }
+    .input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-subtle); }
+    .input::placeholder { color: var(--text-3); }
+    select.input { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 28px; }
+    .field { margin-bottom: 12px; }
+    .field-label { display: block; font-size: 12px; font-weight: 500; color: var(--text-1); margin-bottom: 4px; }
+    textarea.input { resize: vertical; min-height: 72px; }
+    .search-input { max-width: 240px; }
 
-    /* Modal */
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
-    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; width: 440px; max-width: 90vw; }
-    .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
-    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+    /* ── Modal ──────────────────────────────────────── */
+    .modal-overlay { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: 100; animation: fadeIn 0.15s; }
+    .modal { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 0; width: 480px; max-width: 92vw; max-height: 85vh; overflow-y: auto; box-shadow: var(--shadow-lg); animation: scaleIn 0.15s; }
+    .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); }
+    .modal-header h2 { font-size: 15px; font-weight: 700; }
+    .modal-body { padding: 16px 20px; }
+    .modal-footer { padding: 12px 20px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; gap: 8px; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes scaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
 
-    /* Audit log */
-    .audit-item { padding: 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
-    .audit-item:last-child { border-bottom: none; }
-    .audit-time { font-size: 11px; color: var(--text-muted); }
-    .audit-action { color: var(--primary); font-weight: 500; }
+    /* ── Toast ──────────────────────────────────────── */
+    .toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 16px; font-size: 13px; z-index: 200; box-shadow: var(--shadow-lg); animation: slideUp 0.2s; display: flex; align-items: center; gap: 8px; }
+    .toast-success { border-left: 3px solid var(--success); }
+    .toast-error { border-left: 3px solid var(--danger); }
+    .toast-info { border-left: 3px solid var(--accent); }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-    /* Toast */
-    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 20px; font-size: 13px; z-index: 200; animation: slideUp 0.2s ease; }
-    .toast.success { border-color: var(--success); }
-    .toast.error { border-color: var(--danger); }
-    @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    /* ── Tabs ───────────────────────────────────────── */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .tab { padding: 8px 14px; font-size: 13px; font-weight: 500; color: var(--text-2); cursor: pointer; border: none; background: none; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all var(--transition); }
+    .tab:hover { color: var(--text-0); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-    /* Empty state */
-    .empty { text-align: center; padding: 48px 20px; color: var(--text-muted); }
-    .empty-icon { font-size: 32px; margin-bottom: 8px; }
+    /* ── Activity / Timeline ────────────────────────── */
+    .activity-item { display: flex; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+    .activity-item:last-child { border-bottom: none; }
+    .activity-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex-shrink: 0; }
+    .activity-time { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+    .activity-text { flex: 1; color: var(--text-1); }
+    .activity-text strong { color: var(--text-0); font-weight: 600; }
 
-    /* Responsive */
+    /* ── Code / JSON ───────────────────────────────── */
+    .code-block { background: var(--bg-0); border: 1px solid var(--border-subtle); border-radius: var(--radius); padding: 12px; font-family: var(--mono); font-size: 12px; overflow-x: auto; white-space: pre-wrap; color: var(--text-1); }
+    .inline-code { font-family: var(--mono); font-size: 12px; background: var(--bg-2); padding: 1px 5px; border-radius: 3px; }
+
+    /* ── Detail Row ─────────────────────────────────── */
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .detail-item { }
+    .detail-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); }
+    .detail-value { font-size: 13px; margin-top: 1px; }
+
+    /* ── Empty State ────────────────────────────────── */
+    .empty { text-align: center; padding: 40px 20px; color: var(--text-2); }
+    .empty-title { font-size: 14px; font-weight: 600; color: var(--text-1); margin-bottom: 4px; }
+    .empty-desc { font-size: 13px; }
+
+    /* ── Responsive ─────────────────────────────────── */
     @media (max-width: 768px) {
-      .sidebar { width: 60px; }
-      .sidebar-logo h1, .sidebar-logo p, .nav-item span, .nav-section { display: none; }
-      .nav-item { justify-content: center; padding: 12px; }
-      .main { margin-left: 60px; padding: 16px; }
+      .sidebar { width: 56px; } .sidebar-header h1 span, .sidebar-header p, .nav-item span, .nav-group { display: none; }
+      .nav-item { justify-content: center; padding: 10px; margin: 1px 4px; }
+      .main { margin-left: 56px; } .content { padding: 16px; }
+      .stats-row { grid-template-columns: 1fr 1fr; }
+      .detail-grid { grid-template-columns: 1fr; }
     }
+
+    /* ── Utility ────────────────────────────────────── */
+    .flex { display: flex; } .flex-col { flex-direction: column; }
+    .items-center { align-items: center; } .justify-between { justify-content: space-between; }
+    .gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .gap-4 { gap: 16px; }
+    .mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; } .mt-4 { margin-top: 16px; }
+    .mb-2 { margin-bottom: 8px; } .mb-3 { margin-bottom: 12px; }
+    .text-sm { font-size: 12px; } .text-xs { font-size: 11px; }
+    .text-muted { color: var(--text-2); } .text-accent { color: var(--accent); }
+    .font-mono { font-family: var(--mono); } .font-semibold { font-weight: 600; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .w-full { width: 100%; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
   </style>
 </head>
 <body>
   <div id="root"></div>
+
+  <!-- API Documentation: All endpoints return JSON. Companies can build their own frontend. -->
+  <!-- See /health for server status, /auth/login for JWT tokens, /api/* for all CRUD operations. -->
+  <!-- Full API reference: https://github.com/agenticmail/agenticmail/tree/main/packages/enterprise -->
+
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script>
-    const { useState, useEffect, useCallback, createElement: h, Fragment } = React;
+  const { useState, useEffect, useCallback, useMemo, useRef, createElement: h, Fragment } = React;
 
-    // ─── API Client ─────────────────────────────────────
-    const API_BASE = '/api';
-    let authToken = localStorage.getItem('am_token');
+  // ════════════════════════════════════════════════════════
+  // API CLIENT
+  // ════════════════════════════════════════════════════════
 
-    async function api(path, opts = {}) {
-      const headers = { 'Content-Type': 'application/json' };
-      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-      const resp = await fetch(`${API_BASE}${path}`, { ...opts, headers: { ...headers, ...opts.headers } });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Request failed');
-      return data;
+  const API = '/api';
+  let token = localStorage.getItem('am_token');
+
+  async function api(path, opts = {}) {
+    const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...opts.headers };
+    const res = await fetch(`${API}${path}`, { ...opts, headers });
+    if (res.status === 401) { token = null; localStorage.removeItem('am_token'); location.reload(); }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  // ════════════════════════════════════════════════════════
+  // ICONS (inline SVG, no external deps)
+  // ════════════════════════════════════════════════════════
+
+  const Icon = (d, size = 16) => h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, ...d.map(p => h('path', { d: p })));
+  const Icons = {
+    dashboard: () => Icon(['M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z', 'M9 22V12h6v10']),
+    agents: () => Icon(['M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2', 'M23 21v-2a4 4 0 00-3-3.87', 'M16 3.13a4 4 0 010 7.75']),
+    skills: () => Icon(['M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z']),
+    kb: () => Icon(['M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z', 'M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z']),
+    activity: () => Icon(['M22 12h-4l-3 9L9 3l-3 9H2']),
+    approvals: () => Icon(['M9 11l3 3L22 4', 'M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11']),
+    settings: () => Icon(['M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z']),
+    sun: () => Icon(['M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42', 'M12 17a5 5 0 110-10 5 5 0 010 10z']),
+    moon: () => Icon(['M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z']),
+    logout: () => Icon(['M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4', 'M16 17l5-5-5-5', 'M21 12H9']),
+    plus: () => Icon(['M12 5v14M5 12h14']),
+    search: () => Icon(['M11 19a8 8 0 100-16 8 8 0 000 16z', 'M21 21l-4.35-4.35']),
+    refresh: () => Icon(['M1 4v6h6', 'M23 20v-6h-6', 'M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15']),
+    check: () => Icon(['M20 6L9 17l-5-5']),
+    x: () => Icon(['M18 6L6 18', 'M6 6l12 12']),
+    api: () => Icon(['M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71', 'M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71']),
+    db: () => Icon(['M12 2C6.48 2 2 4.02 2 6.5v11C2 19.98 6.48 22 12 22s10-2.02 10-4.5v-11C22 4.02 17.52 2 12 2z', 'M2 6.5C2 8.98 6.48 11 12 11s10-2.02 10-4.5', 'M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5']),
+    org: () => Icon(['M3 21h18', 'M3 7v1a3 3 0 006 0V7m0 1a3 3 0 006 0V7m0 1a3 3 0 006 0V7', 'M5 21V10.9', 'M19 21V10.9', 'M12 21V10.9', 'M5 7l7-4 7 4']),
+  };
+
+  // ════════════════════════════════════════════════════════
+  // THEME
+  // ════════════════════════════════════════════════════════
+
+  function useTheme() {
+    const [theme, setTheme] = useState(() => localStorage.getItem('am_theme') || 'system');
+    useEffect(() => {
+      const effective = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;
+      document.documentElement.setAttribute('data-theme', effective);
+      localStorage.setItem('am_theme', theme);
+    }, [theme]);
+    const toggle = () => setTheme(t => t === 'dark' ? 'light' : t === 'light' ? 'system' : 'dark');
+    const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    return { theme, toggle, isDark };
+  }
+
+  // ════════════════════════════════════════════════════════
+  // SHARED COMPONENTS
+  // ════════════════════════════════════════════════════════
+
+  function Toast({ message, type = 'info', onDone }) {
+    useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, []);
+    return h('div', { className: `toast toast-${type}` }, message);
+  }
+
+  function Modal({ title, children, onClose, footer }) {
+    return h('div', { className: 'modal-overlay', onClick: e => e.target === e.currentTarget && onClose() },
+      h('div', { className: 'modal' },
+        h('div', { className: 'modal-header' },
+          h('div', { className: 'flex items-center justify-between' },
+            h('h2', null, title),
+            h('button', { className: 'btn-ghost btn-icon', onClick: onClose }, Icons.x())
+          )
+        ),
+        h('div', { className: 'modal-body' }, children),
+        footer && h('div', { className: 'modal-footer' }, footer)
+      )
+    );
+  }
+
+  function Stat({ label, value, color, sub }) {
+    return h('div', { className: 'stat' },
+      h('div', { className: 'stat-label' }, label),
+      h('div', { className: `stat-value ${color || ''}` }, value),
+      sub && h('div', { className: 'stat-sub' }, sub)
+    );
+  }
+
+  function Badge({ type, label, dot }) {
+    if (dot) return h('span', { className: `badge badge-${type}` }, h('span', { className: `badge-dot ${dot}` }), label);
+    return h('span', { className: `badge badge-${type}` }, label);
+  }
+
+  function EmptyState({ title, desc }) {
+    return h('div', { className: 'empty' }, h('div', { className: 'empty-title' }, title), h('div', { className: 'empty-desc' }, desc));
+  }
+
+  // ════════════════════════════════════════════════════════
+  // LOGIN PAGE
+  // ════════════════════════════════════════════════════════
+
+  function LoginPage({ onLogin }) {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    async function submit(e) {
+      e.preventDefault(); setLoading(true); setError('');
+      try {
+        const data = await fetch('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }).then(r => r.json());
+        if (data.error) throw new Error(data.error);
+        token = data.token; localStorage.setItem('am_token', token); onLogin(data);
+      } catch (err) { setError(err.message); } finally { setLoading(false); }
     }
 
-    // ─── Toast ──────────────────────────────────────────
-    function Toast({ message, type, onDone }) {
-      useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t); }, []);
-      return h('div', { className: `toast ${type}` }, message);
-    }
-
-    // ─── Login ──────────────────────────────────────────
-    function LoginPage({ onLogin }) {
-      const [email, setEmail] = useState('');
-      const [password, setPassword] = useState('');
-      const [error, setError] = useState('');
-      const [loading, setLoading] = useState(false);
-
-      async function handleSubmit(e) {
-        e.preventDefault();
-        setLoading(true); setError('');
-        try {
-          const data = await fetch('/auth/login', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password }),
-          }).then(r => r.json());
-          if (data.error) throw new Error(data.error);
-          authToken = data.token;
-          localStorage.setItem('am_token', data.token);
-          onLogin(data.user);
-        } catch (err) { setError(err.message); }
-        setLoading(false);
-      }
-
-      return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: 20 } },
-        h('form', { onSubmit: handleSubmit, style: { width: 360 } },
-          h('div', { style: { textAlign: 'center', marginBottom: 32 } },
-            h('h1', { style: { fontSize: 20, fontWeight: 700 } }, '🏢 ', h('span', { style: { color: 'var(--primary)' } }, 'AgenticMail'), ' Enterprise'),
-            h('p', { style: { fontSize: 13, color: 'var(--text-dim)', marginTop: 4 } }, 'Sign in to your dashboard'),
+    return h('div', { style: { display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-0)' } },
+      h('div', { style: { width: 360, padding: 32 } },
+        h('div', { style: { textAlign: 'center', marginBottom: 28 } },
+          h('h1', { style: { fontSize: 20, fontWeight: 700, marginBottom: 4 } }, 'AgenticMail Enterprise'),
+          h('p', { className: 'text-muted text-sm' }, 'Sign in to manage your AI agents')
+        ),
+        h('form', { onSubmit: submit },
+          h('div', { className: 'field' },
+            h('label', { className: 'field-label' }, 'Email'),
+            h('input', { className: 'input', type: 'email', value: email, onChange: e => setEmail(e.target.value), placeholder: 'admin@company.com', required: true, autoFocus: true })
           ),
-          error && h('div', { style: { background: 'rgba(239,68,68,0.1)', border: '1px solid var(--danger)', borderRadius: 'var(--radius)', padding: '8px 12px', marginBottom: 16, fontSize: 13, color: 'var(--danger)' } }, error),
-          h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Email'), h('input', { className: 'input', type: 'email', value: email, onChange: e => setEmail(e.target.value), required: true, autoFocus: true })),
-          h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Password'), h('input', { className: 'input', type: 'password', value: password, onChange: e => setPassword(e.target.value), required: true })),
-          h('button', { className: 'btn btn-primary', type: 'submit', disabled: loading, style: { width: '100%', justifyContent: 'center', marginTop: 8 } }, loading ? 'Signing in...' : 'Sign In'),
+          h('div', { className: 'field' },
+            h('label', { className: 'field-label' }, 'Password'),
+            h('input', { className: 'input', type: 'password', value: password, onChange: e => setPassword(e.target.value), placeholder: '••••••••', required: true })
+          ),
+          error && h('div', { style: { color: 'var(--danger)', fontSize: 13, marginBottom: 12 } }, error),
+          h('button', { className: 'btn btn-primary w-full', type: 'submit', disabled: loading, style: { marginTop: 8, justifyContent: 'center' } }, loading ? 'Signing in...' : 'Sign In')
+        ),
+        h('div', { style: { marginTop: 24, padding: 12, background: 'var(--bg-2)', borderRadius: 'var(--radius)', fontSize: 12, color: 'var(--text-2)' } },
+          h('strong', null, 'Build your own UI? '),
+          'All data is available via REST API. ',
+          h('span', { className: 'inline-code' }, 'GET /api/agents'), ', ',
+          h('span', { className: 'inline-code' }, 'GET /api/stats'), ', etc. ',
+          'See docs at ', h('a', { href: 'https://github.com/agenticmail/agenticmail', target: '_blank', style: { color: 'var(--accent)' } }, 'GitHub'), '.'
         )
-      );
-    }
+      )
+    );
+  }
 
-    // ─── Modal ──────────────────────────────────────────
-    function Modal({ title, children, onClose, actions }) {
-      return h('div', { className: 'modal-overlay', onClick: e => e.target === e.currentTarget && onClose() },
-        h('div', { className: 'modal' },
-          h('div', { className: 'modal-title' }, title),
-          children,
-          actions && h('div', { className: 'modal-actions' }, actions),
-        )
-      );
-    }
+  // ════════════════════════════════════════════════════════
+  // DASHBOARD PAGE
+  // ════════════════════════════════════════════════════════
 
-    // ─── Dashboard Page ─────────────────────────────────
-    function DashboardPage() {
-      const [stats, setStats] = useState(null);
-      const [audit, setAudit] = useState([]);
-      useEffect(() => {
-        api('/stats').then(setStats).catch(() => {});
-        api('/audit?limit=10').then(d => setAudit(d.events || [])).catch(() => {});
-      }, []);
-      if (!stats) return h('div', { className: 'page-desc' }, 'Loading...');
-      return h(Fragment, null,
-        h('h2', { className: 'page-title' }, 'Dashboard'),
-        h('p', { className: 'page-desc' }, 'Overview of your AgenticMail instance'),
-        h('div', { className: 'stats-grid' },
-          h('div', { className: 'stat-card' }, h('div', { className: 'label' }, 'Total Agents'), h('div', { className: 'value primary' }, stats.totalAgents)),
-          h('div', { className: 'stat-card' }, h('div', { className: 'label' }, 'Active Agents'), h('div', { className: 'value success' }, stats.activeAgents)),
-          h('div', { className: 'stat-card' }, h('div', { className: 'label' }, 'Users'), h('div', { className: 'value' }, stats.totalUsers)),
-          h('div', { className: 'stat-card' }, h('div', { className: 'label' }, 'Audit Events'), h('div', { className: 'value' }, stats.totalAuditEvents)),
-        ),
-        h('div', { className: 'card' },
-          h('div', { className: 'card-title' }, 'Recent Activity'),
-          audit.length === 0
-            ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '📋'), 'No activity yet')
-            : audit.map(e => h('div', { className: 'audit-item', key: e.id },
-                h('span', { className: 'audit-action' }, e.action), ' on ', h('span', null, e.resource),
-                h('div', { className: 'audit-time' }, new Date(e.timestamp).toLocaleString(), e.ip ? ` · ${e.ip}` : ''),
-              ))
-        ),
-      );
-    }
+  function DashboardPage() {
+    const [stats, setStats] = useState(null);
+    const [recent, setRecent] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    // ─── Agents Page ────────────────────────────────────
-    function AgentsPage({ showToast }) {
-      const [agents, setAgents] = useState([]);
-      const [showCreate, setShowCreate] = useState(false);
-      const [form, setForm] = useState({ name: '', email: '', role: 'assistant' });
-      const [loading, setLoading] = useState(false);
+    useEffect(() => {
+      Promise.all([
+        api('/stats').catch(() => ({ agents: 0, users: 0, emails: 0, events: 0 })),
+        api('/audit?limit=10').catch(() => ({ events: [] })),
+      ]).then(([s, a]) => { setStats(s); setRecent(a.events || []); setLoading(false); });
+    }, []);
 
-      const load = useCallback(() => { api('/agents').then(d => setAgents(d.agents || [])).catch(() => {}); }, []);
-      useEffect(load, []);
+    if (loading) return h('div', { className: 'text-muted', style: { padding: 40 } }, 'Loading...');
 
-      async function handleCreate(e) {
-        e.preventDefault(); setLoading(true);
-        try {
-          await api('/agents', { method: 'POST', body: JSON.stringify(form) });
-          showToast('Agent created', 'success');
-          setShowCreate(false); setForm({ name: '', email: '', role: 'assistant' }); load();
-        } catch (err) { showToast(err.message, 'error'); }
-        setLoading(false);
-      }
-
-      async function archiveAgent(id) {
-        try { await api(`/agents/${id}/archive`, { method: 'POST' }); showToast('Agent archived', 'success'); load(); }
-        catch (err) { showToast(err.message, 'error'); }
-      }
-
-      return h(Fragment, null,
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 } },
-          h('div', null, h('h2', { className: 'page-title' }, 'Agents'), h('p', { className: 'page-desc', style: { marginBottom: 0 } }, 'Manage AI agent identities')),
-          h('button', { className: 'btn btn-primary', onClick: () => setShowCreate(true) }, '+ New Agent'),
-        ),
-        h('div', { className: 'card' },
-          h('div', { className: 'table-wrap' },
-            agents.length === 0
-              ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '🤖'), 'No agents yet')
-              : h('table', null,
-                  h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Email'), h('th', null, 'Role'), h('th', null, 'Status'), h('th', null, 'Created'), h('th', null, ''))),
-                  h('tbody', null, agents.map(a => h('tr', { key: a.id },
-                    h('td', { style: { fontWeight: 600 } }, a.name),
-                    h('td', { style: { color: 'var(--text-dim)' } }, a.email),
-                    h('td', null, a.role),
-                    h('td', null, h('span', { className: `badge badge-${a.status}` }, a.status)),
-                    h('td', { style: { color: 'var(--text-muted)', fontSize: 12 } }, new Date(a.createdAt).toLocaleDateString()),
-                    h('td', null, a.status === 'active' && h('button', { className: 'btn btn-sm btn-danger', onClick: () => archiveAgent(a.id) }, 'Archive')),
-                  )))
-                )
-          )
-        ),
-        showCreate && h(Modal, { title: 'Create Agent', onClose: () => setShowCreate(false),
-          actions: [
-            h('button', { className: 'btn', onClick: () => setShowCreate(false) }, 'Cancel'),
-            h('button', { className: 'btn btn-primary', onClick: handleCreate, disabled: loading }, loading ? 'Creating...' : 'Create'),
-          ] },
-          h('form', { onSubmit: handleCreate },
-            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Name'), h('input', { className: 'input', value: form.name, onChange: e => setForm({ ...form, name: e.target.value }), required: true, autoFocus: true, placeholder: 'e.g. researcher' })),
-            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Email (optional)'), h('input', { className: 'input', value: form.email, onChange: e => setForm({ ...form, email: e.target.value }), placeholder: 'auto-generated if blank' })),
-            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Role'), h('select', { className: 'input', value: form.role, onChange: e => setForm({ ...form, role: e.target.value }) },
-              ['assistant', 'secretary', 'researcher', 'writer', 'custom'].map(r => h('option', { key: r, value: r }, r))
-            )),
-          )
-        ),
-      );
-    }
-
-    // ─── Users Page ─────────────────────────────────────
-    function UsersPage({ showToast }) {
-      const [users, setUsers] = useState([]);
-      const [showCreate, setShowCreate] = useState(false);
-      const [form, setForm] = useState({ email: '', name: '', role: 'member', password: '' });
-      const [loading, setLoading] = useState(false);
-
-      const load = useCallback(() => { api('/users').then(d => setUsers(d.users || [])).catch(() => {}); }, []);
-      useEffect(load, []);
-
-      async function handleCreate(e) {
-        e.preventDefault(); setLoading(true);
-        try {
-          await api('/users', { method: 'POST', body: JSON.stringify(form) });
-          showToast('User created', 'success');
-          setShowCreate(false); setForm({ email: '', name: '', role: 'member', password: '' }); load();
-        } catch (err) { showToast(err.message, 'error'); }
-        setLoading(false);
-      }
-
-      return h(Fragment, null,
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 } },
-          h('div', null, h('h2', { className: 'page-title' }, 'Users'), h('p', { className: 'page-desc', style: { marginBottom: 0 } }, 'Manage team members')),
-          h('button', { className: 'btn btn-primary', onClick: () => setShowCreate(true) }, '+ New User'),
-        ),
-        h('div', { className: 'card' },
-          h('div', { className: 'table-wrap' },
-            users.length === 0
-              ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '👥'), 'No users yet')
-              : h('table', null,
-                  h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Email'), h('th', null, 'Role'), h('th', null, 'Last Login'))),
-                  h('tbody', null, users.map(u => h('tr', { key: u.id },
-                    h('td', { style: { fontWeight: 600 } }, u.name),
-                    h('td', { style: { color: 'var(--text-dim)' } }, u.email),
-                    h('td', null, h('span', { className: `badge badge-${u.role}` }, u.role)),
-                    h('td', { style: { color: 'var(--text-muted)', fontSize: 12 } }, u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'),
-                  )))
-                )
-          )
-        ),
-        showCreate && h(Modal, { title: 'Create User', onClose: () => setShowCreate(false),
-          actions: [
-            h('button', { className: 'btn', onClick: () => setShowCreate(false) }, 'Cancel'),
-            h('button', { className: 'btn btn-primary', onClick: handleCreate, disabled: loading }, loading ? 'Creating...' : 'Create'),
-          ] },
-          h('form', { onSubmit: handleCreate },
-            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Name'), h('input', { className: 'input', value: form.name, onChange: e => setForm({ ...form, name: e.target.value }), required: true, autoFocus: true })),
-            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Email'), h('input', { className: 'input', type: 'email', value: form.email, onChange: e => setForm({ ...form, email: e.target.value }), required: true })),
-            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Role'), h('select', { className: 'input', value: form.role, onChange: e => setForm({ ...form, role: e.target.value }) },
-              ['owner', 'admin', 'member', 'viewer'].map(r => h('option', { key: r, value: r }, r))
-            )),
-            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Password'), h('input', { className: 'input', type: 'password', value: form.password, onChange: e => setForm({ ...form, password: e.target.value }), required: true, minLength: 8 })),
-          )
-        ),
-      );
-    }
-
-    // ─── API Keys Page ──────────────────────────────────
-    function ApiKeysPage({ showToast }) {
-      const [keys, setKeys] = useState([]);
-      const [showCreate, setShowCreate] = useState(false);
-      const [newKeyPlaintext, setNewKeyPlaintext] = useState('');
-      const [form, setForm] = useState({ name: '' });
-      const [loading, setLoading] = useState(false);
-
-      const load = useCallback(() => { api('/api-keys').then(d => setKeys(d.keys || [])).catch(() => {}); }, []);
-      useEffect(load, []);
-
-      async function handleCreate(e) {
-        e.preventDefault(); setLoading(true);
-        try {
-          const data = await api('/api-keys', { method: 'POST', body: JSON.stringify({ name: form.name }) });
-          setNewKeyPlaintext(data.plaintext);
-          showToast('API key created', 'success');
-          setForm({ name: '' }); load();
-        } catch (err) { showToast(err.message, 'error'); }
-        setLoading(false);
-      }
-
-      async function revokeKey(id) {
-        try { await api(`/api-keys/${id}`, { method: 'DELETE' }); showToast('Key revoked', 'success'); load(); }
-        catch (err) { showToast(err.message, 'error'); }
-      }
-
-      return h(Fragment, null,
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 } },
-          h('div', null, h('h2', { className: 'page-title' }, 'API Keys'), h('p', { className: 'page-desc', style: { marginBottom: 0 } }, 'Manage programmatic access')),
-          h('button', { className: 'btn btn-primary', onClick: () => setShowCreate(true) }, '+ New Key'),
-        ),
-        newKeyPlaintext && h('div', { className: 'card', style: { borderColor: 'var(--warning)', background: 'rgba(245,158,11,0.05)' } },
-          h('div', { style: { fontSize: 13, fontWeight: 600, color: 'var(--warning)', marginBottom: 8 } }, '⚠️ Copy this key now — it won\'t be shown again'),
-          h('code', { style: { display: 'block', background: 'var(--bg)', padding: '10px 14px', borderRadius: 'var(--radius)', fontSize: 13, wordBreak: 'break-all', cursor: 'pointer' }, onClick: () => { navigator.clipboard.writeText(newKeyPlaintext); showToast('Copied!', 'success'); } }, newKeyPlaintext),
-          h('button', { className: 'btn btn-sm', style: { marginTop: 8 }, onClick: () => setNewKeyPlaintext('') }, 'Dismiss'),
-        ),
-        h('div', { className: 'card' },
-          h('div', { className: 'table-wrap' },
-            keys.length === 0
-              ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '🔑'), 'No API keys')
-              : h('table', null,
-                  h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Key Prefix'), h('th', null, 'Scopes'), h('th', null, 'Last Used'), h('th', null, 'Status'), h('th', null, ''))),
-                  h('tbody', null, keys.map(k => h('tr', { key: k.id },
-                    h('td', { style: { fontWeight: 600 } }, k.name),
-                    h('td', null, h('code', { style: { fontSize: 12 } }, k.keyPrefix + '...')),
-                    h('td', { style: { fontSize: 12 } }, (k.scopes || []).join(', ') || '*'),
-                    h('td', { style: { color: 'var(--text-muted)', fontSize: 12 } }, k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : 'Never'),
-                    h('td', null, h('span', { className: `badge ${k.revoked ? 'badge-archived' : 'badge-active'}` }, k.revoked ? 'revoked' : 'active')),
-                    h('td', null, !k.revoked && h('button', { className: 'btn btn-sm btn-danger', onClick: () => revokeKey(k.id) }, 'Revoke')),
-                  )))
-                )
-          )
-        ),
-        showCreate && h(Modal, { title: 'Create API Key', onClose: () => setShowCreate(false),
-          actions: [
-            h('button', { className: 'btn', onClick: () => setShowCreate(false) }, 'Cancel'),
-            h('button', { className: 'btn btn-primary', onClick: handleCreate, disabled: loading }, loading ? 'Creating...' : 'Create'),
-          ] },
-          h('form', { onSubmit: handleCreate },
-            h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Key Name'), h('input', { className: 'input', value: form.name, onChange: e => setForm({ ...form, name: e.target.value }), required: true, autoFocus: true, placeholder: 'e.g. CI/CD pipeline' })),
-          )
-        ),
-      );
-    }
-
-    // ─── Audit Page ─────────────────────────────────────
-    function AuditPage() {
-      const [events, setEvents] = useState([]);
-      const [total, setTotal] = useState(0);
-      const [page, setPage] = useState(0);
-      const pageSize = 25;
-
-      useEffect(() => {
-        api(`/audit?limit=${pageSize}&offset=${page * pageSize}`).then(d => { setEvents(d.events || []); setTotal(d.total || 0); }).catch(() => {});
-      }, [page]);
-
-      return h(Fragment, null,
-        h('h2', { className: 'page-title' }, 'Audit Log'),
-        h('p', { className: 'page-desc' }, `${total} total events`),
-        h('div', { className: 'card' },
-          events.length === 0
-            ? h('div', { className: 'empty' }, h('div', { className: 'empty-icon' }, '📋'), 'No audit events')
-            : h(Fragment, null,
-                h('div', { className: 'table-wrap' },
-                  h('table', null,
-                    h('thead', null, h('tr', null, h('th', null, 'Time'), h('th', null, 'Actor'), h('th', null, 'Action'), h('th', null, 'Resource'), h('th', null, 'IP'))),
-                    h('tbody', null, events.map(e => h('tr', { key: e.id },
-                      h('td', { style: { fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, new Date(e.timestamp).toLocaleString()),
-                      h('td', null, e.actor),
-                      h('td', null, h('span', { className: 'audit-action' }, e.action)),
-                      h('td', { style: { fontSize: 12 } }, e.resource),
-                      h('td', { style: { fontSize: 12, color: 'var(--text-muted)' } }, e.ip || '-'),
-                    )))
-                  )
+    return h(Fragment, null,
+      h('div', { className: 'page-header' }, h('h1', { className: 'page-title' }, 'Dashboard'), h('p', { className: 'page-desc' }, 'System overview and recent activity')),
+      h('div', { className: 'stats-row' },
+        h(Stat, { label: 'Agents', value: stats?.agents ?? 0, color: 'accent', sub: 'Deployed' }),
+        h(Stat, { label: 'Users', value: stats?.users ?? 0 }),
+        h(Stat, { label: 'Emails Today', value: stats?.emails ?? 0, color: 'success' }),
+        h(Stat, { label: 'Events', value: stats?.events ?? 0 }),
+      ),
+      h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, 'Recent Activity')),
+        h('div', { className: 'card-body-flush' },
+          recent.length === 0
+            ? h(EmptyState, { title: 'No recent activity', desc: 'Activity will appear here as agents operate' })
+            : recent.map((e, i) => h('div', { key: i, className: 'activity-item' },
+                h('div', { className: 'activity-dot' }),
+                h('div', { className: 'activity-text' },
+                  h('strong', null, e.action || e.type || 'Event'), ' ',
+                  e.details || e.description || JSON.stringify(e).slice(0, 80)
                 ),
-                h('div', { style: { display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 } },
-                  h('button', { className: 'btn btn-sm', disabled: page === 0, onClick: () => setPage(p => p - 1) }, '← Prev'),
-                  h('span', { style: { padding: '4px 12px', fontSize: 12, color: 'var(--text-muted)' } }, `Page ${page + 1} of ${Math.ceil(total / pageSize) || 1}`),
-                  h('button', { className: 'btn btn-sm', disabled: (page + 1) * pageSize >= total, onClick: () => setPage(p => p + 1) }, 'Next →'),
+                h('div', { className: 'activity-time' }, e.timestamp ? new Date(e.timestamp).toLocaleString() : '')
+              ))
+        )
+      ),
+      h('div', { className: 'card mt-3' },
+        h('div', { className: 'card-header' }, h('h3', null, 'API Endpoints')),
+        h('div', { className: 'card-body' },
+          h('p', { className: 'text-sm text-muted mb-2' }, 'Build your own dashboard or integrate with your existing tools:'),
+          h('div', { className: 'code-block' },
+            'GET  /health                   # Server health\n' +
+            'POST /auth/login               # Get JWT token\n' +
+            'GET  /api/stats                # Dashboard stats\n' +
+            'GET  /api/agents               # List all agents\n' +
+            'POST /api/agents               # Create agent\n' +
+            'GET  /api/agents/:id           # Agent details\n' +
+            'GET  /api/audit                # Audit log\n' +
+            'GET  /api/api-keys             # API key management\n' +
+            'GET  /api/engine/skills        # Available skills\n' +
+            'GET  /api/engine/profiles/presets  # Permission presets\n' +
+            'POST /api/engine/config/workspace  # Generate agent config\n' +
+            'POST /api/engine/agents        # Deploy managed agent\n' +
+            'GET  /api/engine/stats/:orgId  # Org stats\n'
+          )
+        )
+      )
+    );
+  }
+
+  // ════════════════════════════════════════════════════════
+  // AGENTS PAGE
+  // ════════════════════════════════════════════════════════
+
+  function AgentsPage({ showToast }) {
+    const [agents, setAgents] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    const [showCreate, setShowCreate] = useState(false);
+
+    const load = () => { setLoading(true); api('/agents').then(d => setAgents(d.agents || d || [])).catch(() => setAgents([])).finally(() => setLoading(false)); };
+    useEffect(load, []);
+
+    const filtered = agents.filter(a => !search || a.name?.toLowerCase().includes(search.toLowerCase()) || a.email?.toLowerCase().includes(search.toLowerCase()));
+
+    return h(Fragment, null,
+      h('div', { className: 'page-header flex items-center justify-between' },
+        h('div', null, h('h1', { className: 'page-title' }, 'Agents'), h('p', { className: 'page-desc' }, `${agents.length} agent${agents.length !== 1 ? 's' : ''} registered`)),
+        h('button', { className: 'btn btn-primary', onClick: () => setShowCreate(true) }, Icons.plus(), ' New Agent')
+      ),
+      h('div', { className: 'mb-3' }, h('input', { className: 'input search-input', placeholder: 'Search agents...', value: search, onChange: e => setSearch(e.target.value) })),
+      h('div', { className: 'card' },
+        h('div', { className: 'card-body-flush' },
+          loading ? h('div', { className: 'table-empty' }, 'Loading...') :
+          filtered.length === 0 ? h(EmptyState, { title: 'No agents', desc: search ? 'No agents match your search' : 'Create your first agent to get started' }) :
+          h('div', { style: { overflowX: 'auto' } },
+            h('table', null,
+              h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Email'), h('th', null, 'Role'), h('th', null, 'Status'), h('th', null, 'Created'))),
+              h('tbody', null, filtered.map(a =>
+                h('tr', { key: a.id || a.name },
+                  h('td', null, h('strong', null, a.name || a.displayName)),
+                  h('td', null, h('span', { className: 'font-mono text-sm' }, a.email)),
+                  h('td', null, a.role || '-'),
+                  h('td', null, h(Badge, { type: a.status === 'active' ? 'success' : 'neutral', dot: a.status === 'active' ? 'green' : '', label: a.status || 'active' })),
+                  h('td', { className: 'text-muted text-sm' }, a.createdAt ? new Date(a.createdAt).toLocaleDateString() : '-')
                 )
+              ))
+            )
+          )
+        )
+      ),
+      showCreate && h(CreateAgentModal, { onClose: () => setShowCreate(false), onCreated: () => { setShowCreate(false); load(); showToast('Agent created', 'success'); } })
+    );
+  }
+
+  function CreateAgentModal({ onClose, onCreated }) {
+    const [name, setName] = useState('');
+    const [role, setRole] = useState('assistant');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    async function submit(e) {
+      e.preventDefault(); setLoading(true); setError('');
+      try { await api('/agents', { method: 'POST', body: JSON.stringify({ name, role }) }); onCreated(); }
+      catch (err) { setError(err.message); } finally { setLoading(false); }
+    }
+
+    return h(Modal, { title: 'Create Agent', onClose, footer: h(Fragment, null,
+        h('button', { className: 'btn', onClick: onClose }, 'Cancel'),
+        h('button', { className: 'btn btn-primary', onClick: submit, disabled: loading || !name }, loading ? 'Creating...' : 'Create Agent')
+      ) },
+      h('form', { onSubmit: submit },
+        h('div', { className: 'field' }, h('label', { className: 'field-label' }, 'Agent Name'), h('input', { className: 'input', value: name, onChange: e => setName(e.target.value), placeholder: 'researcher', autoFocus: true })),
+        h('div', { className: 'field' }, h('label', { className: 'field-label' }, 'Role'), h('select', { className: 'input', value: role, onChange: e => setRole(e.target.value) },
+          h('option', { value: 'secretary' }, 'Secretary'), h('option', { value: 'assistant' }, 'Assistant'),
+          h('option', { value: 'researcher' }, 'Researcher'), h('option', { value: 'writer' }, 'Writer'), h('option', { value: 'custom' }, 'Custom')
+        )),
+        error && h('div', { style: { color: 'var(--danger)', fontSize: 13, marginTop: 8 } }, error)
+      )
+    );
+  }
+
+  // ════════════════════════════════════════════════════════
+  // SKILLS PAGE
+  // ════════════════════════════════════════════════════════
+
+  function SkillsPage() {
+    const [skills, setSkills] = useState([]);
+    const [presets, setPresets] = useState([]);
+    const [tab, setTab] = useState('skills');
+    const [search, setSearch] = useState('');
+
+    useEffect(() => {
+      api('/engine/skills').then(d => setSkills(d.skills || Object.values(d) || [])).catch(() => {});
+      api('/engine/profiles/presets').then(d => setPresets(d.presets || Object.values(d) || [])).catch(() => {});
+    }, []);
+
+    const filtered = skills.filter(s => !search || (s.name || s.id || '').toLowerCase().includes(search.toLowerCase()) || (s.category || '').toLowerCase().includes(search.toLowerCase()));
+    const byCategory = {};
+    filtered.forEach(s => { const cat = s.category || 'Other'; (byCategory[cat] = byCategory[cat] || []).push(s); });
+
+    return h(Fragment, null,
+      h('div', { className: 'page-header' }, h('h1', { className: 'page-title' }, 'Skills & Permissions'), h('p', { className: 'page-desc' }, 'Configure what tools each agent can access')),
+      h('div', { className: 'tabs' },
+        h('button', { className: `tab ${tab === 'skills' ? 'active' : ''}`, onClick: () => setTab('skills') }, `Skills (${skills.length})`),
+        h('button', { className: `tab ${tab === 'presets' ? 'active' : ''}`, onClick: () => setTab('presets') }, `Presets (${presets.length})`),
+        h('button', { className: `tab ${tab === 'api' ? 'active' : ''}`, onClick: () => setTab('api') }, 'API Reference'),
+      ),
+      tab === 'skills' && h(Fragment, null,
+        h('div', { className: 'mb-3' }, h('input', { className: 'input search-input', placeholder: 'Search skills...', value: search, onChange: e => setSearch(e.target.value) })),
+        Object.entries(byCategory).map(([cat, items]) =>
+          h('div', { key: cat, className: 'card mb-3' },
+            h('div', { className: 'card-header' }, h('h3', null, cat, h('span', { className: 'text-muted text-sm', style: { marginLeft: 8, fontWeight: 400 } }, `${items.length} skill${items.length !== 1 ? 's' : ''}`))),
+            h('div', { className: 'card-body-flush' },
+              h('table', null,
+                h('thead', null, h('tr', null, h('th', null, 'Skill'), h('th', null, 'Risk'), h('th', null, 'Tools'), h('th', null, 'Status'))),
+                h('tbody', null, items.map(s =>
+                  h('tr', { key: s.id || s.name },
+                    h('td', null, h('strong', null, s.name || s.id), s.description && h('div', { className: 'text-xs text-muted', style: { maxWidth: 300 } }, s.description.slice(0, 80))),
+                    h('td', null, h(Badge, { type: s.risk === 'high' ? 'danger' : s.risk === 'medium' ? 'warning' : 'success', label: s.risk || 'low' })),
+                    h('td', { className: 'text-muted text-sm' }, s.tools?.length || 0),
+                    h('td', null, h(Badge, { type: 'success', dot: 'green', label: 'Available' }))
+                  )
+                ))
               )
-        ),
-      );
-    }
+            )
+          )
+        )
+      ),
+      tab === 'presets' && h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, 'Permission Presets')),
+        h('div', { className: 'card-body-flush' },
+          presets.length === 0 ? h(EmptyState, { title: 'No presets loaded', desc: 'Engine may not be initialized' }) :
+          h('table', null,
+            h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Description'), h('th', null, 'Allowed Skills'))),
+            h('tbody', null, presets.map((p, i) =>
+              h('tr', { key: i },
+                h('td', null, h('strong', null, p.name || p.id)),
+                h('td', { className: 'text-muted text-sm' }, p.description || '-'),
+                h('td', { className: 'text-sm' }, p.allowedSkills?.length || p.skills?.length || '-')
+              )
+            ))
+          )
+        )
+      ),
+      tab === 'api' && h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, 'Skills & Permissions API')),
+        h('div', { className: 'card-body' },
+          h('div', { className: 'code-block' },
+            '# List all available skills\n' +
+            'GET /api/engine/skills\n' +
+            '→ { skills: [{ id, name, category, description, risk, tools: [...] }] }\n\n' +
+            '# List permission presets\n' +
+            'GET /api/engine/profiles/presets\n' +
+            '→ { presets: [{ name, description, allowedSkills, riskThreshold }] }\n\n' +
+            '# Check if agent has permission for a tool\n' +
+            'POST /api/engine/permissions/check\n' +
+            '→ { allowed: boolean, reason: string }\n\n' +
+            '# Get agent\'s effective tool policy\n' +
+            'GET /api/engine/permissions/:agentId/policy\n' +
+            '→ { allowedTools: [...], blockedTools: [...] }'
+          )
+        )
+      )
+    );
+  }
 
-    // ─── Settings Page ──────────────────────────────────
-    function SettingsPage({ showToast }) {
-      const [settings, setSettings] = useState(null);
-      const [form, setForm] = useState({});
-      const [retention, setRetention] = useState(null);
-      const [loading, setLoading] = useState(false);
+  // ════════════════════════════════════════════════════════
+  // KNOWLEDGE BASE PAGE
+  // ════════════════════════════════════════════════════════
 
-      useEffect(() => {
-        api('/settings').then(d => { setSettings(d); setForm({ name: d.name || '', domain: d.domain || '', primaryColor: d.primaryColor || '#6366f1', logoUrl: d.logoUrl || '' }); }).catch(() => {});
-        api('/retention').then(setRetention).catch(() => {});
-      }, []);
+  function KnowledgeBasePage() {
+    const [kbs, setKbs] = useState([]);
+    useEffect(() => { api('/engine/knowledge').then(d => setKbs(d.bases || [])).catch(() => {}); }, []);
 
-      async function saveSettings(e) {
-        e.preventDefault(); setLoading(true);
-        try { await api('/settings', { method: 'PATCH', body: JSON.stringify(form) }); showToast('Settings saved', 'success'); }
-        catch (err) { showToast(err.message, 'error'); }
-        setLoading(false);
-      }
+    return h(Fragment, null,
+      h('div', { className: 'page-header flex items-center justify-between' },
+        h('div', null, h('h1', { className: 'page-title' }, 'Knowledge Bases'), h('p', { className: 'page-desc' }, 'Document ingestion and RAG retrieval for agents')),
+        h('button', { className: 'btn btn-primary' }, Icons.plus(), ' New Knowledge Base')
+      ),
+      kbs.length === 0
+        ? h('div', { className: 'card' }, h('div', { className: 'card-body' }, h(EmptyState, { title: 'No knowledge bases', desc: 'Create a knowledge base to give agents access to your documents' })))
+        : h('div', { className: 'card' },
+            h('div', { className: 'card-body-flush' },
+              h('table', null,
+                h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Documents'), h('th', null, 'Chunks'), h('th', null, 'Agents'), h('th', null, 'Created'))),
+                h('tbody', null, kbs.map(kb =>
+                  h('tr', { key: kb.id },
+                    h('td', null, h('strong', null, kb.name)),
+                    h('td', null, kb.documentCount || 0),
+                    h('td', null, kb.chunkCount || 0),
+                    h('td', null, kb.agentIds?.length || 0),
+                    h('td', { className: 'text-muted text-sm' }, kb.createdAt ? new Date(kb.createdAt).toLocaleDateString() : '-')
+                  )
+                ))
+              )
+            )
+          )
+    );
+  }
 
-      if (!settings) return h('div', { className: 'page-desc' }, 'Loading...');
+  // ════════════════════════════════════════════════════════
+  // ACTIVITY PAGE
+  // ════════════════════════════════════════════════════════
 
-      return h(Fragment, null,
-        h('h2', { className: 'page-title' }, 'Settings'),
-        h('p', { className: 'page-desc' }, 'Configure your organization'),
-        h('div', { className: 'card' },
-          h('div', { className: 'card-title' }, 'General'),
-          h('form', { onSubmit: saveSettings },
-            h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 } },
-              h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Organization Name'), h('input', { className: 'input', value: form.name, onChange: e => setForm({ ...form, name: e.target.value }) })),
-              h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Domain'), h('input', { className: 'input', value: form.domain, onChange: e => setForm({ ...form, domain: e.target.value }), placeholder: 'agents.acme.com' })),
-              h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Primary Color'), h('input', { className: 'input', type: 'color', value: form.primaryColor, onChange: e => setForm({ ...form, primaryColor: e.target.value }), style: { height: 36, padding: 4 } })),
-              h('div', { className: 'form-group' }, h('label', { className: 'form-label' }, 'Logo URL'), h('input', { className: 'input', value: form.logoUrl, onChange: e => setForm({ ...form, logoUrl: e.target.value }), placeholder: 'https://...' })),
+  function ActivityPage() {
+    const [events, setEvents] = useState([]);
+    const [tab, setTab] = useState('events');
+
+    useEffect(() => { api('/audit?limit=50').then(d => setEvents(d.events || [])).catch(() => {}); }, []);
+
+    return h(Fragment, null,
+      h('div', { className: 'page-header' }, h('h1', { className: 'page-title' }, 'Activity & Audit'), h('p', { className: 'page-desc' }, 'Real-time monitoring and audit trail')),
+      h('div', { className: 'tabs' },
+        h('button', { className: `tab ${tab === 'events' ? 'active' : ''}`, onClick: () => setTab('events') }, 'Events'),
+        h('button', { className: `tab ${tab === 'api' ? 'active' : ''}`, onClick: () => setTab('api') }, 'API Reference'),
+      ),
+      tab === 'events' && h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, 'Audit Log'), h('button', { className: 'btn btn-sm btn-ghost', onClick: () => api('/audit?limit=50').then(d => setEvents(d.events || [])) }, Icons.refresh(), ' Refresh')),
+        h('div', { className: 'card-body-flush' },
+          events.length === 0 ? h(EmptyState, { title: 'No events yet', desc: 'Activity will appear here as the system operates' }) :
+          events.map((e, i) => h('div', { key: i, className: 'activity-item' },
+            h('div', { className: 'activity-dot', style: { background: e.action?.includes('delete') ? 'var(--danger)' : e.action?.includes('create') ? 'var(--success)' : 'var(--accent)' } }),
+            h('div', { style: { flex: 1 } },
+              h('div', null, h('strong', null, e.action || e.type), ' ', h('span', { className: 'text-muted' }, e.resource || '')),
+              e.userId && h('div', { className: 'text-xs text-muted' }, 'by ', e.userId)
             ),
-            h('button', { className: 'btn btn-primary', type: 'submit', disabled: loading, style: { marginTop: 8 } }, loading ? 'Saving...' : 'Save'),
-          ),
-        ),
-        h('div', { className: 'card' },
-          h('div', { className: 'card-title' }, 'Plan'),
-          h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
-            h('span', { className: 'badge badge-active', style: { fontSize: 14, padding: '4px 12px' } }, (settings.plan || 'free').toUpperCase()),
-            h('span', { style: { fontSize: 13, color: 'var(--text-dim)' } }, `Subdomain: ${settings.subdomain || 'not set'}.agenticmail.cloud`),
-          ),
-        ),
-        retention && h('div', { className: 'card' },
-          h('div', { className: 'card-title' }, 'Data Retention'),
-          h('div', { style: { fontSize: 13 } },
-            h('div', null, 'Status: ', h('span', { style: { color: retention.enabled ? 'var(--success)' : 'var(--text-muted)' } }, retention.enabled ? 'Enabled' : 'Disabled')),
-            h('div', { style: { color: 'var(--text-dim)', marginTop: 4 } }, `Retain emails for ${retention.retainDays} days`, retention.archiveFirst ? ' (archive before delete)' : ''),
-          ),
-        ),
-      );
-    }
+            h('div', { className: 'activity-time' }, e.timestamp ? new Date(e.timestamp).toLocaleString() : '')
+          ))
+        )
+      ),
+      tab === 'api' && h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, 'Activity & Monitoring API')),
+        h('div', { className: 'card-body' },
+          h('div', { className: 'code-block' },
+            '# Audit log\n' +
+            'GET /api/audit?limit=50\n' +
+            '→ { events: [{ action, resource, userId, timestamp, details }] }\n\n' +
+            '# Engine activity events\n' +
+            'GET /api/engine/activity/:orgId/events?limit=100\n' +
+            '→ { events: [{ agentId, type, data, createdAt }] }\n\n' +
+            '# Tool call records\n' +
+            'GET /api/engine/activity/:orgId/tools?agentId=&limit=50\n' +
+            '→ { calls: [{ toolName, timing, cost, permission }] }\n\n' +
+            '# Real-time SSE stream\n' +
+            'GET /api/engine/activity/:orgId/stream\n' +
+            '→ Server-Sent Events (text/event-stream)\n\n' +
+            '# Agent timeline\n' +
+            'GET /api/engine/activity/:orgId/timeline/:agentId?date=YYYY-MM-DD\n' +
+            '→ { entries: [{ time, type, summary }] }'
+          )
+        )
+      )
+    );
+  }
 
-    // ─── App ────────────────────────────────────────────
-    const PAGES = {
-      dashboard: { icon: '📊', label: 'Dashboard', component: DashboardPage },
-      agents: { icon: '🤖', label: 'Agents', component: AgentsPage },
-      users: { icon: '👥', label: 'Users', component: UsersPage },
-      'api-keys': { icon: '🔑', label: 'API Keys', component: ApiKeysPage },
-      audit: { icon: '📋', label: 'Audit Log', component: AuditPage },
-      settings: { icon: '⚙️', label: 'Settings', component: SettingsPage },
+  // ════════════════════════════════════════════════════════
+  // APPROVALS PAGE
+  // ════════════════════════════════════════════════════════
+
+  function ApprovalsPage({ showToast }) {
+    const [pending, setPending] = useState([]);
+    useEffect(() => { api('/engine/approvals/pending').then(d => setPending(d.requests || [])).catch(() => {}); }, []);
+
+    return h(Fragment, null,
+      h('div', { className: 'page-header' }, h('h1', { className: 'page-title' }, 'Approvals'), h('p', { className: 'page-desc' }, 'Review and approve sensitive agent actions')),
+      h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, `Pending (${pending.length})`)),
+        h('div', { className: 'card-body-flush' },
+          pending.length === 0 ? h(EmptyState, { title: 'No pending approvals', desc: 'When agents attempt sensitive operations, they\'ll appear here for review' }) :
+          pending.map(r => h('div', { key: r.id, style: { padding: 16, borderBottom: '1px solid var(--border-subtle)' } },
+            h('div', { className: 'flex items-center justify-between' },
+              h('div', null,
+                h('strong', null, r.toolName || r.tool_name), ' — ',
+                h('span', { className: 'text-muted' }, r.agentName || r.agent_name),
+                h('div', { className: 'text-xs text-muted mt-2' }, r.reason)
+              ),
+              h('div', { className: 'btn-group' },
+                h('button', { className: 'btn btn-sm btn-primary', onClick: () => api(`/engine/approvals/${r.id}/decide`, { method: 'POST', body: JSON.stringify({ decision: 'approved' }) }).then(() => { setPending(p => p.filter(x => x.id !== r.id)); showToast('Approved', 'success'); }) }, Icons.check(), ' Approve'),
+                h('button', { className: 'btn btn-sm btn-danger', onClick: () => api(`/engine/approvals/${r.id}/decide`, { method: 'POST', body: JSON.stringify({ decision: 'denied' }) }).then(() => { setPending(p => p.filter(x => x.id !== r.id)); showToast('Denied', 'info'); }) }, Icons.x(), ' Deny')
+              )
+            )
+          ))
+        )
+      )
+    );
+  }
+
+  // ════════════════════════════════════════════════════════
+  // SETTINGS PAGE
+  // ════════════════════════════════════════════════════════
+
+  function SettingsPage() {
+    const [apiKeys, setApiKeys] = useState([]);
+    const [tab, setTab] = useState('general');
+    useEffect(() => { api('/api-keys').then(d => setApiKeys(d.keys || d || [])).catch(() => {}); }, []);
+
+    return h(Fragment, null,
+      h('div', { className: 'page-header' }, h('h1', { className: 'page-title' }, 'Settings')),
+      h('div', { className: 'tabs' },
+        h('button', { className: `tab ${tab === 'general' ? 'active' : ''}`, onClick: () => setTab('general') }, 'General'),
+        h('button', { className: `tab ${tab === 'keys' ? 'active' : ''}`, onClick: () => setTab('keys') }, 'API Keys'),
+        h('button', { className: `tab ${tab === 'api' ? 'active' : ''}`, onClick: () => setTab('api') }, 'Integration Guide'),
+      ),
+      tab === 'general' && h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, 'Server Info')),
+        h('div', { className: 'card-body' },
+          h('div', { className: 'detail-grid' },
+            h('div', { className: 'detail-item' }, h('div', { className: 'detail-label' }, 'Version'), h('div', { className: 'detail-value' }, '0.2.2')),
+            h('div', { className: 'detail-item' }, h('div', { className: 'detail-label' }, 'API Base'), h('div', { className: 'detail-value font-mono' }, window.location.origin + '/api')),
+            h('div', { className: 'detail-item' }, h('div', { className: 'detail-label' }, 'Health'), h('div', { className: 'detail-value font-mono' }, window.location.origin + '/health')),
+            h('div', { className: 'detail-item' }, h('div', { className: 'detail-label' }, 'Engine'), h('div', { className: 'detail-value font-mono' }, window.location.origin + '/api/engine')),
+          )
+        )
+      ),
+      tab === 'keys' && h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, 'API Keys'), h('button', { className: 'btn btn-sm btn-primary' }, Icons.plus(), ' Create Key')),
+        h('div', { className: 'card-body-flush' },
+          apiKeys.length === 0 ? h(EmptyState, { title: 'No API keys', desc: 'Create an API key to access the REST API programmatically' }) :
+          h('table', null,
+            h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Key'), h('th', null, 'Scopes'), h('th', null, 'Created'))),
+            h('tbody', null, apiKeys.map(k =>
+              h('tr', { key: k.id },
+                h('td', null, h('strong', null, k.name)),
+                h('td', null, h('span', { className: 'font-mono text-sm' }, k.key?.slice(0, 12) + '...')),
+                h('td', null, (k.scopes || []).join(', ') || 'all'),
+                h('td', { className: 'text-muted text-sm' }, k.createdAt ? new Date(k.createdAt).toLocaleDateString() : '-')
+              )
+            ))
+          )
+        )
+      ),
+      tab === 'api' && h('div', { className: 'card' },
+        h('div', { className: 'card-header' }, h('h3', null, 'Build Your Own Frontend')),
+        h('div', { className: 'card-body' },
+          h('p', { className: 'text-sm mb-3' }, 'AgenticMail Enterprise exposes a complete REST API. You can build your own dashboard in any language or framework.'),
+          h('div', { className: 'code-block mb-3' },
+            '// Example: Fetch agents from your React/Vue/Svelte app\n' +
+            'const response = await fetch("' + window.location.origin + '/api/agents", {\n' +
+            '  headers: {\n' +
+            '    "Authorization": "Bearer " + token,\n' +
+            '    "Content-Type": "application/json"\n' +
+            '  }\n' +
+            '});\n' +
+            'const { agents } = await response.json();\n' +
+            '// → [{ id, name, email, role, status, createdAt }]'
+          ),
+          h('p', { className: 'text-sm mb-2', style: { fontWeight: 600 } }, 'Authentication'),
+          h('div', { className: 'code-block mb-3' },
+            '// Option 1: JWT token (from /auth/login)\n' +
+            'headers: { "Authorization": "Bearer eyJhbGci..." }\n\n' +
+            '// Option 2: API key (from Settings > API Keys)\n' +
+            'headers: { "X-API-Key": "ak_your_key_here" }'
+          ),
+          h('p', { className: 'text-sm mb-2', style: { fontWeight: 600 } }, 'Response Format'),
+          h('p', { className: 'text-sm text-muted mb-2' }, 'All endpoints return JSON. Errors include an "error" field with a human-readable message. Successful responses return the data directly.'),
+          h('p', { className: 'text-sm' }, 'Full API reference and example implementations in 8 languages at ', h('a', { href: 'https://github.com/agenticmail/agenticmail/tree/main/packages/enterprise/dashboards', target: '_blank', style: { color: 'var(--accent)' } }, 'GitHub'))
+        )
+      )
+    );
+  }
+
+  // ════════════════════════════════════════════════════════
+  // APP SHELL
+  // ════════════════════════════════════════════════════════
+
+  function App() {
+    const [authed, setAuthed] = useState(!!token);
+    const [page, setPage] = useState('dashboard');
+    const [toast, setToast] = useState(null);
+    const { theme, toggle, isDark } = useTheme();
+
+    const showToast = (message, type = 'info') => setToast({ message, type });
+
+    if (!authed) return h(LoginPage, { onLogin: () => setAuthed(true) });
+
+    const nav = [
+      { section: 'Overview' },
+      { id: 'dashboard', label: 'Dashboard', icon: Icons.dashboard },
+      { id: 'agents', label: 'Agents', icon: Icons.agents },
+      { section: 'Configuration' },
+      { id: 'skills', label: 'Skills & Permissions', icon: Icons.skills },
+      { id: 'knowledge', label: 'Knowledge Bases', icon: Icons.kb },
+      { section: 'Operations' },
+      { id: 'activity', label: 'Activity & Audit', icon: Icons.activity },
+      { id: 'approvals', label: 'Approvals', icon: Icons.approvals },
+      { section: 'System' },
+      { id: 'settings', label: 'Settings', icon: Icons.settings },
+    ];
+
+    const pages = {
+      dashboard: h(DashboardPage),
+      agents: h(AgentsPage, { showToast }),
+      skills: h(SkillsPage),
+      knowledge: h(KnowledgeBasePage),
+      activity: h(ActivityPage),
+      approvals: h(ApprovalsPage, { showToast }),
+      settings: h(SettingsPage),
     };
 
-    function App() {
-      const [user, setUser] = useState(null);
-      const [page, setPage] = useState('dashboard');
-      const [toast, setToast] = useState(null);
-      const [checkingAuth, setCheckingAuth] = useState(true);
-
-      const showToast = useCallback((message, type = 'success') => setToast({ message, type, key: Date.now() }), []);
-
-      useEffect(() => {
-        if (authToken) {
-          fetch('/auth/me', { headers: { Authorization: `Bearer ${authToken}` } })
-            .then(r => r.ok ? r.json() : Promise.reject())
-            .then(u => { setUser(u); setCheckingAuth(false); })
-            .catch(() => { localStorage.removeItem('am_token'); authToken = null; setCheckingAuth(false); });
-        } else { setCheckingAuth(false); }
-      }, []);
-
-      if (checkingAuth) return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: 'var(--text-dim)' } }, 'Loading...');
-      if (!user) return h(LoginPage, { onLogin: setUser });
-
-      const PageComponent = PAGES[page]?.component || DashboardPage;
-
-      return h(Fragment, null,
-        h('div', { className: 'sidebar' },
-          h('div', { className: 'sidebar-logo' },
-            h('h1', null, '🏢 ', h('span', null, 'Agentic'), 'Mail'),
-            h('p', null, 'Enterprise'),
-          ),
-          h('div', { className: 'nav-section' }, 'Overview'),
-          Object.entries(PAGES).slice(0, 1).map(([key, { icon, label }]) =>
-            h('button', { key, className: `nav-item ${page === key ? 'active' : ''}`, onClick: () => setPage(key) }, icon, ' ', h('span', null, label))
-          ),
-          h('div', { className: 'nav-section' }, 'Manage'),
-          Object.entries(PAGES).slice(1, 4).map(([key, { icon, label }]) =>
-            h('button', { key, className: `nav-item ${page === key ? 'active' : ''}`, onClick: () => setPage(key) }, icon, ' ', h('span', null, label))
-          ),
-          h('div', { className: 'nav-section' }, 'System'),
-          Object.entries(PAGES).slice(4).map(([key, { icon, label }]) =>
-            h('button', { key, className: `nav-item ${page === key ? 'active' : ''}`, onClick: () => setPage(key) }, icon, ' ', h('span', null, label))
-          ),
-          h('div', { style: { marginTop: 'auto', padding: '16px 20px', borderTop: '1px solid var(--border)', fontSize: 12 } },
-            h('div', { style: { color: 'var(--text-dim)' } }, user.name),
-            h('div', { style: { color: 'var(--text-muted)', fontSize: 11 } }, user.email),
-            h('button', { style: { marginTop: 8, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, padding: 0 },
-              onClick: () => { localStorage.removeItem('am_token'); authToken = null; setUser(null); }
-            }, 'Sign out'),
-          ),
+    return h(Fragment, null,
+      // Sidebar
+      h('nav', { className: 'sidebar' },
+        h('div', { className: 'sidebar-header' },
+          h('h1', null, 'AgenticMail ', h('span', { className: 'text-muted', style: { fontWeight: 400 } }, 'Enterprise')),
+          h('p', null, 'AI Agent Management')
         ),
-        h('div', { className: 'main' }, h(PageComponent, { showToast })),
-        toast && h(Toast, { ...toast, onDone: () => setToast(null) }),
-      );
-    }
+        h('div', { className: 'sidebar-nav' },
+          nav.map((item, i) =>
+            item.section ? h('div', { key: i, className: 'nav-group' }, item.section) :
+            h('button', { key: item.id, className: `nav-item ${page === item.id ? 'active' : ''}`, onClick: () => setPage(item.id) },
+              item.icon(), h('span', null, item.label)
+            )
+          )
+        ),
+        h('div', { className: 'sidebar-footer' },
+          h('button', { className: 'nav-item', onClick: toggle, title: `Theme: ${theme}` }, isDark ? Icons.sun() : Icons.moon(), h('span', null, isDark ? 'Light Mode' : 'Dark Mode')),
+          h('button', { className: 'nav-item', onClick: () => { token = null; localStorage.removeItem('am_token'); setAuthed(false); } }, Icons.logout(), h('span', null, 'Sign Out'))
+        )
+      ),
+      // Main
+      h('div', { className: 'main' },
+        h('div', { className: 'topbar' },
+          h('div', { className: 'topbar-left' },
+            h('span', { className: 'text-sm text-muted' }, nav.find(n => n.id === page)?.label || 'Dashboard')
+          ),
+          h('div', { className: 'topbar-right' },
+            h('a', { href: 'https://github.com/agenticmail/agenticmail', target: '_blank', className: 'btn btn-ghost btn-sm', title: 'Documentation' }, Icons.api(), h('span', { className: 'text-sm' }, 'API Docs'))
+          )
+        ),
+        h('div', { className: 'content' }, pages[page] || h('div', null, 'Page not found'))
+      ),
+      // Toast
+      toast && h(Toast, { ...toast, onDone: () => setToast(null) })
+    );
+  }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  // ════════════════════════════════════════════════════════
+  // MOUNT
+  // ════════════════════════════════════════════════════════
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
   </script>
 </body>
 </html>
