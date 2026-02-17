@@ -147,8 +147,8 @@ export class ServiceManager {
       '',
       'log "AgenticMail starting..."',
       '',
-      '# Wait for Docker daemon (up to 5 minutes)',
-      'MAX_WAIT=300',
+      '# Wait for Docker daemon (up to 10 minutes — Docker Desktop can be very slow on first boot)',
+      'MAX_WAIT=600',
       'WAITED=0',
       'while ! docker info >/dev/null 2>&1; do',
       '  if [ $WAITED -ge $MAX_WAIT ]; then',
@@ -315,7 +315,7 @@ Type=simple
 ExecStart=${startScript}
 Restart=always
 RestartSec=15
-TimeoutStartSec=360
+TimeoutStartSec=660
 LimitNOFILE=8192
 Environment=HOME=${homedir()}
 Environment=AGENTICMAIL_DATA_DIR=${dataDir}
