@@ -173,7 +173,8 @@ export class DependencyInstaller {
 
   /**
    * Ensure Docker is installed AND the daemon is running.
-   * Installs Docker if not present (Homebrew on macOS, apt on Linux).
+   * macOS: Downloads official DMG and runs Docker's CLI installer (no Homebrew needed).
+   * Linux: Uses Docker's official convenience script (https://get.docker.com).
    * Starts the daemon if Docker CLI is present but daemon is stopped.
    */
   async installDocker(): Promise<void> {
@@ -201,35 +202,122 @@ export class DependencyInstaller {
     const os = platform();
 
     if (os === 'darwin') {
-      // macOS: install via Homebrew cask
-      this.onProgress('Installing Docker via Homebrew...');
-      try {
-        execFileSync('brew', ['--version'], { timeout: 5_000, stdio: 'ignore' });
-      } catch {
-        throw new Error('Homebrew is required to install Docker on macOS. Install it from https://brew.sh then try again.');
-      }
-      const brewResult = await runWithRollingOutput('brew', ['install', '--cask', 'docker'], { timeout: 300_000, inheritStdin: true });
-      if (brewResult.exitCode !== 0) {
-        throw new Error('Failed to install Docker via Homebrew. Try: brew install --cask docker');
-      }
-      this.onProgress('Docker installed. Starting Docker Desktop...');
-      this.startDockerDaemon();
-      await this.waitForDocker();
+      await this.installDockerMac();
     } else if (os === 'linux') {
-      // Linux: install via official script (requires shell for pipe)
-      this.onProgress('Installing Docker...');
-      try {
-        const result = await runShellWithRollingOutput('curl -fsSL https://get.docker.com | sh', { timeout: 300_000 });
-        if (result.exitCode !== 0) {
-          throw new Error('Install script failed');
-        }
-      } catch {
-        throw new Error('Failed to install Docker. Install it manually: https://docs.docker.com/get-docker/');
-      }
-      await this.waitForDocker();
+      await this.installDockerLinux();
     } else {
       throw new Error(`Automatic Docker installation not supported on ${os}. Install it manually: https://docs.docker.com/get-docker/`);
     }
+  }
+
+  /**
+   * Install Docker Desktop on macOS using the official DMG installer.
+   * Downloads the DMG, mounts it, runs the silent CLI installer, then starts Docker Desktop.
+   * This is Docker's recommended command-line installation method.
+   */
+  private async installDockerMac(): Promise<void> {
+    const cpu = arch();
+    const archName = cpu === 'arm64' ? 'arm64' : 'amd64';
+    const dmgUrl = `https://desktop.docker.com/mac/main/${archName}/Docker.dmg`;
+    const dmgPath = '/tmp/Docker.dmg';
+
+    // Step 1: Download the DMG
+    this.onProgress('__progress__:5:Downloading Docker Desktop...');
+    const dlResult = await runWithRollingOutput('curl', [
+      '-fSL', '--progress-bar', '-o', dmgPath, dmgUrl,
+    ], { timeout: 600_000 }); // 10 min for slow connections
+    if (dlResult.exitCode !== 0) {
+      throw new Error('Failed to download Docker Desktop. Check your internet connection and try again.');
+    }
+
+    // Step 2: Mount the DMG
+    this.onProgress('__progress__:40:Installing Docker Desktop...');
+    try {
+      // Detach any previous mount first (ignore errors)
+      try { execSync('hdiutil detach /Volumes/Docker 2>/dev/null', { timeout: 10_000, stdio: 'ignore' }); } catch { /* ignore */ }
+      execSync(`hdiutil attach "${dmgPath}" -nobrowse -quiet`, { timeout: 30_000, stdio: 'ignore' });
+    } catch {
+      throw new Error('Failed to mount Docker DMG. The download may be corrupted — try again.');
+    }
+
+    // Step 3: Run Docker's CLI installer with --accept-license
+    this.onProgress('__progress__:55:Running Docker installer...');
+    const user = process.env.USER || execSync('whoami', { timeout: 5_000 }).toString().trim();
+    try {
+      const installResult = await runWithRollingOutput(
+        '/Volumes/Docker/Docker.app/Contents/MacOS/install',
+        ['--accept-license', `--user=${user}`],
+        { timeout: 120_000 },
+      );
+      if (installResult.exitCode !== 0) {
+        // Some installs return non-zero but succeed — check if Docker.app exists
+        if (!existsSync('/Applications/Docker.app')) {
+          throw new Error('Installer exited with errors');
+        }
+      }
+    } catch (err) {
+      // Fallback: try cp approach if the installer binary fails
+      if (!existsSync('/Applications/Docker.app')) {
+        this.onProgress('__progress__:60:Trying alternative install method...');
+        try {
+          execSync('cp -R "/Volumes/Docker/Docker.app" /Applications/', { timeout: 60_000, stdio: 'ignore' });
+        } catch {
+          throw new Error('Failed to install Docker Desktop. Try dragging Docker.app to Applications manually.');
+        }
+      }
+    }
+
+    // Step 4: Unmount and clean up
+    try { execSync('hdiutil detach /Volumes/Docker -quiet', { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+    try { await unlink(dmgPath); } catch { /* ignore */ }
+
+    // Step 5: Start Docker Desktop
+    this.onProgress('__progress__:70:Starting Docker Desktop...');
+    this.startDockerDaemon();
+    await this.waitForDocker();
+  }
+
+  /**
+   * Install Docker Engine on Linux using Docker's official convenience script.
+   * Also adds the current user to the docker group for rootless usage.
+   */
+  private async installDockerLinux(): Promise<void> {
+    this.onProgress('__progress__:5:Installing Docker Engine...');
+
+    // Download and run the official install script
+    const dlResult = await runShellWithRollingOutput(
+      'curl -fsSL https://get.docker.com -o /tmp/install-docker.sh && sudo sh /tmp/install-docker.sh',
+      { timeout: 300_000 },
+    );
+    if (dlResult.exitCode !== 0) {
+      throw new Error(
+        'Failed to install Docker Engine. You may need sudo privileges.\n' +
+        'Manual install: https://docs.docker.com/engine/install/',
+      );
+    }
+
+    // Add current user to docker group (avoids needing sudo for docker commands)
+    const user = process.env.USER || process.env.LOGNAME || '';
+    if (user && user !== 'root') {
+      this.onProgress('__progress__:80:Adding user to docker group...');
+      try {
+        execSync(`sudo usermod -aG docker ${user}`, { timeout: 10_000, stdio: 'ignore' });
+      } catch { /* non-fatal — they can run with sudo */ }
+    }
+
+    // Clean up install script
+    try { await unlink('/tmp/install-docker.sh'); } catch { /* ignore */ }
+
+    // Ensure the daemon is started
+    this.onProgress('__progress__:85:Starting Docker service...');
+    try {
+      execSync('sudo systemctl enable --now docker', { timeout: 15_000, stdio: 'ignore' });
+    } catch {
+      // Fallback for non-systemd
+      try { execSync('sudo service docker start', { timeout: 15_000, stdio: 'ignore' }); } catch { /* ignore */ }
+    }
+
+    await this.waitForDocker();
   }
 
   /**
