@@ -1,6 +1,6 @@
 <?php
 /**
- * AgenticMail Enterprise Dashboard — PHP Edition
+ * 🎀 AgenticMail Enterprise Dashboard — PHP Edition
  * 
  * ZERO dependencies. No Composer, no Laravel, no framework.
  * Just PHP 7.4+ and a web server.
@@ -110,7 +110,7 @@ if ($action === 'save_settings' && $token) {
     $result = am_api('/api/settings', 'PATCH', [
         'name' => $_POST['name'] ?? '',
         'domain' => $_POST['domain'] ?? '',
-        'primaryColor' => $_POST['primaryColor'] ?? '#6366f1',
+        'primaryColor' => $_POST['primaryColor'] ?? '#e84393',
     ]);
     $success = isset($result['error']) ? $result['error'] : 'Settings saved!';
 }
@@ -140,7 +140,7 @@ if ($token) {
 
 function e(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
 function badge(string $status): string {
-    $colors = ['active'=>'#22c55e','archived'=>'#888','suspended'=>'#ef4444','owner'=>'#f59e0b','admin'=>'#6366f1','member'=>'#888','viewer'=>'#555'];
+    $colors = ['active'=>'#22c55e','archived'=>'#888','suspended'=>'#ef4444','owner'=>'#f59e0b','admin'=>'#e84393','member'=>'#888','viewer'=>'#555'];
     $c = $colors[$status] ?? '#888';
     return "<span style='display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;background:{$c}20;color:$c'>$status</span>";
 }
@@ -150,10 +150,10 @@ function badge(string $status): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgenticMail Enterprise — PHP Dashboard</title>
+  <title>🎀 AgenticMail Enterprise — PHP Dashboard</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root { --bg:#0a0a0f; --surface:#12121a; --border:#1e1e2e; --text:#e4e4ef; --dim:#8888a0; --muted:#55556a; --primary:#6366f1; --success:#22c55e; --danger:#ef4444; --warning:#f59e0b; --r:8px; }
+    :root,[data-theme="light"] { --bg:#f8f9fa; --surface:#fff; --border:#dee2e6; --text:#212529; --dim:#495057; --muted:#868e96; --primary:#e84393; --success:#2b8a3e; --danger:#c92a2a; --warning:#e67700; --r:6px; color-scheme:light dark; } [data-theme="dark"] { --bg:#0f1114; --surface:#16181d; --border:#2c3038; --text:#e1e4e8; --dim:#b0b8c4; --muted:#6b7280; --primary:#f06595; --success:#37b24d; --danger:#f03e3e; --warning:#f08c00; } @media(prefers-color-scheme:dark){ :root:not([data-theme="light"]){ --bg:#0f1114; --surface:#16181d; --border:#2c3038; --text:#e1e4e8; --dim:#b0b8c4; --muted:#6b7280; --primary:#f06595; --success:#37b24d; --danger:#f03e3e; --warning:#f08c00; }}
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
     .layout { display: flex; min-height: 100vh; }
     .sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); position: fixed; top: 0; left: 0; bottom: 0; display: flex; flex-direction: column; }
@@ -164,7 +164,7 @@ function badge(string $status): string {
     .nav-sec { font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); padding:12px 20px 4px; }
     .nav a { display:flex; align-items:center; gap:10px; padding:10px 20px; color:var(--dim); text-decoration:none; font-size:13px; }
     .nav a:hover { color:var(--text); background:rgba(255,255,255,0.03); }
-    .nav a.active { color:var(--primary); background:rgba(99,102,241,0.12); border-right:2px solid var(--primary); }
+    .nav a.active { color:var(--primary); background:rgba(232,67,147,0.12); border-right:2px solid var(--primary); }
     .sidebar-footer { padding:16px 20px; border-top:1px solid var(--border); font-size:12px; }
     .content { flex:1; margin-left:240px; padding:32px; max-width:1100px; }
     h2.title { font-size:22px; font-weight:700; margin-bottom:4px; }
@@ -182,7 +182,7 @@ function badge(string $status): string {
     .btn { display:inline-flex; align-items:center; padding:8px 16px; border-radius:var(--r); font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--border); background:var(--surface); color:var(--text); text-decoration:none; }
     .btn:hover { background:rgba(255,255,255,0.05); }
     .btn-p { background:var(--primary); border-color:var(--primary); color:#fff; }
-    .btn-p:hover { background:#818cf8; }
+    .btn-p:hover { background:#f06595; }
     .btn-d { color:var(--danger); border-color:var(--danger); }
     .btn-sm { padding:4px 10px; font-size:12px; }
     .input { width:100%; padding:10px 14px; background:var(--bg); border:1px solid var(--border); border-radius:var(--r); color:var(--text); font-size:14px; }
@@ -387,7 +387,7 @@ function badge(string $status): string {
           <input type="hidden" name="action" value="save_settings">
           <div class="fg"><label class="fl">Organization Name</label><input class="input" name="name" value="<?= e($settings['name'] ?? '') ?>"></div>
           <div class="fg"><label class="fl">Domain</label><input class="input" name="domain" value="<?= e($settings['domain'] ?? '') ?>" placeholder="agents.acme.com"></div>
-          <div class="fg"><label class="fl">Primary Color</label><input class="input" type="color" name="primaryColor" value="<?= e($settings['primaryColor'] ?? '#6366f1') ?>" style="height:38px;padding:4px"></div>
+          <div class="fg"><label class="fl">Primary Color</label><input class="input" type="color" name="primaryColor" value="<?= e($settings['primaryColor'] ?? '#e84393') ?>" style="height:38px;padding:4px"></div>
           <div></div>
           <div><button class="btn btn-p" type="submit">Save Settings</button></div>
         </form>

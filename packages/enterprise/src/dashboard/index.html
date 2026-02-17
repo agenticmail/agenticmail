@@ -24,7 +24,7 @@
       --bg-0: #f8f9fa; --bg-1: #ffffff; --bg-2: #f1f3f5; --bg-3: #e9ecef;
       --border: #dee2e6; --border-subtle: #e9ecef; --border-strong: #ced4da;
       --text-0: #212529; --text-1: #495057; --text-2: #868e96; --text-3: #adb5bd;
-      --accent: #228be6; --accent-hover: #1c7ed6; --accent-subtle: rgba(34,139,230,0.08); --accent-text: #ffffff;
+      --accent: #e84393; --accent-hover: #d63384; --accent-subtle: rgba(232,67,147,0.08); --accent-text: #ffffff;
       --success: #2b8a3e; --success-subtle: rgba(43,138,62,0.08);
       --warning: #e67700; --warning-subtle: rgba(230,119,0,0.08);
       --danger: #c92a2a; --danger-subtle: rgba(201,42,42,0.08);
@@ -37,7 +37,7 @@
       --bg-0: #0f1114; --bg-1: #16181d; --bg-2: #1c1f26; --bg-3: #252930;
       --border: #2c3038; --border-subtle: #23272e; --border-strong: #3b414c;
       --text-0: #e1e4e8; --text-1: #b0b8c4; --text-2: #6b7280; --text-3: #454d5a;
-      --accent: #4c9aed; --accent-hover: #6db3f5; --accent-subtle: rgba(76,154,237,0.1); --accent-text: #0f1114;
+      --accent: #f06595; --accent-hover: #f783ac; --accent-subtle: rgba(240,101,149,0.1); --accent-text: #0f1114;
       --success: #37b24d; --success-subtle: rgba(55,178,77,0.1);
       --warning: #f08c00; --warning-subtle: rgba(240,140,0,0.1);
       --danger: #f03e3e; --danger-subtle: rgba(240,62,62,0.1);
@@ -53,7 +53,7 @@
         --bg-0: #0f1114; --bg-1: #16181d; --bg-2: #1c1f26; --bg-3: #252930;
         --border: #2c3038; --border-subtle: #23272e; --border-strong: #3b414c;
         --text-0: #e1e4e8; --text-1: #b0b8c4; --text-2: #6b7280; --text-3: #454d5a;
-        --accent: #4c9aed; --accent-hover: #6db3f5; --accent-subtle: rgba(76,154,237,0.1); --accent-text: #0f1114;
+        --accent: #f06595; --accent-hover: #f783ac; --accent-subtle: rgba(240,101,149,0.1); --accent-text: #0f1114;
         --success: #37b24d; --success-subtle: rgba(55,178,77,0.1);
         --warning: #f08c00; --warning-subtle: rgba(240,140,0,0.1);
         --danger: #f03e3e; --danger-subtle: rgba(240,62,62,0.1);
@@ -353,7 +353,7 @@
     return h('div', { style: { display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-0)' } },
       h('div', { style: { width: 360, padding: 32 } },
         h('div', { style: { textAlign: 'center', marginBottom: 28 } },
-          h('h1', { style: { fontSize: 20, fontWeight: 700, marginBottom: 4 } }, 'AgenticMail Enterprise'),
+          h('h1', { style: { fontSize: 20, fontWeight: 700, marginBottom: 4 } }, '🎀 AgenticMail Enterprise'),
           h('p', { className: 'text-muted text-sm' }, 'Sign in to manage your AI agents')
         ),
         h('form', { onSubmit: submit },
@@ -838,7 +838,7 @@
       // Sidebar
       h('nav', { className: 'sidebar' },
         h('div', { className: 'sidebar-header' },
-          h('h1', null, 'AgenticMail ', h('span', { className: 'text-muted', style: { fontWeight: 400 } }, 'Enterprise')),
+          h('h1', null, '🎀 AgenticMail ', h('span', { className: 'text-muted', style: { fontWeight: 400 } }, 'Enterprise')),
           h('p', null, 'AI Agent Management')
         ),
         h('div', { className: 'sidebar-nav' },

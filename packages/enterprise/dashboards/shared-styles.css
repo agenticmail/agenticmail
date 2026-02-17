@@ -1,0 +1,57 @@
+/*
+ * AgenticMail Enterprise Dashboard — Shared Styles
+ * Used by all language implementations (HTML, PHP, Python, Ruby, Express, Go, Java, .NET)
+ *
+ * Brand: 🎀 AgenticMail — Pink ribbon accent
+ * Supports: dark mode, light mode, system auto-detect
+ * Customizable: override --accent and --bg-* CSS variables to match your brand
+ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  --radius: 6px; --radius-lg: 10px;
+  --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  color-scheme: light dark;
+}
+
+/* Light Mode */
+:root, [data-theme="light"] {
+  --bg-0: #f8f9fa; --bg-1: #ffffff; --bg-2: #f1f3f5; --bg-3: #e9ecef;
+  --border: #dee2e6; --border-subtle: #e9ecef;
+  --text-0: #212529; --text-1: #495057; --text-2: #868e96; --text-3: #adb5bd;
+  --accent: #e84393; --accent-hover: #d63384; --accent-subtle: rgba(232,67,147,0.08); --accent-text: #fff;
+  --success: #2b8a3e; --success-subtle: rgba(43,138,62,0.08);
+  --warning: #e67700; --warning-subtle: rgba(230,119,0,0.08);
+  --danger: #c92a2a; --danger-subtle: rgba(201,42,42,0.08);
+  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* Dark Mode */
+[data-theme="dark"] {
+  --bg-0: #0f1114; --bg-1: #16181d; --bg-2: #1c1f26; --bg-3: #252930;
+  --border: #2c3038; --border-subtle: #23272e;
+  --text-0: #e1e4e8; --text-1: #b0b8c4; --text-2: #6b7280; --text-3: #454d5a;
+  --accent: #f06595; --accent-hover: #f783ac; --accent-subtle: rgba(240,101,149,0.1); --accent-text: #0f1114;
+  --success: #37b24d; --success-subtle: rgba(55,178,77,0.1);
+  --warning: #f08c00; --warning-subtle: rgba(240,140,0,0.1);
+  --danger: #f03e3e; --danger-subtle: rgba(240,62,62,0.1);
+  --shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-0: #0f1114; --bg-1: #16181d; --bg-2: #1c1f26; --bg-3: #252930;
+    --border: #2c3038; --border-subtle: #23272e;
+    --text-0: #e1e4e8; --text-1: #b0b8c4; --text-2: #6b7280; --text-3: #454d5a;
+    --accent: #f06595; --accent-hover: #f783ac; --accent-subtle: rgba(240,101,149,0.1); --accent-text: #0f1114;
+    --success: #37b24d; --success-subtle: rgba(55,178,77,0.1);
+    --warning: #f08c00; --warning-subtle: rgba(240,140,0,0.1);
+    --danger: #f03e3e; --danger-subtle: rgba(240,62,62,0.1);
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+}
+
+body { font-family: var(--font); background: var(--bg-0); color: var(--text-0); line-height: 1.5; font-size: 14px; -webkit-font-smoothing: antialiased; }

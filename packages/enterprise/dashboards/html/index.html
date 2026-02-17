@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgenticMail Enterprise Dashboard</title>
+  <title>🎀 AgenticMail Enterprise Dashboard</title>
   <style>
     /*
-     * AgenticMail Enterprise — Pure HTML Dashboard
+     * 🎀 AgenticMail Enterprise — Pure HTML Dashboard
      * 
      * ZERO dependencies. No Node.js, no npm, no React, no build tools.
      * Just open this file in any browser.
      *
      * Setup:
-     *   1. Edit the API_URL below to point to your AgenticMail Enterprise server
+     *   1. Edit the API_URL below to point to your 🎀 AgenticMail Enterprise server
      *   2. Open this file in any browser (or host it on any web server)
      *   3. Login with your admin credentials
      *
@@ -20,19 +20,42 @@
      */
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #0a0a0f; --surface: #12121a; --surface-hover: #1a1a25;
-      --border: #1e1e2e; --border-hover: #2e2e4e;
-      --text: #e4e4ef; --text-dim: #8888a0; --text-muted: #55556a;
-      --primary: #6366f1; --primary-hover: #818cf8; --primary-bg: rgba(99,102,241,0.12);
-      --success: #22c55e; --success-bg: rgba(34,197,94,0.12);
-      --warning: #f59e0b; --warning-bg: rgba(245,158,11,0.12);
-      --danger: #ef4444; --danger-bg: rgba(239,68,68,0.12);
-      --radius: 8px; --radius-lg: 12px;
-      --shadow: 0 1px 3px rgba(0,0,0,0.3);
-      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    :root, [data-theme="light"] {
+      --bg: #f8f9fa; --surface: #ffffff; --surface-hover: #f1f3f5;
+      --border: #dee2e6; --border-hover: #ced4da;
+      --text: #212529; --text-dim: #495057; --text-muted: #868e96;
+      --primary: #e84393; --primary-hover: #d63384; --primary-bg: rgba(232,67,147,0.08);
+      --success: #2b8a3e; --success-bg: rgba(43,138,62,0.08);
+      --warning: #e67700; --warning-bg: rgba(230,119,0,0.08);
+      --danger: #c92a2a; --danger-bg: rgba(201,42,42,0.08);
+      --radius: 6px; --radius-lg: 10px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08);
+      --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      color-scheme: light dark;
     }
-    body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.6; min-height: 100vh; }
+    [data-theme="dark"] {
+      --bg: #0f1114; --surface: #16181d; --surface-hover: #1c1f26;
+      --border: #2c3038; --border-hover: #3b414c;
+      --text: #e1e4e8; --text-dim: #b0b8c4; --text-muted: #6b7280;
+      --primary: #f06595; --primary-hover: #f783ac; --primary-bg: rgba(240,101,149,0.1);
+      --success: #37b24d; --success-bg: rgba(55,178,77,0.1);
+      --warning: #f08c00; --warning-bg: rgba(240,140,0,0.1);
+      --danger: #f03e3e; --danger-bg: rgba(240,62,62,0.1);
+      --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0f1114; --surface: #16181d; --surface-hover: #1c1f26;
+        --border: #2c3038; --border-hover: #3b414c;
+        --text: #e1e4e8; --text-dim: #b0b8c4; --text-muted: #6b7280;
+        --primary: #f06595; --primary-hover: #f783ac; --primary-bg: rgba(240,101,149,0.1);
+        --success: #37b24d; --success-bg: rgba(55,178,77,0.1);
+        --warning: #f08c00; --warning-bg: rgba(240,140,0,0.1);
+        --danger: #f03e3e; --danger-bg: rgba(240,62,62,0.1);
+        --shadow: 0 1px 3px rgba(0,0,0,0.3);
+      }
+    }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.5; min-height: 100vh; -webkit-font-smoothing: antialiased; }
 
     /* ─── Setup Banner ─────────────────────────── */
     #setup-banner { display: none; background: var(--warning-bg); border: 1px solid var(--warning); border-radius: var(--radius); padding: 16px 20px; margin: 20px; }
@@ -134,14 +157,14 @@
      CONFIGURATION — Edit this ONE line to get started
      ═══════════════════════════════════════════════════ -->
 <script>
-  // 👇 Change this to your AgenticMail Enterprise server URL
+  // 👇 Change this to your 🎀 AgenticMail Enterprise server URL
   var API_URL = 'http://localhost:3000';
 </script>
 
 <!-- Setup banner (shown if API_URL is still localhost) -->
 <div id="setup-banner">
   <h3>⚡ Quick Setup</h3>
-  <p style="color:var(--text-dim);font-size:13px;margin-bottom:12px;">Enter your AgenticMail Enterprise server URL to get started:</p>
+  <p style="color:var(--text-dim);font-size:13px;margin-bottom:12px;">Enter your 🎀 AgenticMail Enterprise server URL to get started:</p>
   <div>
     <input type="text" id="setup-url" placeholder="https://your-company.agenticmail.cloud" value="">
     <button onclick="saveApiUrl()">Connect</button>
@@ -256,7 +279,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════
-// AgenticMail Enterprise — Pure JavaScript Dashboard
+// 🎀 AgenticMail Enterprise — Pure JavaScript Dashboard
 // No frameworks, no build tools, no dependencies.
 // ═══════════════════════════════════════════════════════
 
@@ -501,7 +524,7 @@ function renderSettings() {
         '<form onsubmit="saveSettings(event)" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">' +
         '<div class="form-group"><label class="form-label">Organization Name</label><input class="input" id="set-name" value="' + esc(s.name || '') + '"></div>' +
         '<div class="form-group"><label class="form-label">Domain</label><input class="input" id="set-domain" value="' + esc(s.domain || '') + '" placeholder="agents.acme.com"></div>' +
-        '<div class="form-group"><label class="form-label">Primary Color</label><input class="input" type="color" id="set-color" value="' + (s.primaryColor || '#6366f1') + '" style="height:38px;padding:4px"></div>' +
+        '<div class="form-group"><label class="form-label">Primary Color</label><input class="input" type="color" id="set-color" value="' + (s.primaryColor || '#e84393') + '" style="height:38px;padding:4px"></div>' +
         '<div class="form-group"><label class="form-label">Logo URL</label><input class="input" id="set-logo" value="' + esc(s.logoUrl || '') + '" placeholder="https://..."></div>' +
         '<div style="grid-column:span 2"><button class="btn btn-primary" type="submit" style="width:auto">Save Settings</button></div></form></div>' +
         '<div class="card"><div class="card-title">Plan</div>' +
