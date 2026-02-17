@@ -58,6 +58,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
       user: config.stalwart.adminUser,
       pass: config.stalwart.adminPassword,
     },
+    encryptionKey: config.masterKey || undefined,
   });
 
   const app = express();

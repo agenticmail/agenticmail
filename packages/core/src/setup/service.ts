@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, chmodSync, lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 
@@ -225,26 +225,6 @@ export class ServiceManager {
     <string>${homedir()}</string>
     <key>AGENTICMAIL_DATA_DIR</key>
     <string>${config.dataDir || join(homedir(), '.agenticmail')}</string>
-    <key>AGENTICMAIL_MASTER_KEY</key>
-    <string>${config.masterKey}</string>
-    <key>STALWART_ADMIN_USER</key>
-    <string>${config.stalwart.adminUser}</string>
-    <key>STALWART_ADMIN_PASSWORD</key>
-    <string>${config.stalwart.adminPassword}</string>
-    <key>STALWART_URL</key>
-    <string>${config.stalwart.url}</string>
-    <key>AGENTICMAIL_API_PORT</key>
-    <string>${String(config.api.port)}</string>
-    <key>AGENTICMAIL_API_HOST</key>
-    <string>${config.api.host}</string>
-    <key>SMTP_HOST</key>
-    <string>${config.smtp.host}</string>
-    <key>SMTP_PORT</key>
-    <string>${String(config.smtp.port)}</string>
-    <key>IMAP_HOST</key>
-    <string>${config.imap.host}</string>
-    <key>IMAP_PORT</key>
-    <string>${String(config.imap.port)}</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>AGENTICMAIL_SERVICE_VERSION</key>
@@ -319,16 +299,6 @@ TimeoutStartSec=660
 LimitNOFILE=8192
 Environment=HOME=${homedir()}
 Environment=AGENTICMAIL_DATA_DIR=${dataDir}
-Environment=AGENTICMAIL_MASTER_KEY=${config.masterKey}
-Environment=STALWART_ADMIN_USER=${config.stalwart.adminUser}
-Environment=STALWART_ADMIN_PASSWORD=${config.stalwart.adminPassword}
-Environment=STALWART_URL=${config.stalwart.url}
-Environment=AGENTICMAIL_API_PORT=${config.api.port}
-Environment=AGENTICMAIL_API_HOST=${config.api.host}
-Environment=SMTP_HOST=${config.smtp.host}
-Environment=SMTP_PORT=${config.smtp.port}
-Environment=IMAP_HOST=${config.imap.host}
-Environment=IMAP_PORT=${config.imap.port}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin
 Environment=AGENTICMAIL_SERVICE_VERSION=${version}
 
@@ -368,6 +338,7 @@ WantedBy=default.target
 
       const plist = this.generatePlist(nodePath, apiEntry, configPath);
       writeFileSync(servicePath, plist);
+      chmodSync(servicePath, 0o600);
 
       // Load the service
       try {
@@ -385,6 +356,7 @@ WantedBy=default.target
 
       const unit = this.generateSystemdUnit(nodePath, apiEntry, configPath);
       writeFileSync(servicePath, unit);
+      chmodSync(servicePath, 0o600);
 
       try {
         execFileSync('systemctl', ['--user', 'daemon-reload'], { timeout: 10_000, stdio: 'ignore' });

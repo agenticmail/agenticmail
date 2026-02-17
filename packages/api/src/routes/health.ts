@@ -1,9 +1,21 @@
 import { Router } from 'express';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { StalwartAdmin } from '@agenticmail/core';
+
+const PKG_VERSION = (() => {
+  try {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    // tsup bundles into dist/index.js, so ../package.json from dist/
+    const pkg = JSON.parse(readFileSync(join(dir, '..', 'package.json'), 'utf-8'));
+    return pkg.version;
+  } catch { return '0.5.31'; }
+})();
 
 const ABOUT = {
   name: '🎀 AgenticMail',
-  version: '0.2.26',
+  version: PKG_VERSION,
   description: '🎀 AgenticMail — Email infrastructure for AI agents. Send, receive, coordinate, and automate email with full DKIM/SPF/DMARC authentication.',
   author: {
     name: 'Ope Olatunji',

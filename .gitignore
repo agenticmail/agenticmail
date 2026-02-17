@@ -43,3 +43,6 @@ npm-debug.log*
 
 # AgenticMail local data
 .agenticmail/
+
+# Local dev scripts
+scripts/wipe-local.sh

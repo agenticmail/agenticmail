@@ -1,7 +1,7 @@
 {
   "name": "@agenticmail/core",
-  "version": "0.5.4",
-  "description": "Core SDK for AgenticMail \u2014 email, SMS, and phone number access for AI agents",
+  "version": "0.5.34",
+  "description": "Core SDK for AgenticMail — email, SMS, and phone number access for AI agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -28,7 +28,7 @@
     "better-sqlite3": "^11.8.0",
     "imapflow": "^1.0.170",
     "mailparser": "^3.7.2",
-    "nodemailer": "^6.10.0",
+    "nodemailer": "^8.0.1",
     "uuid": "^11.1.0"
   },
   "devDependencies": {

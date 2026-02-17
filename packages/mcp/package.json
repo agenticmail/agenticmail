@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/mcp",
-  "version": "0.5.4",
+  "version": "0.5.34",
   "description": "MCP server for AgenticMail \u2014 give any AI client real email and SMS capabilities",
   "type": "module",
   "main": "dist/index.js",

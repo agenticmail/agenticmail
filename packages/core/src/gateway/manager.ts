@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { join } from 'node:path';
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { debug } from '../debug.js';
 import { RelayGateway, type InboundEmail } from './relay.js';
@@ -40,6 +41,36 @@ export interface GatewayManagerOptions {
   accountManager?: AccountManager;
   localSmtp?: LocalSmtpConfig;
   onInboundMail?: (agentName: string, mail: InboundEmail) => void | Promise<void>;
+  /** Master key used to encrypt credentials at rest in SQLite. */
+  encryptionKey?: string;
+}
+
+/**
+ * Encrypt a string using AES-256-GCM with the given key.
+ * Returns "enc:iv:authTag:ciphertext" (all hex-encoded).
+ */
+function encryptSecret(plaintext: string, key: string): string {
+  const keyHash = createHash('sha256').update(key).digest(); // 32 bytes
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', keyHash, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `enc:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+/**
+ * Decrypt a string encrypted with encryptSecret.
+ * Returns the original plaintext, or the input unchanged if not encrypted.
+ */
+function decryptSecret(value: string, key: string): string {
+  if (!value.startsWith('enc:')) return value; // not encrypted (legacy)
+  const parts = value.split(':');
+  if (parts.length !== 4) return value;
+  const [, ivHex, authTagHex, ciphertextHex] = parts;
+  const keyHash = createHash('sha256').update(key).digest();
+  const decipher = createDecipheriv('aes-256-gcm', keyHash, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+  return Buffer.concat([decipher.update(Buffer.from(ciphertextHex, 'hex')), decipher.final()]).toString('utf8');
 }
 
 /**
@@ -59,11 +90,13 @@ export class GatewayManager {
   private domainPurchaser: DomainPurchaser | null = null;
   private smsManager: SmsManager | null = null;
   private smsPollers: Map<string, SmsPoller> = new Map();
+  private encryptionKey: string | null = null;
 
   constructor(private options: GatewayManagerOptions) {
     this.db = options.db;
     this.stalwart = options.stalwart;
     this.accountManager = options.accountManager ?? null;
+    this.encryptionKey = options.encryptionKey ?? process.env.AGENTICMAIL_MASTER_KEY ?? null;
 
     // Wire up inbound mail handler: either user-provided or built-in local delivery
     const inboundHandler = options.onInboundMail ?? (
@@ -1087,6 +1120,27 @@ export class GatewayManager {
     if (row) {
       try {
         const parsed = JSON.parse(row.config);
+        // Decrypt sensitive credential fields
+        if (this.encryptionKey) {
+          if (parsed.relay?.password) {
+            try { parsed.relay.password = decryptSecret(parsed.relay.password, this.encryptionKey); } catch { /* legacy plaintext */ }
+          }
+          if (parsed.relay?.appPassword) {
+            try { parsed.relay.appPassword = decryptSecret(parsed.relay.appPassword, this.encryptionKey); } catch { /* legacy plaintext */ }
+          }
+          if (parsed.domain?.cloudflareApiToken) {
+            try { parsed.domain.cloudflareApiToken = decryptSecret(parsed.domain.cloudflareApiToken, this.encryptionKey); } catch { /* legacy */ }
+          }
+          if (parsed.domain?.tunnelToken) {
+            try { parsed.domain.tunnelToken = decryptSecret(parsed.domain.tunnelToken, this.encryptionKey); } catch { /* legacy */ }
+          }
+          if (parsed.domain?.inboundSecret) {
+            try { parsed.domain.inboundSecret = decryptSecret(parsed.domain.inboundSecret, this.encryptionKey); } catch { /* legacy */ }
+          }
+          if (parsed.domain?.outboundSecret) {
+            try { parsed.domain.outboundSecret = decryptSecret(parsed.domain.outboundSecret, this.encryptionKey); } catch { /* legacy */ }
+          }
+        }
         this.config = {
           mode: row.mode as GatewayMode,
           ...parsed,
@@ -1099,10 +1153,32 @@ export class GatewayManager {
 
   private saveConfig(): void {
     const { mode, ...rest } = this.config;
+    // Encrypt sensitive credential fields before storing
+    const toStore = JSON.parse(JSON.stringify(rest));
+    if (this.encryptionKey) {
+      if (toStore.relay?.password) {
+        toStore.relay.password = encryptSecret(toStore.relay.password, this.encryptionKey);
+      }
+      if (toStore.relay?.appPassword) {
+        toStore.relay.appPassword = encryptSecret(toStore.relay.appPassword, this.encryptionKey);
+      }
+      if (toStore.domain?.cloudflareApiToken) {
+        toStore.domain.cloudflareApiToken = encryptSecret(toStore.domain.cloudflareApiToken, this.encryptionKey);
+      }
+      if (toStore.domain?.tunnelToken) {
+        toStore.domain.tunnelToken = encryptSecret(toStore.domain.tunnelToken, this.encryptionKey);
+      }
+      if (toStore.domain?.inboundSecret) {
+        toStore.domain.inboundSecret = encryptSecret(toStore.domain.inboundSecret, this.encryptionKey);
+      }
+      if (toStore.domain?.outboundSecret) {
+        toStore.domain.outboundSecret = encryptSecret(toStore.domain.outboundSecret, this.encryptionKey);
+      }
+    }
     this.db.prepare(`
       INSERT OR REPLACE INTO gateway_config (id, mode, config)
       VALUES ('default', ?, ?)
-    `).run(mode, JSON.stringify(rest));
+    `).run(mode, JSON.stringify(toStore));
   }
 
   private saveLastSeenUid(uid: number): void {

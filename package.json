@@ -28,7 +28,7 @@
   },
   "author": "Ope Olatunji",
   "license": "MIT",
-  "description": "Email and SMS infrastructure for AI agents \u2014 the first platform to give agents real email addresses and phone numbers",
+  "description": "Email and SMS infrastructure for AI agents — the first platform to give agents real email addresses and phone numbers",
   "keywords": [
     "email",
     "sms",
@@ -37,5 +37,8 @@
     "agent",
     "agenticmail",
     "google-voice"
-  ]
+  ],
+  "dependencies": {
+    "@types/nodemailer": "^7.0.10"
+  }
 }

@@ -117,6 +117,12 @@ function ok(msg: string) { console.log(`  ${c.green('✓')} ${msg}`); }
 function fail(msg: string) { console.log(`  ${c.red('✗')} ${msg}`); }
 function info(msg: string) { console.log(`  ${c.dim(msg)}`); }
 
+/** Mask a secret for terminal display: show first 4 and last 4 chars. */
+function maskSecret(secret: string): string {
+  if (secret.length <= 12) return '****';
+  return secret.slice(0, 4) + '…' + secret.slice(-4);
+}
+
 // --- Spinner with rotating messages ---
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -180,13 +186,38 @@ const LOADING_MESSAGES: Record<string, string[]> = {
   ],
 };
 
+// Gradient color palette (256-color) — cycles through these for spinner text
+const GRADIENT_COLORS = [
+  205, // hot pink
+  212, // light pink
+  219, // pink-lavender
+  183, // lavender
+  147, // periwinkle
+  111, // sky blue
+  117, // light blue
+  123, // cyan-blue
+  159, // ice blue
+  153, // pale blue
+  189, // light lavender
+  225, // baby pink
+  218, // salmon pink
+  211, // coral
+  205, // hot pink (loop)
+];
+
+function color256(code: number, s: string): string {
+  return `\x1b[38;5;${code}m${s}\x1b[0m`;
+}
+
 class Spinner {
   private interval: ReturnType<typeof setInterval> | null = null;
   private frameIdx = 0;
   private msgIdx = 0;
   private msgChangeCounter = 0;
+  private colorIdx = 0;
   private category: string;
   private currentMsg: string;
+  private progressMsg: string = ''; // message set by progress update
   private progressPct = -1; // -1 = no progress bar
 
   constructor(category: string, initialMsg?: string) {
@@ -199,26 +230,42 @@ class Spinner {
     this.frameIdx = 0;
     this.msgIdx = 0;
     this.msgChangeCounter = 0;
+    this.colorIdx = 0;
     this.progressPct = -1;
     const msgs = LOADING_MESSAGES[this.category] ?? LOADING_MESSAGES.general;
 
     this.interval = setInterval(() => {
       const frame = SPINNER_FRAMES[this.frameIdx % SPINNER_FRAMES.length];
+      const clr = GRADIENT_COLORS[this.colorIdx % GRADIENT_COLORS.length];
+
       if (this.progressPct >= 0) {
-        // Progress bar mode (pink)
+        // Progress bar mode — gradient colors on bar + cycling messages
         const barWidth = 20;
         const filled = Math.round((this.progressPct / 100) * barWidth);
         const empty = barWidth - filled;
-        const bar = c.pink('█'.repeat(filled)) + c.dim('░'.repeat(empty));
-        const pctStr = c.pink(`${this.progressPct}%`);
-        process.stdout.write(`\r  ${c.pink(frame)} ${bar} ${pctStr} ${c.dim(this.currentMsg)}\x1b[K`);
+        // Color each filled block with a gradient segment
+        let bar = '';
+        for (let i = 0; i < filled; i++) {
+          const barClr = GRADIENT_COLORS[(this.colorIdx + i) % GRADIENT_COLORS.length];
+          bar += color256(barClr, '█');
+        }
+        bar += c.dim('░'.repeat(empty));
+        const pctStr = color256(clr, `${this.progressPct}%`);
+        // Show the progress message AND a rotating fun message
+        const displayMsg = this.progressMsg || this.currentMsg;
+        process.stdout.write(`\r  ${color256(clr, frame)} ${bar} ${pctStr} ${color256(clr, displayMsg)}\x1b[K`);
       } else {
-        process.stdout.write(`\r  ${c.cyan(frame)} ${c.yellow(this.currentMsg)}\x1b[K`);
+        process.stdout.write(`\r  ${color256(clr, frame)} ${color256(clr, this.currentMsg)}\x1b[K`);
       }
+
       this.frameIdx++;
       this.msgChangeCounter++;
-      // Change message every ~3 seconds (30 ticks at 100ms)
-      if (this.msgChangeCounter >= 30 && this.progressPct < 0) {
+      // Shift color every 2 ticks (200ms) for smooth gradient cycling
+      if (this.frameIdx % 2 === 0) {
+        this.colorIdx = (this.colorIdx + 1) % GRADIENT_COLORS.length;
+      }
+      // Change fun message every ~3 seconds (30 ticks at 100ms)
+      if (this.msgChangeCounter >= 30) {
         this.msgChangeCounter = 0;
         this.msgIdx = (this.msgIdx + 1) % msgs.length;
         this.currentMsg = msgs[this.msgIdx];
@@ -231,9 +278,10 @@ class Spinner {
     const match = msg.match(/^__progress__:(\d+):(.*)$/);
     if (match) {
       this.progressPct = Math.min(100, parseInt(match[1], 10));
-      this.currentMsg = match[2];
+      this.progressMsg = match[2];
     } else {
       this.currentMsg = msg;
+      this.progressMsg = '';
     }
     this.msgChangeCounter = 0;
   }
@@ -339,13 +387,26 @@ const PID_FILE = join(homedir(), '.agenticmail', 'server.pid');
 async function startApiServer(config: SetupConfig): Promise<boolean> {
   const host = config.api.host;
   const port = config.api.port;
+  const base = `http://${host}:${port}`;
 
-  // Check if already running
+  // Check if already running AND master key matches
   try {
-    const probe = await fetch(`http://${host}:${port}/api/agenticmail/health`, {
+    const probe = await fetch(`${base}/api/agenticmail/health`, {
       signal: AbortSignal.timeout(2_000),
     });
-    if (probe.ok) return true;
+    if (probe.ok) {
+      // Verify our master key works against this server
+      const authProbe = await fetch(`${base}/api/agenticmail/gateway/status`, {
+        headers: { 'Authorization': `Bearer ${config.masterKey}` },
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (authProbe.ok || authProbe.status !== 401) {
+        return true; // Server is running with our master key
+      }
+      // Master key mismatch — kill the stale server
+      await killProcessOnPort(port);
+      await new Promise(r => setTimeout(r, 500));
+    }
   } catch { /* not running */ }
 
   const { spawn } = await import('node:child_process');
@@ -371,6 +432,23 @@ async function startApiServer(config: SetupConfig): Promise<boolean> {
 }
 
 /**
+ * Kill whatever process is listening on the given port.
+ */
+async function killProcessOnPort(port: number): Promise<void> {
+  try {
+    const { execFileSync } = await import('node:child_process');
+    const pids = execFileSync('lsof', ['-ti', `:${port}`], { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim().split('\n').filter(Boolean);
+    for (const pid of pids) {
+      const n = parseInt(pid, 10);
+      if (!isNaN(n) && n > 0) {
+        try { process.kill(n, 'SIGTERM'); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* no process on port */ }
+}
+
+/**
  * Stop a previously started background API server.
  */
 function stopApiServer(): boolean {
@@ -392,7 +470,7 @@ function stopApiServer(): boolean {
 
 async function cmdSetup() {
   log('');
-  log(`  ${c.bgCyan(' AgenticMail Setup ')}`);
+  log(`   ${c.bold('🎀 AgenticMail Setup')} `);
   log('');
   log(`  ${c.bold('Welcome!')} We're going to set up everything your AI agent`);
   log(`  needs to send and receive real email.`);
@@ -424,7 +502,7 @@ async function cmdSetup() {
   const deps = await setup.checkDependencies();
 
   const FRIENDLY: Record<string, { name: string; desc: string }> = {
-    docker: { name: 'Docker', desc: 'runs the mail server' },
+    docker: { name: 'Engine', desc: 'runs the mail server' },
     stalwart: { name: 'Mail Server', desc: 'stores and delivers email' },
     cloudflared: { name: 'Cloudflare Tunnel', desc: 'connects your domain to the internet' },
   };
@@ -436,7 +514,7 @@ async function cmdSetup() {
       const ver = dep.version && /^\d/.test(dep.version) ? ` ${c.dim('v' + dep.version)}` : '';
       ok(`${c.bold(f.name)}${ver} ${c.dim('— ' + f.desc)}`);
     } else {
-      fail(`${c.bold(f.name)} ${c.dim('— ' + f.desc + ' (will install)')}`);
+      console.log(`  ${c.yellow('◌')} ${c.bold(f.name)} ${c.dim('— ' + f.desc)} ${c.yellow('(will install)')}`);
     }
   }
 
@@ -477,51 +555,17 @@ async function cmdSetup() {
     const dockerSetup = new SetupManager((msg: string) => spinner.update(msg));
     try {
       await dockerSetup.ensureDocker();
-      spinner.succeed(`${c.bold('Docker')} — engine running`);
+      spinner.succeed(`${c.bold('Engine')} — running`);
     } catch (err) {
-      const msg = (err as Error).message;
-      if (msg === 'DOCKER_MANUAL_START') {
-        spinner.fail(`Docker needs to be set up manually (first time only)`);
-        log('');
-        log(`  ${c.pink(c.bold('No worries! This only takes a minute:'))}`);
-        log('');
-        log(`  ${c.pink('Step 1:')} Check if Docker Desktop is installed`);
-        log(`         ${c.dim('Look for Docker in your Applications folder or Launchpad.')}`);
-        log(`         ${c.dim('If it\'s not there, install it:')}`);
-        log(`         ${c.cyan('brew install --cask docker')}`);
-        log(`         ${c.dim('(You\'ll need to enter your Mac password when prompted)')}`);
-        log('');
-        log(`  ${c.pink('Step 2:')} Open Docker Desktop`);
-        log(`         ${c.dim('Double-click Docker in Applications, or run:')}`);
-        log(`         ${c.cyan('open -a Docker')}`);
-        log('');
-        log(`  ${c.pink('Step 3:')} Accept the license agreement`);
-        log(`         ${c.dim('On first launch, Docker shows a license dialog.')}`);
-        log(`         ${c.dim('Click "Accept" to continue. It will then start loading.')}`);
-        log('');
-        log(`  ${c.pink('Step 4:')} Wait for the whale icon`);
-        log(`         ${c.dim('You\'ll see a whale icon in your menu bar (top of screen).')}`);
-        log(`         ${c.dim('Wait until it stops animating — that means Docker is ready.')}`);
-        log('');
-        log(`  ${c.pink('Step 5:')} Come back here and run:`);
-        log(`         ${c.green('npx agenticmail@latest')}`);
-        log('');
-        log(`  ${c.dim('That\'s it! Docker only needs this manual setup the first time.')}`);
-        log(`  ${c.dim('After that, it starts automatically on boot.')}`);
-      } else {
-        spinner.fail(`Couldn't start Docker: ${msg}`);
-        log('');
-        log(`  ${c.yellow('Tip:')} Install Docker manually from ${c.cyan('https://docker.com/get-docker')}`);
-        log(`  ${c.dim('Then run')} ${c.green('agenticmail setup')} ${c.dim('again.')}`);
-      }
+      spinner.fail((err as Error).message);
       process.exit(1);
     }
     await new Promise(r => setTimeout(r, 300));
   }
 
   // Start Stalwart mail server container
-  const stalwart = deps.find(d => d.name === 'stalwart');
-  if (!stalwart?.installed) {
+  const stalwartDep = deps.find(d => d.name === 'stalwart');
+  if (!stalwartDep?.installed) {
     const spinner = new Spinner('stalwart');
     spinner.start();
     const stalwartSetup = new SetupManager((msg: string) => spinner.update(msg));
@@ -533,7 +577,13 @@ async function cmdSetup() {
       process.exit(1);
     }
   } else {
-    // Stalwart is running — verify our credentials work (may be stale after reinstall)
+    ok(`${c.bold('Mail Server')} ${c.dim('— already running')}`);
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  // Verify Stalwart admin credentials work (catches stale volumes from previous installs)
+  {
+    let stalwartAuthOk = false;
     try {
       const authCheck = await fetch(`${result.config.stalwart.url}/api/principal`, {
         headers: {
@@ -541,37 +591,31 @@ async function cmdSetup() {
         },
         signal: AbortSignal.timeout(5_000),
       });
-      if (authCheck.status === 401) {
-        // Credentials mismatch — container has old password (leftover volume after reinstall)
-        const spinner = new Spinner('stalwart', 'Resetting mail server (stale credentials)...');
-        spinner.start();
+      stalwartAuthOk = authCheck.status !== 401;
+    } catch { /* can't reach — will try to fix */ }
+
+    if (!stalwartAuthOk) {
+      const spinner = new Spinner('stalwart', 'Resetting mail server (stale credentials)...');
+      spinner.start();
+      try {
+        const { execFileSync } = await import('node:child_process');
+        // Remove container and its stale volume
+        execFileSync('docker', ['rm', '-f', 'agenticmail-stalwart'], { timeout: 15_000, stdio: 'ignore' });
         try {
-          const { execFileSync } = await import('node:child_process');
-          // Remove container and its anonymous volumes
-          execFileSync('docker', ['rm', '-f', 'agenticmail-stalwart'], { timeout: 15_000, stdio: 'ignore' });
-          // Find and remove the named volume (project name varies)
-          try {
-            const volumes = execFileSync('docker', ['volume', 'ls', '-q', '--filter', 'name=stalwart-data'],
-              { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-            for (const vol of volumes.split('\n').filter(Boolean)) {
-              execFileSync('docker', ['volume', 'rm', vol], { timeout: 10_000, stdio: 'ignore' });
-            }
-          } catch { /* volume may not exist */ }
-          // Re-create with new credentials
-          await setup.ensureStalwart();
-          spinner.succeed(`${c.bold('Mail Server')} — recreated with fresh credentials`);
-        } catch (err) {
-          spinner.fail(`Couldn't reset mail server: ${(err as Error).message}`);
-          process.exit(1);
-        }
-      } else {
-        ok(`${c.bold('Mail Server')} ${c.dim('— already running')}`);
+          const volumes = execFileSync('docker', ['volume', 'ls', '-q', '--filter', 'name=stalwart-data'],
+            { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+          for (const vol of volumes.split('\n').filter(Boolean)) {
+            execFileSync('docker', ['volume', 'rm', vol], { timeout: 10_000, stdio: 'ignore' });
+          }
+        } catch { /* volume may not exist */ }
+        // Re-create with correct credentials
+        await setup.ensureStalwart();
+        spinner.succeed(`${c.bold('Mail Server')} — recreated with fresh credentials`);
+      } catch (err) {
+        spinner.fail(`Couldn't reset mail server: ${(err as Error).message}`);
+        process.exit(1);
       }
-    } catch {
-      // Can't reach Stalwart API — might be starting up, proceed anyway
-      ok(`${c.bold('Mail Server')} ${c.dim('— already running')}`);
     }
-    await new Promise(r => setTimeout(r, 300));
   }
 
   // Download cloudflared if missing
@@ -684,19 +728,35 @@ async function cmdSetup() {
 
     log('');
     let emailOk = false;
-    if (choice === '1') {
-      emailOk = await setupRelay(result.config);
-    } else {
-      await setupDomain(result.config);
-      emailOk = true; // domain setup throws on failure
-    }
+    let lastRelayInfo: RelayInfo | undefined;
 
-    // Verify an agent exists before proceeding
-    if (!emailOk) {
-      log('');
-      info('Email setup did not complete. Run ' + c.green('npx agenticmail setup') + ' again to retry.');
-      printSummary(result, true);
-      return;
+    // Keep retrying email setup until it succeeds
+    while (!emailOk) {
+      if (choice === '1') {
+        const relayResult = await setupRelay(result.config, lastRelayInfo);
+        emailOk = relayResult.success;
+        lastRelayInfo = relayResult.info;
+      } else {
+        await setupDomain(result.config);
+        emailOk = true; // domain setup throws on failure
+      }
+
+      if (!emailOk) {
+        log('');
+        info('Email setup did not complete. Let\'s try again.');
+        log('');
+        const retry = await ask(`  ${c.bold('Try again?')} ${c.dim('(Y/n)')} `);
+        if (retry.toLowerCase().startsWith('n')) {
+          log('');
+          info('You can set up email later by running: ' + c.green('npx agenticmail setup'));
+          log('');
+          log(`  ${c.dim('Your secret key:')}  ${c.yellow(maskSecret(result.config.masterKey))}`);
+          log(`  ${c.dim('Settings saved:')}   ${c.cyan(result.configPath)}`);
+          log('');
+          process.exit(0);
+        }
+        log('');
+      }
     }
   } else if (!existingEmail) {
     info('No problem! You can set up email anytime by running this again.');
@@ -859,7 +919,7 @@ function printSummary(result: { configPath: string; config: SetupConfig }, exitA
   log('');
   log(`  Here are your details (save these somewhere safe):`);
   log('');
-  log(`  ${c.dim('Your secret key:')}  ${c.yellow(result.config.masterKey)}`);
+  log(`  ${c.dim('Your secret key:')}  ${c.yellow(maskSecret(result.config.masterKey))}`);
   log(`  ${c.dim('Settings saved:')}   ${c.cyan(result.configPath)}`);
   log(`  ${c.dim('Server address:')}   ${c.cyan(`http://${result.config.api.host}:${result.config.api.port}`)}`);
   log('');
@@ -1013,50 +1073,87 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
   }
 }
 
-async function setupRelay(config: SetupConfig): Promise<boolean> {
-  log('  Which email service do you use?');
-  log(`    ${c.cyan('1.')} Gmail`);
-  log(`    ${c.cyan('2.')} Outlook / Hotmail`);
-  log(`    ${c.cyan('3.')} Something else`);
-  const provChoice = await pick(`  ${c.magenta('>')} `, ['1', '2', '3']);
+interface RelayInfo {
+  provider: RelayProvider;
+  email: string;
+  name: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  imapHost?: string;
+  imapPort?: number;
+}
 
+async function setupRelay(config: SetupConfig, previous?: RelayInfo): Promise<{ success: boolean; info: RelayInfo }> {
   let provider: RelayProvider;
-  if (provChoice === '1') provider = 'gmail';
-  else if (provChoice === '2') provider = 'outlook';
-  else provider = 'custom';
-
-  const email = await ask(`  ${c.cyan('Your email address:')} `);
-
-  if (provider === 'gmail') {
-    log('');
-    log(`  ${c.dim('You\'ll need a Gmail App Password.')}`);
-    log(`  ${c.dim('1. Go to')} ${c.cyan('https://myaccount.google.com/apppasswords')}`);
-    log(`  ${c.dim('2. Create an app password and copy it')}`);
-    log(`  ${c.dim('3. Paste it below (spaces are fine, we\'ll remove them)')}`);
-  } else if (provider === 'outlook') {
-    log(`  ${c.dim('You\'ll need an Outlook App Password from your account security settings.')}`);
-  }
-  log('');
-
+  let email: string;
+  let name: string;
   let smtpHost: string | undefined;
   let smtpPort: number | undefined;
   let imapHost: string | undefined;
   let imapPort: number | undefined;
 
-  if (provider === 'custom') {
-    log(`  ${c.dim('We need your email server details (check your provider\'s settings):')}`);
-    smtpHost = await ask(`  ${c.cyan('Outgoing mail server:')} `);
-    const smtpPortStr = await ask(`  ${c.cyan('Outgoing port')} ${c.dim('(usually 587)')}: `);
-    smtpPort = smtpPortStr ? parseInt(smtpPortStr, 10) : 587;
-    imapHost = await ask(`  ${c.cyan('Incoming mail server:')} `);
-    const imapPortStr = await ask(`  ${c.cyan('Incoming port')} ${c.dim('(usually 993)')}: `);
-    imapPort = imapPortStr ? parseInt(imapPortStr, 10) : 993;
+  if (previous) {
+    // Show what we have and offer to change
+    log(`  ${c.dim('Using your previous settings:')}`);
+    log(`    ${c.dim('Email:')} ${c.cyan(previous.email)}`);
+    log(`    ${c.dim('Agent name:')} ${c.cyan(previous.name)}`);
     log('');
+    const change = await ask(`  ${c.bold('Change these?')} ${c.dim('(y/N)')} `);
+    if (change.toLowerCase().startsWith('y')) {
+      // Re-collect everything
+      previous = undefined;
+    } else {
+      provider = previous.provider;
+      email = previous.email;
+      name = previous.name;
+      smtpHost = previous.smtpHost;
+      smtpPort = previous.smtpPort;
+      imapHost = previous.imapHost;
+      imapPort = previous.imapPort;
+    }
   }
 
-  log(`  ${c.dim('Give your AI agent a name — this is what people will see in emails.')}`);
-  const agentName = await ask(`  ${c.cyan('Agent name')} ${c.dim('(secretary)')}: `);
-  const name = agentName.trim() || 'secretary';
+  if (!previous) {
+    log('  Which email service do you use?');
+    log(`    ${c.cyan('1.')} Gmail`);
+    log(`    ${c.cyan('2.')} Outlook / Hotmail`);
+    log(`    ${c.cyan('3.')} Something else`);
+    const provChoice = await pick(`  ${c.magenta('>')} `, ['1', '2', '3']);
+
+    if (provChoice === '1') provider = 'gmail';
+    else if (provChoice === '2') provider = 'outlook';
+    else provider = 'custom';
+
+    email = await ask(`  ${c.cyan('Your email address:')} `);
+
+    if (provider === 'gmail') {
+      log('');
+      log(`  ${c.dim('You\'ll need a Gmail App Password.')}`);
+      log(`  ${c.dim('1. Go to')} ${c.cyan('https://myaccount.google.com/apppasswords')}`);
+      log(`  ${c.dim('2. Create an app password and copy it')}`);
+      log(`  ${c.dim('3. Paste it below (spaces are fine, we\'ll remove them)')}`);
+    } else if (provider === 'outlook') {
+      log(`  ${c.dim('You\'ll need an Outlook App Password from your account security settings.')}`);
+    }
+    log('');
+
+    if (provider === 'custom') {
+      log(`  ${c.dim('We need your email server details (check your provider\'s settings):')}`);
+      smtpHost = await ask(`  ${c.cyan('Outgoing mail server:')} `);
+      const smtpPortStr = await ask(`  ${c.cyan('Outgoing port')} ${c.dim('(usually 587)')}: `);
+      smtpPort = smtpPortStr ? parseInt(smtpPortStr, 10) : 587;
+      imapHost = await ask(`  ${c.cyan('Incoming mail server:')} `);
+      const imapPortStr = await ask(`  ${c.cyan('Incoming port')} ${c.dim('(usually 993)')}: `);
+      imapPort = imapPortStr ? parseInt(imapPortStr, 10) : 993;
+      log('');
+    }
+
+    log(`  ${c.dim('Give your AI agent a name — this is what people will see in emails.')}`);
+    const agentName = await ask(`  ${c.cyan('Agent name')} ${c.dim('(secretary)')}: `);
+    name = agentName.trim() || 'secretary';
+  }
+
+  const relayInfo: RelayInfo = { provider: provider!, email: email!, name: name!, smtpHost, smtpPort, imapHost, imapPort };
 
   // Retry loop for password
   const apiBase = `http://${config.api.host}:${config.api.port}`;
@@ -1079,16 +1176,16 @@ async function setupRelay(config: SetupConfig): Promise<boolean> {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          provider, email, password,
-          smtpHost, smtpPort, imapHost, imapPort,
-          agentName: name,
+          provider: relayInfo.provider, email: relayInfo.email, password,
+          smtpHost: relayInfo.smtpHost, smtpPort: relayInfo.smtpPort,
+          imapHost: relayInfo.imapHost, imapPort: relayInfo.imapPort,
+          agentName: relayInfo.name,
         }),
         signal: AbortSignal.timeout(30_000),
       });
 
       if (!response.ok) {
         const text = await response.text();
-        // Parse error for friendly messages
         const friendlyError = parseFriendlyError(text);
 
         if (friendlyError.isAuthError && attempt < MAX_ATTEMPTS) {
@@ -1103,7 +1200,7 @@ async function setupRelay(config: SetupConfig): Promise<boolean> {
           log('');
           info('Double-check your email and app password, then run: agenticmail setup');
         }
-        return false;
+        return { success: false, info: relayInfo };
       }
 
       const data = await response.json() as any;
@@ -1113,20 +1210,19 @@ async function setupRelay(config: SetupConfig): Promise<boolean> {
         log('');
         ok(`Your AI agent ${c.bold('"' + data.agent.name + '"')} is ready!`);
         log(`    ${c.dim('Agent email:')} ${c.cyan(data.agent.subAddress)}`);
-        log(`    ${c.dim('Agent key:')}   ${c.yellow(data.agent.apiKey)}`);
+        log(`    ${c.dim('Agent key:')}   ${c.yellow(maskSecret(data.agent.apiKey))}`);
         log('');
         info('People can email your agent at the address above.');
 
-        // Send welcome email to the user
-        await sendWelcomeEmail(apiBase, data.agent.apiKey, email, data.agent.name, data.agent.subAddress);
+        await sendWelcomeEmail(apiBase, data.agent.apiKey, relayInfo.email, data.agent.name, data.agent.subAddress);
       }
-      return true; // success — exit retry loop
+      return { success: true, info: relayInfo };
     } catch (err) {
       spinner.fail(`Couldn't connect: ${(err as Error).message}`);
-      return false;
+      return { success: false, info: relayInfo };
     }
   }
-  return false;
+  return { success: false, info: relayInfo };
 }
 
 /**
@@ -1137,7 +1233,7 @@ function parseFriendlyError(rawText: string): { message: string; isAuthError: bo
     const parsed = JSON.parse(rawText);
     const error = parsed.error || rawText;
 
-    // Auth / password errors
+    // Auth / password errors (email provider rejected credentials)
     if (
       error.includes('Username and Password not accepted') ||
       error.includes('Invalid login') ||
@@ -1149,6 +1245,22 @@ function parseFriendlyError(rawText: string): { message: string; isAuthError: bo
       return {
         message: 'Incorrect email or password. Please check your credentials.',
         isAuthError: true,
+      };
+    }
+
+    // Stalwart admin auth error (credentials mismatch — stale volume or config)
+    if (error.includes('Stalwart API error') && (error.includes('401') || error.includes('Unauthorized'))) {
+      return {
+        message: 'Mail server credentials mismatch — the container may have stale data. Run: agenticmail setup',
+        isAuthError: false,
+      };
+    }
+
+    // API key / authorization errors (master key mismatch)
+    if (error.includes('Invalid API key') || error.includes('Master API key required')) {
+      return {
+        message: 'Server authorization failed — the mail server may still be starting up. Try again in a moment.',
+        isAuthError: false,
       };
     }
 
@@ -1545,7 +1657,7 @@ function mergePluginConfig(
 
 async function cmdOpenClaw() {
   log('');
-  log(`  ${c.bgCyan(' AgenticMail for OpenClaw ')}`);
+  log(`  ${c.pinkBg(' 🎀 AgenticMail for OpenClaw ')}`);
   log('');
   log(`  ${c.bold("Let's get your OpenClaw agent set up with email.")}`);
   log(`  This will:`);
@@ -1597,16 +1709,16 @@ async function cmdOpenClaw() {
       spinner.start();
       try {
         await setup.ensureDocker();
-        spinner.succeed(`${c.bold('Docker')} — installed and running`);
+        spinner.succeed(`${c.bold('Engine')} — installed and running`);
       } catch (err) {
-        spinner.fail(`Couldn't install Docker: ${(err as Error).message}`);
+        spinner.fail(`Couldn't start engine: ${(err as Error).message}`);
         log('');
         log(`  ${c.yellow('Tip:')} Install Docker manually from ${c.cyan('https://docker.com/get-docker')}`);
         log(`  ${c.dim('Then run')} ${c.green('agenticmail openclaw')} ${c.dim('again.')}`);
         process.exit(1);
       }
     } else {
-      ok(`${c.bold('Docker')} ${c.dim('— engine running')}`);
+      ok(`${c.bold('Engine')} ${c.dim('— running')}`);
       await new Promise(r => setTimeout(r, 300));
     }
 
@@ -2213,9 +2325,9 @@ async function cmdOpenClaw() {
     log(`  ${c.dim('Agent:')}       ${c.bold(agentName)} (${c.cyan(agentEmail)})`);
   }
   if (agentApiKey) {
-    log(`  ${c.dim('API Key:')}     ${c.yellow(agentApiKey)}`);
+    log(`  ${c.dim('API Key:')}     ${c.yellow(maskSecret(agentApiKey))}`);
   }
-  log(`  ${c.dim('Master Key:')}  ${c.yellow(config.masterKey)}`);
+  log(`  ${c.dim('Master Key:')}  ${c.yellow(maskSecret(config.masterKey))}`);
   log(`  ${c.dim('Server:')}      ${c.cyan(apiBase)}`);
 
   // Show phone number if SMS is configured
@@ -2308,7 +2420,7 @@ function printPluginSnippet(apiUrl: string, masterKey: string, agentApiKey?: str
 
 async function cmdStatus() {
   log('');
-  log(`  ${c.bgCyan(' AgenticMail Status ')}`);
+  log(`  ${c.pinkBg(' 🎀 AgenticMail Status ')}`);
   log('');
 
   const setup = new SetupManager();
@@ -2426,7 +2538,7 @@ async function cmdStart() {
   }
 
   log('');
-  log(`  ${c.bgCyan(' Starting AgenticMail ')}`);
+  log(`  ${c.pinkBg(' 🎀 Starting AgenticMail ')}`);
   log('');
 
   // Load config
@@ -2439,14 +2551,16 @@ async function cmdStart() {
     process.exit(1);
   }
 
-  // Docker
-  const dockerSpinner = new Spinner('docker', 'Making sure the engine is running...');
+  // Docker — auto-install if missing, auto-start if stopped
+  const dockerSpinner = new Spinner('docker', 'Checking engine...');
   dockerSpinner.start();
+  // Wire progress from installer to spinner so users see real-time status
+  const dockerSetup = new SetupManager((msg: string) => dockerSpinner.update(msg));
   try {
-    await setup.ensureDocker();
+    await dockerSetup.ensureDocker();
     dockerSpinner.succeed('Engine is running');
   } catch (err) {
-    dockerSpinner.fail(`Engine problem: ${(err as Error).message}`);
+    dockerSpinner.fail((err as Error).message);
     process.exit(1);
   }
 
@@ -2489,6 +2603,30 @@ async function cmdStart() {
       }
     }
   } catch { /* don't fail start over this */ }
+
+  // Check if setup is incomplete (no email/agent configured) — offer to continue
+  try {
+    const base = `http://${config.api.host}:${config.api.port}`;
+    const gwResp = await fetch(`${base}/api/agenticmail/gateway/status`, {
+      headers: { 'Authorization': `Bearer ${config.masterKey}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (gwResp.ok) {
+      const gwStatus = await gwResp.json() as any;
+      if (gwStatus.mode === 'none' || !gwStatus.mode) {
+        log('');
+        log(`  ${c.dim('─'.repeat(50))}`);
+        log('');
+        log(`  ${c.yellow('!')} No email connected yet. Your agent can't send or receive email.`);
+        log('');
+        const finish = await ask(`  Run the setup wizard to finish? (Y/n) `);
+        if (!finish.toLowerCase().startsWith('n')) {
+          await cmdSetup();
+          return;
+        }
+      }
+    }
+  } catch { /* server may not be ready — skip check */ }
 
   // Interactive prompt — server keeps running in background after exit
   await interactiveShell({ config, onExit: () => {} });
@@ -2720,7 +2858,7 @@ switch (command) {
   case '--help':
   case '-h':
     log('');
-    log(`  ${c.bgCyan(' AgenticMail ')} ${c.dim('Give your AI agent a real email address')}`);
+    log(`  ${c.pinkBg(' 🎀 AgenticMail ')} ${c.dim('Give your AI agent a real email address')}`);
     log('');
     log('  Commands:');
     log(`    ${c.green('agenticmail')}           Get started (setup + start)`);

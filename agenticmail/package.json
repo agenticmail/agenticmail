@@ -1,6 +1,6 @@
 {
   "name": "agenticmail",
-  "version": "0.5.4",
+  "version": "0.5.34",
   "description": "Email and SMS infrastructure for AI agents \u2014 the first platform to give agents real email addresses and phone numbers",
   "type": "module",
   "main": "dist/index.js",
@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "scripts",
     "README.md",
     "REFERENCE.md",
     "LICENSE"
@@ -23,6 +24,7 @@
   "scripts": {
     "build": "tsup src/index.ts src/cli.ts --format esm --dts --clean",
     "test": "vitest run --passWithNoTests",
+    "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

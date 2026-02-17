@@ -179,16 +179,16 @@ IMAP_PORT=143
     image: stalwartlabs/stalwart:latest
     container_name: agenticmail-stalwart
     ports:
-      - "8080:8080"   # HTTP Admin + JMAP
-      - "587:587"     # SMTP Submission
-      - "143:143"     # IMAP
-      - "25:25"       # SMTP
+      - "127.0.0.1:8080:8080"   # HTTP Admin + JMAP (localhost only)
+      - "127.0.0.1:587:587"     # SMTP Submission (localhost only)
+      - "127.0.0.1:143:143"     # IMAP (localhost only)
+      - "127.0.0.1:25:25"       # SMTP (localhost only)
     volumes:
       - stalwart-data:/opt/stalwart
       - ./stalwart.toml:/opt/stalwart/etc/config.toml:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "stalwart-cli -u http://localhost:8080 -c admin:${password} server list-domains 2>/dev/null || true"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || true"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -196,6 +196,7 @@ IMAP_PORT=143
 volumes:
   stalwart-data:
 `);
+    chmodSync(composePath, 0o600);
 
     const tomlPath = join(dataDir, 'stalwart.toml');
     writeFileSync(tomlPath, `# Stalwart Mail Server — AgenticMail Configuration
@@ -248,6 +249,7 @@ enable = true
 user = "admin"
 secret = "${password}"
 `);
+    chmodSync(tomlPath, 0o600);
   }
 
   /**

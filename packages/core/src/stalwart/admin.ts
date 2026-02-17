@@ -1,5 +1,20 @@
 import type { StalwartPrincipal, StalwartListResponse, StalwartPrincipalResponse } from './types.js';
 
+/** Escape a string for safe interpolation into a TOML double-quoted value. */
+function escapeTomlString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
+/** Validate a domain name format (basic RFC 1035 check). */
+function isValidDomain(domain: string): boolean {
+  return /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(domain);
+}
+
 export interface StalwartAdminOptions {
   url: string;
   adminUser: string;
@@ -172,6 +187,10 @@ export class StalwartAdmin {
    * Critical for email deliverability — must match the sending domain.
    */
   async setHostname(domain: string): Promise<void> {
+    if (!isValidDomain(domain)) {
+      throw new Error(`Invalid domain format: "${domain}"`);
+    }
+
     const { readFileSync, writeFileSync } = await import('node:fs');
     const { homedir } = await import('node:os');
     const { join } = await import('node:path');
@@ -182,7 +201,7 @@ export class StalwartAdmin {
     const configPath = join(homedir(), '.agenticmail', 'stalwart.toml');
     try {
       let config = readFileSync(configPath, 'utf-8');
-      config = config.replace(/^hostname\s*=\s*"[^"]*"/m, `hostname = "${domain}"`);
+      config = config.replace(/^hostname\s*=\s*"[^"]*"/m, `hostname = "${escapeTomlString(domain)}"`);
       writeFileSync(configPath, config);
       console.log(`[Stalwart] Updated hostname to "${domain}" in stalwart.toml`);
     } catch (err) {
@@ -333,22 +352,23 @@ export class StalwartAdmin {
     toml = toml.replace(/\n\[queue\.route\.gmail\][\s\S]*?(?=\n\[|$)/, '');
     toml = toml.replace(/\n\[queue\.strategy\][\s\S]*?(?=\n\[|$)/, '');
 
-    // Append relay route config
+    // Append relay route config (escape all user-supplied values to prevent TOML injection)
+    const safeRouteName = routeName.replace(/[^a-zA-Z0-9_-]/g, '');
     toml += `
 
-[queue.route.${routeName}]
+[queue.route.${safeRouteName}]
 description = "Gmail SMTP relay for outbound delivery"
 type = "relay"
-address = "${config.smtpHost}"
-port = ${config.smtpPort}
+address = "${escapeTomlString(config.smtpHost)}"
+port = ${Number(config.smtpPort) || 465}
 protocol = "smtp"
 tls.implicit = true
-auth.username = "${config.username}"
-auth.secret = "${config.password}"
+auth.username = "${escapeTomlString(config.username)}"
+auth.secret = "${escapeTomlString(config.password)}"
 
 [queue.strategy]
 route = [ { if = "is_local_domain('', rcpt_domain)", then = "'local'" },
-           { else = "'${routeName}'" } ]
+           { else = "'${safeRouteName}'" } ]
 `;
 
     writeFileSync(tomlPath, toml, 'utf-8');
