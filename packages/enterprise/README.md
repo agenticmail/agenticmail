@@ -599,9 +599,13 @@ API keys have scoped permissions and are created through the admin API.
 |--------|------|-------------|
 | GET | `/api/engine/skills` | List all 38 skills |
 | GET | `/api/engine/skills/:id` | Get skill details + tools |
-| GET | `/api/engine/presets` | List 5 permission presets |
-| GET | `/api/engine/presets/:id` | Get preset details |
-| POST | `/api/engine/check-permission` | Check tool permission |
+| GET | `/api/engine/profiles/presets` | List 5 permission presets |
+| GET | `/api/engine/profiles/:agentId` | Get agent's permission profile |
+| PUT | `/api/engine/profiles/:agentId` | Update agent's permission profile |
+| POST | `/api/engine/profiles/:agentId/apply-preset` | Apply a preset to agent |
+| POST | `/api/engine/permissions/check` | Check tool permission |
+| GET | `/api/engine/permissions/:agentId/tools` | List tools available to agent |
+| GET | `/api/engine/permissions/:agentId/policy` | Generate OpenClaw tool policy |
 | GET | `/api/engine/stats` | Engine statistics |
 | POST | `/api/engine/generate-config` | Generate agent config files |
 | POST | `/api/engine/deploy` | Deploy an agent |

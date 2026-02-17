@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/enterprise",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "AgenticMail Enterprise — cloud-hosted AI agent identity, email, auth & compliance for organizations",
   "type": "module",
   "bin": {
@@ -28,8 +28,24 @@
     "identity"
   ],
   "license": "MIT",
+  "peerDependencies": {
+    "openclaw": ">=0.1.0",
+    "agenticmail": ">=0.5.0",
+    "@agenticmail/core": ">=0.5.0",
+    "@agenticmail/api": ">=0.5.0"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    },
+    "agenticmail": {
+      "optional": true
+    },
+    "@agenticmail/api": {
+      "optional": true
+    }
+  },
   "dependencies": {
-    "@agenticmail/core": "^0.5.41",
     "@hono/node-server": "^1.19.9",
     "bcryptjs": "^2.4.3",
     "chalk": "^5.0.0",

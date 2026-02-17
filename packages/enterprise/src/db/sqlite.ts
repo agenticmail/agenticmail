@@ -52,9 +52,12 @@ export class SqliteAdapter extends DatabaseAdapter {
     const stmts = getAllCreateStatements();
     const tx = this.db.transaction(() => {
       for (const stmt of stmts) this.db.exec(stmt);
-      // Seed retention policy
+      // Seed defaults
       this.db.prepare(
         `INSERT OR IGNORE INTO retention_policy (id) VALUES ('default')`
+      ).run();
+      this.db.prepare(
+        `INSERT OR IGNORE INTO company_settings (id, name, subdomain) VALUES ('default', 'My Company', 'my-company')`
       ).run();
     });
     tx();
