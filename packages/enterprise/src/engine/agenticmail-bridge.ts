@@ -24,6 +24,7 @@
  */
 
 import { EnterpriseHook, type EnterpriseHookConfig } from './openclaw-hook.js';
+import { TOOL_INDEX, generateOpenClawToolPolicy } from './tool-catalog.js';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -204,6 +205,18 @@ export class AgenticMailBridge {
    */
   getToolPolicy() {
     return this.toolPolicy;
+  }
+
+  /**
+   * Generate OpenClaw-compatible config for tools.allow / tools.deny
+   * This is what gets written to the gateway config
+   */
+  getOpenClawToolConfig(): Record<string, any> {
+    if (!this.toolPolicy) return {};
+    return generateOpenClawToolPolicy(
+      this.toolPolicy.allowedTools,
+      this.toolPolicy.blockedTools,
+    );
   }
 }
 

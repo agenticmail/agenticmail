@@ -385,11 +385,18 @@ export class PermissionEngine {
   }
 
   private _findTool(toolId: string): ToolDefinition | undefined {
+    // Check registered skills first
     for (const skill of this.skills.values()) {
       const tool = skill.tools.find(t => t.id === toolId);
       if (tool) return tool;
     }
-    return undefined;
+    // Fall back to global tool index (real OpenClaw + AgenticMail tools)
+    try {
+      const { TOOL_INDEX } = require('./tool-catalog.js');
+      return TOOL_INDEX.get(toolId);
+    } catch {
+      return undefined;
+    }
   }
 
   /**

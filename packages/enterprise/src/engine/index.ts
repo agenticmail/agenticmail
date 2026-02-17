@@ -103,7 +103,17 @@ export {
   type TimelineEntry,
 } from './activity.js';
 
-// 9. Database Persistence
+// 9. Tool Catalog (real OpenClaw + AgenticMail tool IDs)
+export {
+  OPENCLAW_CORE_TOOLS,
+  AGENTICMAIL_TOOLS,
+  ALL_TOOLS,
+  TOOL_INDEX,
+  getToolsBySkill,
+  generateOpenClawToolPolicy,
+} from './tool-catalog.js';
+
+// 10. Database Persistence
 export { EngineDatabase, type EngineDB } from './db-adapter.js';
 export { ENGINE_TABLES, ENGINE_TABLES_POSTGRES } from './db-schema.js';
 

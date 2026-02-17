@@ -1,11 +1,16 @@
 /**
- * Multi-Tenant Isolation
+ * Multi-Tenant Isolation (OPTIONAL)
  *
- * Companies sharing infrastructure need strict separation:
+ * For SaaS deployments: Companies sharing infrastructure need strict separation.
+ * For self-hosted / open-source: Single-tenant mode uses a default org with no limits.
+ *
  * - Data isolation (each org sees only their data)
  * - Resource quotas (CPU, memory, API calls per org)
  * - Billing boundaries
  * - Network isolation between agents from different orgs
+ *
+ * When running single-tenant (open-source), call:
+ *   tenants.createDefaultOrg() → creates one org with self-hosted (unlimited) plan
  */
 
 // ─── Types ──────────────────────────────────────────────
@@ -292,6 +297,30 @@ export class TenantManager {
 
   listOrgs(): Organization[] {
     return Array.from(this.orgs.values());
+  }
+
+  /**
+   * Single-tenant mode: create default org with unlimited (self-hosted) plan.
+   * For open-source / self-hosted deployments that don't need multi-tenancy.
+   */
+  createDefaultOrg(name: string = 'Default'): Organization {
+    const existing = this.getOrgBySlug('default');
+    if (existing) return existing;
+    return this.createOrg({
+      name,
+      slug: 'default',
+      plan: 'self-hosted',
+      adminEmail: 'admin@localhost',
+      settings: { requireApprovalForDeploy: false },
+    });
+  }
+
+  /**
+   * Is this a single-tenant deployment?
+   */
+  isSingleTenant(): boolean {
+    const orgs = this.listOrgs();
+    return orgs.length === 1 && orgs[0].slug === 'default';
   }
 
   /**
