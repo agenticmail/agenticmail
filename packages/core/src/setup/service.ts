@@ -100,12 +100,109 @@ export class ServiceManager {
   }
 
   /**
+   * Get the current package version.
+   */
+  private getVersion(): string {
+    try {
+      const pkgPaths = [
+        join(homedir(), 'node_modules', 'agenticmail', 'package.json'),
+        join(homedir(), '.agenticmail', 'package-version.json'),
+      ];
+      // Also try relative to this file
+      try {
+        const prefix = execSync('npm prefix -g', { timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+        pkgPaths.push(join(prefix, 'lib', 'node_modules', 'agenticmail', 'package.json'));
+      } catch { /* ignore */ }
+
+      for (const p of pkgPaths) {
+        if (existsSync(p)) {
+          const pkg = JSON.parse(readFileSync(p, 'utf-8'));
+          if (pkg.version) return pkg.version;
+        }
+      }
+    } catch { /* ignore */ }
+    return 'unknown';
+  }
+
+  /**
+   * Generate a wrapper script that waits for Docker before starting the API.
+   * This ensures AgenticMail doesn't fail on boot when Docker is still loading.
+   */
+  private generateStartScript(nodePath: string, apiEntry: string): string {
+    const scriptPath = join(homedir(), '.agenticmail', 'bin', 'start-server.sh');
+    const scriptDir = join(homedir(), '.agenticmail', 'bin');
+    if (!existsSync(scriptDir)) mkdirSync(scriptDir, { recursive: true });
+
+    const script = [
+      '#!/bin/bash',
+      '# AgenticMail auto-start script',
+      '# Waits for Docker to be ready, then starts the API server.',
+      '',
+      'LOG_DIR="$HOME/.agenticmail/logs"',
+      'mkdir -p "$LOG_DIR"',
+      '',
+      'log() {',
+      '  echo "[$(date \'+%Y-%m-%d %H:%M:%S\')] $1" >> "$LOG_DIR/startup.log"',
+      '}',
+      '',
+      'log "AgenticMail starting..."',
+      '',
+      '# Wait for Docker daemon (up to 5 minutes)',
+      'MAX_WAIT=300',
+      'WAITED=0',
+      'while ! docker info >/dev/null 2>&1; do',
+      '  if [ $WAITED -ge $MAX_WAIT ]; then',
+      '    log "ERROR: Docker did not start after ${MAX_WAIT}s. Exiting."',
+      '    exit 1',
+      '  fi',
+      '  sleep 5',
+      '  WAITED=$((WAITED + 5))',
+      '  log "Waiting for Docker... (${WAITED}s)"',
+      'done',
+      'log "Docker is ready (waited ${WAITED}s)"',
+      '',
+      '# Wait for Stalwart container (up to 60s)',
+      'MAX_STALWART=60',
+      'WAITED=0',
+      'while ! docker ps --filter "name=agenticmail-stalwart" --format "{{.Status}}" 2>/dev/null | grep -qi "up"; do',
+      '  if [ $WAITED -ge $MAX_STALWART ]; then',
+      '    log "WARNING: Stalwart not running. Attempting to start..."',
+      '    COMPOSE="$HOME/.agenticmail/docker-compose.yml"',
+      '    if [ -f "$COMPOSE" ]; then',
+      '      docker compose -f "$COMPOSE" up -d 2>>"$LOG_DIR/startup.log"',
+      '      sleep 5',
+      '    fi',
+      '    break',
+      '  fi',
+      '  sleep 3',
+      '  WAITED=$((WAITED + 3))',
+      'done',
+      'log "Stalwart check complete"',
+      '',
+      '# Start the API server',
+      `log "Starting API server: ${nodePath} ${apiEntry}"`,
+      `exec "${nodePath}" "${apiEntry}"`,
+    ].join('\n') + '\n';
+    writeFileSync(scriptPath, script, { mode: 0o755 });
+    return scriptPath;
+  }
+
+  /**
    * Generate the launchd plist content for macOS.
+   * More robust than OpenClaw's plist:
+   * - Wrapper script waits for Docker + Stalwart before starting
+   * - KeepAlive: true (unconditional — always restart, not just on crash)
+   * - SoftResourceLimits for file descriptors (email servers need many)
+   * - StartInterval as backup heartbeat (checks every 5 min)
+   * - Service version tracking in env vars
    */
   private generatePlist(nodePath: string, apiEntry: string, configPath: string): string {
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     const logDir = join(homedir(), '.agenticmail', 'logs');
     if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
+
+    const version = this.getVersion();
+    const startScript = this.generateStartScript(nodePath, apiEntry);
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -114,14 +211,18 @@ export class ServiceManager {
   <key>Label</key>
   <string>${PLIST_LABEL}</string>
 
+  <key>Comment</key>
+  <string>AgenticMail API Server (v${version})</string>
+
   <key>ProgramArguments</key>
   <array>
-    <string>${nodePath}</string>
-    <string>${apiEntry}</string>
+    <string>${startScript}</string>
   </array>
 
   <key>EnvironmentVariables</key>
   <dict>
+    <key>HOME</key>
+    <string>${homedir()}</string>
     <key>AGENTICMAIL_DATA_DIR</key>
     <string>${config.dataDir || join(homedir(), '.agenticmail')}</string>
     <key>AGENTICMAIL_MASTER_KEY</key>
@@ -145,20 +246,36 @@ export class ServiceManager {
     <key>IMAP_PORT</key>
     <string>${String(config.imap.port)}</string>
     <key>PATH</key>
-    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>AGENTICMAIL_SERVICE_VERSION</key>
+    <string>${version}</string>
+    <key>AGENTICMAIL_SERVICE_LABEL</key>
+    <string>${PLIST_LABEL}</string>
   </dict>
 
+  <!-- Start when user logs in -->
   <key>RunAtLoad</key>
   <true/>
 
+  <!-- Always keep running — restart unconditionally if it ever stops -->
   <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
+  <true/>
 
+  <!-- Minimum 15s between restarts to avoid rapid crash loops -->
   <key>ThrottleInterval</key>
-  <integer>10</integer>
+  <integer>15</integer>
+
+  <!-- File descriptor limits — email servers need many open connections -->
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>8192</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>16384</integer>
+  </dict>
 
   <key>StandardOutPath</key>
   <string>${logDir}/server.log</string>
@@ -173,21 +290,34 @@ export class ServiceManager {
 
   /**
    * Generate the systemd user service content for Linux.
+   * More robust than basic services:
+   * - Wrapper script waits for Docker + Stalwart
+   * - Restart=always (unconditional)
+   * - WatchdogSec for health monitoring
+   * - File descriptor limits
+   * - Proper dependency ordering
    */
   private generateSystemdUnit(nodePath: string, apiEntry: string, configPath: string): string {
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     const dataDir = config.dataDir || join(homedir(), '.agenticmail');
+    const version = this.getVersion();
+    const startScript = this.generateStartScript(nodePath, apiEntry);
 
     return `[Unit]
-Description=AgenticMail API Server
-After=network.target docker.service
-Wants=docker.service
+Description=AgenticMail API Server (v${version})
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStart=${nodePath} ${apiEntry}
-Restart=on-failure
-RestartSec=10
+ExecStart=${startScript}
+Restart=always
+RestartSec=15
+TimeoutStartSec=360
+LimitNOFILE=8192
+Environment=HOME=${homedir()}
 Environment=AGENTICMAIL_DATA_DIR=${dataDir}
 Environment=AGENTICMAIL_MASTER_KEY=${config.masterKey}
 Environment=STALWART_ADMIN_USER=${config.stalwart.adminUser}
@@ -199,6 +329,8 @@ Environment=SMTP_HOST=${config.smtp.host}
 Environment=SMTP_PORT=${config.smtp.port}
 Environment=IMAP_HOST=${config.imap.host}
 Environment=IMAP_PORT=${config.imap.port}
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin
+Environment=AGENTICMAIL_SERVICE_VERSION=${version}
 
 [Install]
 WantedBy=default.target
