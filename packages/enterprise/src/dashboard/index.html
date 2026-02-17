@@ -400,10 +400,10 @@
     return h(Fragment, null,
       h('div', { className: 'page-header' }, h('h1', { className: 'page-title' }, 'Dashboard'), h('p', { className: 'page-desc' }, 'System overview and recent activity')),
       h('div', { className: 'stats-row' },
-        h(Stat, { label: 'Agents', value: stats?.agents ?? 0, color: 'accent', sub: 'Deployed' }),
-        h(Stat, { label: 'Users', value: stats?.users ?? 0 }),
-        h(Stat, { label: 'Emails Today', value: stats?.emails ?? 0, color: 'success' }),
-        h(Stat, { label: 'Events', value: stats?.events ?? 0 }),
+        h(Stat, { label: 'Agents', value: stats?.totalAgents ?? stats?.agents ?? 0, color: 'accent', sub: (stats?.activeAgents ?? 0) + ' active' }),
+        h(Stat, { label: 'Users', value: stats?.totalUsers ?? stats?.users ?? 0 }),
+        h(Stat, { label: 'Emails', value: stats?.totalEmails ?? stats?.emails ?? 0, color: 'success' }),
+        h(Stat, { label: 'Events', value: stats?.totalAuditEvents ?? stats?.events ?? 0 }),
       ),
       h('div', { className: 'card' },
         h('div', { className: 'card-header' }, h('h3', null, 'Recent Activity')),
@@ -414,7 +414,7 @@
                 h('div', { className: 'activity-dot' }),
                 h('div', { className: 'activity-text' },
                   h('strong', null, e.action || e.type || 'Event'), ' ',
-                  e.details || e.description || JSON.stringify(e).slice(0, 80)
+                  typeof e.details === 'string' ? e.details : e.description || JSON.stringify(e.details || e).slice(0, 80)
                 ),
                 h('div', { className: 'activity-time' }, e.timestamp ? new Date(e.timestamp).toLocaleString() : '')
               ))

@@ -96,13 +96,13 @@ Think of AgenticMail Enterprise as an HR department for AI agents.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                    Dashboard (Web UI)                  │
-│              Single HTML · React 18 · CDN             │
+│                    Dashboard (Web UI)                │
+│              Single HTML · React 18 · CDN            │
 └─────────────────────────┬────────────────────────────┘
                           │ HTTP
 ┌─────────────────────────▼────────────────────────────┐
-│                   Hono API Server                     │
-│                                                       │
+│                   Hono API Server                    │
+│                                                      │
 │  ┌─────────┐  ┌──────────┐  ┌──────────────────────┐ │
 │  │  Auth    │  │  Admin   │  │       Engine          │ │
 │  │  Routes  │  │  Routes  │  │                       │ │
