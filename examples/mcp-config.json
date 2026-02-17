@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "agenticmail": {
+      "command": "npx",
+      "args": ["agenticmail-mcp"],
+      "env": {
+        "AGENTICMAIL_API_URL": "http://127.0.0.1:3100",
+        "AGENTICMAIL_API_KEY": "ak_your_agent_api_key"
+      }
+    }
+  }
+}
