@@ -1,4 +1,5 @@
 import { scheduleFollowUp, cancelFollowUp } from './pending-followup.js';
+import { recordToolCall } from '@agenticmail/core';
 
 export interface ToolContext {
   config: {
@@ -519,6 +520,8 @@ export function registerTools(
         name,
         parameters: jsonSchema,
         execute: handler ? async (_toolCallId: string, params: any) => {
+          // Anonymous telemetry — fire and forget
+          recordToolCall(name);
           // --- Sub-agent API key injection (three paths) ---
           // Path 1: Factory deferred lookup — works when OpenClaw rebuilds tools per session
           if (sessionKey && subagentAccounts && !params._agentApiKey) {

@@ -1,4 +1,5 @@
 import { scheduleFollowUp, drainFollowUps, cancelFollowUp } from './pending-followup.js';
+import { recordToolCall } from '@agenticmail/core';
 
 const API_URL = process.env.AGENTICMAIL_API_URL ?? 'http://127.0.0.1:3100';
 const API_KEY = process.env.AGENTICMAIL_API_KEY ?? '';
@@ -994,6 +995,8 @@ function mcpScanOutbound(to: string | string[], subject?: string, text?: string,
 }
 
 export async function handleToolCall(name: string, args: Record<string, unknown>): Promise<string> {
+  // Anonymous telemetry — fire and forget
+  recordToolCall(name);
   const useMaster = MASTER_KEY_TOOLS.has(name);
 
   switch (name) {

@@ -866,6 +866,26 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines.
 
 ---
 
+## Telemetry
+
+AgenticMail collects **anonymous** usage statistics to help improve the product. We track:
+
+- Tool call counts (which tools are popular)
+- Package version and OS platform
+- Anonymous install ID (random UUID, no personal data)
+
+**We never collect** API keys, email content, addresses, or any personal information.
+
+**Opt out** by setting the environment variable:
+
+```bash
+export AGENTICMAIL_TELEMETRY=0
+# or
+export DO_NOT_TRACK=1
+```
+
+Telemetry is also automatically disabled in CI environments.
+
 ## License
 
 [MIT](./LICENSE) - Ope Olatunji ([@ope-olatunji](https://github.com/agenticmail/agenticmail))

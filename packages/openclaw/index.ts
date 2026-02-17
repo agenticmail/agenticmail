@@ -2,6 +2,7 @@ import { registerTools, recordInboundAgentMessage, registerAgentIdentity, unregi
 import { initFollowUpSystem, cancelAllFollowUps } from './src/pending-followup.js';
 import { mailChannelPlugin } from './src/channel.js';
 import { createMailMonitorService } from './src/monitor.js';
+import { setTelemetryVersion } from '@agenticmail/core';
 
 /** Minimum timeout (seconds) for sub-agents that have email capability */
 const MIN_SUBAGENT_TIMEOUT_S = 600; // 10 minutes
@@ -418,6 +419,9 @@ function activate(api: any): void {
     console.warn(`[agenticmail] Could not auto-spawn session for "${agentName}" — task ${taskId} remains pending`);
     return false;
   };
+
+  // Initialize anonymous telemetry (opt out with AGENTICMAIL_TELEMETRY=0)
+  setTelemetryVersion('0.5.39');
 
   // Register email tools — pass subagentAccounts so tool factories can inject
   // the sub-agent's own API key per-session (deferred lookup at execution time).

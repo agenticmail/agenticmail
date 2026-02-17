@@ -86,6 +86,9 @@ export { RELAY_PRESETS } from './gateway/types.js';
 export { SmsManager, SmsPoller, parseGoogleVoiceSms, extractVerificationCode, normalizePhoneNumber, isValidPhoneNumber } from './sms/index.js';
 export type { SmsConfig, ParsedSms, SmsMessage } from './sms/index.js';
 
+// Telemetry
+export { recordToolCall, setTelemetryVersion, flushTelemetry } from './telemetry.js';
+
 // Debug
 export { debug, debugWarn } from './debug.js';
 

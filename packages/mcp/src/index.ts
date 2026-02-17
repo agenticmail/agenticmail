@@ -3,6 +3,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { toolDefinitions, handleToolCall } from './tools.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
+import { setTelemetryVersion } from '@agenticmail/core';
+
+setTelemetryVersion('0.5.39');
 
 const server = new McpServer({
   name: '🎀 AgenticMail',
