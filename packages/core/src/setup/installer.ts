@@ -14,14 +14,14 @@ export type InstallProgress = (message: string) => void;
 function runWithRollingOutput(
   command: string,
   args: string[],
-  opts: { timeout?: number; maxLines?: number } = {},
+  opts: { timeout?: number; maxLines?: number; inheritStdin?: boolean } = {},
 ): Promise<{ exitCode: number; fullOutput: string }> {
   const maxLines = opts.maxLines ?? 20;
   const timeout = opts.timeout ?? 300_000;
 
   return new Promise((resolve, reject) => {
     const child = spawnChild(command, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [opts.inheritStdin ? 'inherit' : 'ignore', 'pipe', 'pipe'],
       timeout,
     });
 
@@ -208,7 +208,7 @@ export class DependencyInstaller {
       } catch {
         throw new Error('Homebrew is required to install Docker on macOS. Install it from https://brew.sh then try again.');
       }
-      const brewResult = await runWithRollingOutput('brew', ['install', '--cask', 'docker'], { timeout: 300_000 });
+      const brewResult = await runWithRollingOutput('brew', ['install', '--cask', 'docker'], { timeout: 300_000, inheritStdin: true });
       if (brewResult.exitCode !== 0) {
         throw new Error('Failed to install Docker via Homebrew. Try: brew install --cask docker');
       }
@@ -340,9 +340,7 @@ export class DependencyInstaller {
       await new Promise(r => setTimeout(r, 3_000));
     }
 
-    throw new Error(
-      'DOCKER_MANUAL_START'
-    );
+    throw new Error('DOCKER_MANUAL_START');
   }
 
   /**

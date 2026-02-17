@@ -481,28 +481,33 @@ async function cmdSetup() {
     } catch (err) {
       const msg = (err as Error).message;
       if (msg === 'DOCKER_MANUAL_START') {
-        spinner.fail(`Docker installed but couldn't start automatically`);
+        spinner.fail(`Docker needs to be set up manually (first time only)`);
         log('');
-        log(`  ${c.pink(c.bold('Don\'t worry! Here\'s how to fix this:'))}`);
+        log(`  ${c.pink(c.bold('No worries! This only takes a minute:'))}`);
         log('');
-        log(`  ${c.pink('Step 1:')} Open a ${c.bold('new terminal window')}`);
-        log(`         ${c.dim('(Command + T on Mac, or open Terminal from your dock)')}`);
+        log(`  ${c.pink('Step 1:')} Check if Docker Desktop is installed`);
+        log(`         ${c.dim('Look for Docker in your Applications folder or Launchpad.')}`);
+        log(`         ${c.dim('If it\'s not there, install it:')}`);
+        log(`         ${c.cyan('brew install --cask docker')}`);
+        log(`         ${c.dim('(You\'ll need to enter your Mac password when prompted)')}`);
         log('');
-        log(`  ${c.pink('Step 2:')} Run this command:`);
+        log(`  ${c.pink('Step 2:')} Open Docker Desktop`);
+        log(`         ${c.dim('Double-click Docker in Applications, or run:')}`);
         log(`         ${c.cyan('open -a Docker')}`);
         log('');
-        log(`  ${c.pink('Step 3:')} Wait for Docker Desktop to fully load`);
-        log(`         ${c.dim('You\'ll see a whale icon in your menu bar (top of screen).')}`);
-        log(`         ${c.dim('Wait until it stops animating — that means it\'s ready.')}`);
+        log(`  ${c.pink('Step 3:')} Accept the license agreement`);
+        log(`         ${c.dim('On first launch, Docker shows a license dialog.')}`);
+        log(`         ${c.dim('Click "Accept" to continue. It will then start loading.')}`);
         log('');
-        log(`  ${c.pink('Step 4:')} Close that terminal window`);
-        log(`         ${c.dim('Just close the window normally (Command + W). Don\'t press Ctrl+C.')}`);
+        log(`  ${c.pink('Step 4:')} Wait for the whale icon`);
+        log(`         ${c.dim('You\'ll see a whale icon in your menu bar (top of screen).')}`);
+        log(`         ${c.dim('Wait until it stops animating — that means Docker is ready.')}`);
         log('');
         log(`  ${c.pink('Step 5:')} Come back here and run:`);
         log(`         ${c.green('npx agenticmail@latest')}`);
         log('');
-        log(`  ${c.dim('That\'s it! Docker only needs this manual start the first time.')}`);
-        log(`  ${c.dim('After that, it starts automatically.')}`);
+        log(`  ${c.dim('That\'s it! Docker only needs this manual setup the first time.')}`);
+        log(`  ${c.dim('After that, it starts automatically on boot.')}`);
       } else {
         spinner.fail(`Couldn't start Docker: ${msg}`);
         log('');
