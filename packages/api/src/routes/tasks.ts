@@ -32,21 +32,20 @@ export function createTaskRoutes(db: Database.Database, accountManager: AccountM
         'INSERT INTO agent_tasks (id, assigner_id, assignee_id, task_type, payload, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).run(id, assignerId, target.id, taskType || 'generic', JSON.stringify(payload || {}), expiresAt);
 
-      // Push task event to target agent's SSE stream (instant).
-      // If no watcher found for the target, broadcast to ALL watchers —
-      // handles the OpenClaw sub-agent identity mismatch where a different
-      // agent is acting on behalf of the target.
-      const taskEvent = {
-        type: 'task', taskId: id, taskType: taskType || 'generic',
+      // Always auto-spawn an agent to process the task.
+      // Push an RPC-style task event — this is the same event format that call_agent uses,
+      // which OpenClaw hooks pick up to automatically spawn an agent session.
+      const taskDescription = payload?.task || payload?.description || JSON.stringify(payload || {});
+      const spawnEvent = {
+        type: 'task', taskId: id, taskType: 'rpc',
+        task: `You have a pending task (ID: ${id}). Check your pending tasks, claim it, process it, and submit the result.\n\nType: ${taskType || 'generic'}\nTask: ${taskDescription}`,
         assignee: target.name, from: req.agent?.name ?? 'system',
       };
-      if (!pushEventToAgent(target.id, taskEvent)) {
-        broadcastEvent(taskEvent);
+      if (!pushEventToAgent(target.id, spawnEvent)) {
+        broadcastEvent(spawnEvent);
       }
 
       // Fire-and-forget email notification as fallback (in case SSE isn't connected).
-      // Send FROM the calling agent's own address — Stalwart requires auth user to match sender.
-      // Stalwart's fallback-admin has no mailbox, so we can only send if we have a real agent.
       if (req.agent) {
         const notifSender = new MailSender({
           host: config.smtp.host,

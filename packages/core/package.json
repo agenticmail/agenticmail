@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/core",
-  "version": "0.5.34",
+  "version": "0.5.36",
   "description": "Core SDK for AgenticMail — email, SMS, and phone number access for AI agents",
   "type": "module",
   "main": "dist/index.js",

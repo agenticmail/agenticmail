@@ -1862,10 +1862,24 @@ export function registerTools(
     handler: async (params: any) => {
       try {
         const c = await ctxForParams(ctx, params);
-        return await apiRequest(c, 'POST', '/tasks/assign', {
+        const result = await apiRequest(c, 'POST', '/tasks/assign', {
           assignee: params.assignee, taskType: params.taskType,
           payload: params.payload, expiresInSeconds: params.expiresInSeconds,
         });
+
+        // Auto-spawn an agent session to process the task (same as call_agent).
+        // This ensures assigned tasks are always picked up immediately.
+        if (result?.id && coordination?.spawnForTask) {
+          const taskPayload = {
+            task: params.payload?.task || params.payload?.description || JSON.stringify(params.payload || {}),
+            _mode: 'light',
+            _async: true,
+            ...(params.payload || {}),
+          };
+          coordination.spawnForTask(params.assignee, result.id, taskPayload).catch(() => {});
+        }
+
+        return result;
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });
