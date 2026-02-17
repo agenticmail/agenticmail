@@ -102,3 +102,13 @@ export {
   type AgentTimeline,
   type TimelineEntry,
 } from './activity.js';
+
+// 9. Database Persistence
+export { EngineDatabase, type EngineDB } from './db-adapter.js';
+export { ENGINE_TABLES, ENGINE_TABLES_POSTGRES } from './db-schema.js';
+
+// 10. OpenClaw Integration Hook
+export { EnterpriseHook, createEnterpriseHook, type EnterpriseHookConfig, type HookResult } from './openclaw-hook.js';
+
+// 11. AgenticMail Bridge
+export { AgenticMailBridge, createAgenticMailBridge, type BridgeConfig, type ToolInterceptor } from './agenticmail-bridge.js';
