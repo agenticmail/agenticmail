@@ -1851,39 +1851,6 @@ export function registerTools(
     },
   });
 
-  reg('agenticmail_assign_task', {
-    description: 'Assign a task to another agent via the task queue. The target agent can claim and process it asynchronously. More efficient than sending emails for structured work assignments.',
-    parameters: {
-      assignee: { type: 'string', required: true, description: 'Name of the agent to assign the task to' },
-      taskType: { type: 'string', description: 'Task category (default: generic)' },
-      payload: { type: 'object', description: 'Task data/instructions as key-value pairs' },
-      expiresInSeconds: { type: 'number', description: 'Task expiry in seconds (optional)' },
-    },
-    handler: async (params: any) => {
-      try {
-        const c = await ctxForParams(ctx, params);
-        const result = await apiRequest(c, 'POST', '/tasks/assign', {
-          assignee: params.assignee, taskType: params.taskType,
-          payload: params.payload, expiresInSeconds: params.expiresInSeconds,
-        });
-
-        // Auto-spawn an agent session to process the task (same as call_agent).
-        // This ensures assigned tasks are always picked up immediately.
-        if (result?.id && coordination?.spawnForTask) {
-          const taskPayload = {
-            task: params.payload?.task || params.payload?.description || JSON.stringify(params.payload || {}),
-            _mode: 'light',
-            _async: true,
-            ...(params.payload || {}),
-          };
-          coordination.spawnForTask(params.assignee, result.id, taskPayload).catch(() => {});
-        }
-
-        return result;
-      } catch (err) { return { success: false, error: (err as Error).message }; }
-    },
-  });
-
   reg('agenticmail_check_tasks', {
     description: 'Check for pending tasks assigned to you (or a specific agent), or tasks you assigned to others.',
     parameters: {

@@ -507,8 +507,8 @@ function activate(api: any): void {
       prependLines.push(
         '<agenticmail-coordination>',
         '🎀 AgenticMail coordination tools available:',
-        '- agenticmail_call_agent: Call another agent and get structured JSON result',
-        '- agenticmail_assign_task / claim_task / submit_result: Task queue with lifecycle tracking',
+        '- agenticmail_call_agent: Call another agent and get structured JSON result (preferred method)',
+        '- agenticmail_check_tasks / claim_task / submit_result / complete_task: Task queue with lifecycle tracking',
         '- agenticmail_message_agent: Message an agent by name',
         '- agenticmail_list_agents: Discover available agents',
         '- agenticmail_check_tasks: Check task status (pending/claimed/completed)',
@@ -521,11 +521,10 @@ function activate(api: any): void {
       prependLines.push(
         '<agenticmail-coordination>',
         '🎀 AgenticMail is installed — prefer these over sessions_spawn/sessions_send:',
-        '- agenticmail_call_agent(target, task, mode?) → RPC call, returns structured JSON. Use mode="light" for simple tasks (no email overhead).',
-        '- agenticmail_assign_task → async delegation; agenticmail_check_tasks → check status',
+        '- agenticmail_call_agent(target, task, mode?) → RPC call, returns structured JSON. Use mode="light" for simple tasks (no email overhead). Use async=true for long-running tasks.',
         '- agenticmail_message_agent → message agent by name; agenticmail_list_agents → discover agents',
-        '- agenticmail_wait_for_email → push-based wait (no polling)',
-        'call_agent auto-detects complexity: simple tasks skip email account creation entirely.',
+        '- agenticmail_check_tasks → check task status; agenticmail_wait_for_email → push-based wait (no polling)',
+        'Use call_agent for ALL agent delegation (sync and async). It auto-detects complexity and spawns sessions.',
         '</agenticmail-coordination>',
       );
     }
