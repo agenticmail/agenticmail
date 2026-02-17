@@ -113,9 +113,19 @@ export {
   generateOpenClawToolPolicy,
 } from './tool-catalog.js';
 
-// 10. Database Persistence
+// 10. Database Persistence + Migration System
 export { EngineDatabase, type EngineDB } from './db-adapter.js';
-export { ENGINE_TABLES, ENGINE_TABLES_POSTGRES } from './db-schema.js';
+export {
+  ENGINE_TABLES,
+  ENGINE_TABLES_POSTGRES,
+  MIGRATIONS,
+  MIGRATIONS_TABLE,
+  MIGRATIONS_TABLE_POSTGRES,
+  sqliteToPostgres,
+  sqliteToMySQL,
+  type Migration,
+  type DynamicTableDef,
+} from './db-schema.js';
 
 // 10. OpenClaw Integration Hook
 export { EnterpriseHook, createEnterpriseHook, type EnterpriseHookConfig, type HookResult } from './openclaw-hook.js';

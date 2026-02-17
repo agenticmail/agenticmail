@@ -14,7 +14,16 @@ import type { ApprovalRequest, ApprovalPolicy } from './approvals.js';
 import type { KnowledgeBase, KBDocument, KBChunk } from './knowledge.js';
 import type { ActivityEvent, ToolCallRecord, ConversationEntry } from './activity.js';
 import type { AgentConfig } from './agent-config.js';
-import { ENGINE_TABLES } from './db-schema.js';
+import {
+  ENGINE_TABLES,
+  MIGRATIONS,
+  MIGRATIONS_TABLE,
+  MIGRATIONS_TABLE_POSTGRES,
+  sqliteToPostgres,
+  sqliteToMySQL,
+  type Migration,
+  type DynamicTableDef,
+} from './db-schema.js';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -29,20 +38,154 @@ export interface EngineDB {
 
 export class EngineDatabase {
   private db: EngineDB;
+  private dialect: 'sqlite' | 'postgres' | 'mysql' | 'mongodb' | 'dynamodb' | 'turso';
+  /** Raw driver handle for NoSQL migrations (MongoClient db, DynamoDB client, etc.) */
+  private rawDriver?: any;
 
-  constructor(db: EngineDB) {
+  constructor(db: EngineDB, dialect: 'sqlite' | 'postgres' | 'mysql' | 'mongodb' | 'dynamodb' | 'turso' = 'sqlite', rawDriver?: any) {
     this.db = db;
+    this.dialect = dialect;
+    this.rawDriver = rawDriver;
+  }
+
+  // ─── Migration System ─────────────────────────────────
+
+  /**
+   * Run all pending migrations in order.
+   * Creates the migration tracking table first, then applies any unapplied migrations.
+   */
+  async migrate(): Promise<{ applied: number; total: number }> {
+    // Create migration tracking table
+    const trackingDDL = this.dialect === 'postgres' ? MIGRATIONS_TABLE_POSTGRES : MIGRATIONS_TABLE;
+    for (const stmt of this.splitStatements(trackingDDL)) {
+      await this.db.run(stmt);
+    }
+
+    // Get already-applied versions
+    const applied = await this.db.all<{ version: number }>('SELECT version FROM engine_migrations ORDER BY version');
+    const appliedSet = new Set(applied.map(r => r.version));
+
+    let count = 0;
+    for (const migration of MIGRATIONS) {
+      if (appliedSet.has(migration.version)) continue;
+
+      // Pick the right SQL for the dialect
+      if ((this.dialect === 'mongodb' || this.dialect === 'dynamodb') && migration.nosql) {
+        await migration.nosql(this.rawDriver, this.dialect);
+      } else {
+        const sql = this.getSqlForDialect(migration);
+        if (sql) {
+          for (const stmt of this.splitStatements(sql)) {
+            await this.db.run(stmt);
+          }
+        }
+      }
+
+      // Record migration
+      await this.db.run(
+        'INSERT INTO engine_migrations (version, name) VALUES (?, ?)',
+        [migration.version, migration.name]
+      );
+      count++;
+    }
+
+    return { applied: count, total: MIGRATIONS.length };
   }
 
   /**
-   * Run all engine migrations
+   * Register and create a dynamic table at runtime.
+   * Used by plugins, skills, or engine extensions that need their own storage.
+   * Table name is auto-prefixed with `ext_` to avoid collisions with core tables.
    */
-  async migrate(): Promise<void> {
-    // Split by semicolons and run each statement
-    const statements = ENGINE_TABLES.split(';').map(s => s.trim()).filter(s => s.length > 0);
-    for (const stmt of statements) {
+  async createDynamicTable(def: DynamicTableDef): Promise<void> {
+    const prefixedName = def.name.startsWith('ext_') ? def.name : `ext_${def.name}`;
+
+    if (this.dialect === 'mongodb' && def.mongoSetup) {
+      await def.mongoSetup(this.rawDriver);
+      return;
+    }
+    if (this.dialect === 'dynamodb' && def.dynamoSetup) {
+      await def.dynamoSetup(this.rawDriver);
+      return;
+    }
+
+    // SQL-based: pick dialect-specific DDL or auto-convert
+    let ddl: string;
+    if (this.dialect === 'postgres' && def.postgres) {
+      ddl = def.postgres;
+    } else if (this.dialect === 'mysql' && def.mysql) {
+      ddl = def.mysql;
+    } else if (this.dialect === 'postgres') {
+      ddl = sqliteToPostgres(def.sql);
+    } else if (this.dialect === 'mysql') {
+      ddl = sqliteToMySQL(def.sql);
+    } else {
+      ddl = def.sql;
+    }
+
+    // Replace the table name with prefixed version
+    ddl = ddl.replace(new RegExp(`\\b${def.name}\\b`, 'g'), prefixedName);
+
+    for (const stmt of this.splitStatements(ddl)) {
       await this.db.run(stmt);
     }
+
+    // Create any additional indexes
+    if (def.indexes) {
+      for (const idx of def.indexes) {
+        const prefixedIdx = idx.replace(new RegExp(`\\b${def.name}\\b`, 'g'), prefixedName);
+        await this.db.run(prefixedIdx);
+      }
+    }
+  }
+
+  /**
+   * Run arbitrary SQL — for custom queries on dynamic tables.
+   * Returns rows for SELECT, void for mutations.
+   */
+  async query<T = any>(sql: string, params?: any[]): Promise<T[]> {
+    return this.db.all<T>(sql, params);
+  }
+
+  async execute(sql: string, params?: any[]): Promise<void> {
+    return this.db.run(sql, params);
+  }
+
+  /**
+   * List all dynamic (ext_*) tables currently in the database.
+   */
+  async listDynamicTables(): Promise<string[]> {
+    if (this.dialect === 'postgres') {
+      const rows = await this.db.all<{ tablename: string }>(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'ext_%'"
+      );
+      return rows.map(r => r.tablename);
+    } else if (this.dialect === 'mysql') {
+      const rows = await this.db.all<{ table_name: string }>(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE 'ext_%'"
+      );
+      return rows.map(r => r.table_name);
+    } else {
+      // SQLite / Turso
+      const rows = await this.db.all<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'ext_%'"
+      );
+      return rows.map(r => r.name);
+    }
+  }
+
+  // ─── Helpers ────────────────────────────────────────
+
+  private splitStatements(sql: string): string[] {
+    return sql.split(';').map(s => s.trim()).filter(s => s.length > 0);
+  }
+
+  private getSqlForDialect(migration: Migration): string | undefined {
+    if (this.dialect === 'postgres' && migration.postgres) return migration.postgres;
+    if (this.dialect === 'mysql' && migration.mysql) return migration.mysql;
+    if (this.dialect === 'postgres' && migration.sql) return sqliteToPostgres(migration.sql);
+    if (this.dialect === 'mysql' && migration.sql) return sqliteToMySQL(migration.sql);
+    return migration.sql;
   }
 
   // ─── Managed Agents ─────────────────────────────────

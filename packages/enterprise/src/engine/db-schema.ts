@@ -214,3 +214,122 @@ export const ENGINE_TABLES_POSTGRES = ENGINE_TABLES
   .replace(/datetime\('now'\)/g, "NOW()")
   .replace(/INTEGER NOT NULL DEFAULT 1/g, 'BOOLEAN NOT NULL DEFAULT TRUE')
   .replace(/is_preset INTEGER NOT NULL DEFAULT 0/g, 'is_preset BOOLEAN NOT NULL DEFAULT FALSE');
+
+// ─── Versioned Migration System ────────────────────────
+
+/**
+ * Migration tracking table — created first, tracks which migrations have run.
+ */
+export const MIGRATIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS engine_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`;
+
+export const MIGRATIONS_TABLE_POSTGRES = MIGRATIONS_TABLE
+  .replace(/datetime\('now'\)/g, "NOW()");
+
+/**
+ * Each migration has a version number, name, and per-dialect SQL.
+ * The engine runs migrations in order, skipping already-applied ones.
+ *
+ * For MongoDB/DynamoDB: provide the `nosql` callback instead of SQL.
+ */
+export interface Migration {
+  version: number;
+  name: string;
+  /** SQL statements (SQLite/Turso compatible) */
+  sql?: string;
+  /** Postgres-specific SQL (if different from sql) */
+  postgres?: string;
+  /** MySQL-specific SQL (if different from sql) */
+  mysql?: string;
+  /** NoSQL migration callback (MongoDB, DynamoDB) — receives the raw driver handle */
+  nosql?: (db: any, dialect: string) => Promise<void>;
+}
+
+/**
+ * Core migrations — the initial schema is migration 1.
+ * Add new migrations here as the schema evolves.
+ */
+export const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    name: 'initial_schema',
+    sql: ENGINE_TABLES,
+    postgres: ENGINE_TABLES_POSTGRES,
+  },
+  // ── Example future migration ──
+  // {
+  //   version: 2,
+  //   name: 'add_agent_tags',
+  //   sql: `
+  //     CREATE TABLE IF NOT EXISTS agent_tags (
+  //       agent_id TEXT NOT NULL,
+  //       tag TEXT NOT NULL,
+  //       PRIMARY KEY (agent_id, tag),
+  //       FOREIGN KEY (agent_id) REFERENCES managed_agents(id) ON DELETE CASCADE
+  //     );
+  //     CREATE INDEX IF NOT EXISTS idx_agent_tags_tag ON agent_tags(tag);
+  //   `,
+  //   nosql: async (db, dialect) => {
+  //     if (dialect === 'mongodb') {
+  //       // MongoDB: add tags field to managed_agents collection
+  //       await db.collection('managed_agents').updateMany(
+  //         { tags: { $exists: false } },
+  //         { $set: { tags: [] } }
+  //       );
+  //     }
+  //   },
+  // },
+];
+
+// ─── Dynamic Table Definitions ─────────────────────────
+
+/**
+ * Schema for a dynamically-registered table.
+ * Plugins, skills, or the engine itself can register new tables at runtime.
+ */
+export interface DynamicTableDef {
+  /** Table name (must be unique, will be prefixed with `ext_` to avoid collisions) */
+  name: string;
+  /** SQL CREATE TABLE statement (SQLite/Turso syntax) */
+  sql: string;
+  /** Postgres-specific DDL (optional, falls back to sql with auto-conversion) */
+  postgres?: string;
+  /** MySQL-specific DDL (optional) */
+  mysql?: string;
+  /** MongoDB collection setup callback */
+  mongoSetup?: (db: any) => Promise<void>;
+  /** DynamoDB table setup callback */
+  dynamoSetup?: (client: any) => Promise<void>;
+  /** Indexes to create (SQL only) */
+  indexes?: string[];
+}
+
+/**
+ * Convert SQLite-style DDL to Postgres-compatible DDL (best-effort).
+ */
+export function sqliteToPostgres(sql: string): string {
+  return sql
+    .replace(/JSON/g, 'JSONB')
+    .replace(/datetime\('now'\)/g, "NOW()")
+    .replace(/INTEGER NOT NULL DEFAULT 1(?!\d)/g, 'BOOLEAN NOT NULL DEFAULT TRUE')
+    .replace(/INTEGER NOT NULL DEFAULT 0(?!\d)/g, 'INTEGER NOT NULL DEFAULT 0');
+}
+
+/**
+ * Convert SQLite-style DDL to MySQL-compatible DDL (best-effort).
+ */
+export function sqliteToMySQL(sql: string): string {
+  return sql
+    .replace(/TEXT PRIMARY KEY/g, 'VARCHAR(255) PRIMARY KEY')
+    .replace(/TEXT NOT NULL UNIQUE/g, 'VARCHAR(255) NOT NULL UNIQUE')
+    .replace(/TEXT NOT NULL DEFAULT/g, 'VARCHAR(255) NOT NULL DEFAULT')
+    .replace(/BLOB/g, 'LONGBLOB')
+    .replace(/datetime\('now'\)/g, "NOW()")
+    .replace(/INTEGER NOT NULL DEFAULT 1/g, 'TINYINT(1) NOT NULL DEFAULT 1')
+    .replace(/ON CONFLICT\(.*?\) DO UPDATE SET/g, 'ON DUPLICATE KEY UPDATE');
+}

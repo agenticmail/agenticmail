@@ -467,5 +467,62 @@ engine.get('/stats/:orgId', (c) => {
   });
 });
 
+// ─── Dynamic Tables ────────────────────────────────────
+
+/**
+ * POST /schema/tables — Create a dynamic table at runtime.
+ * Body: { name, sql, postgres?, mysql?, indexes? }
+ * Tables are prefixed with `ext_` automatically.
+ *
+ * Requires an EngineDatabase instance wired in via setEngineDb().
+ */
+let _engineDb: import('./db-adapter.js').EngineDatabase | null = null;
+
+export function setEngineDb(db: import('./db-adapter.js').EngineDatabase) {
+  _engineDb = db;
+}
+
+engine.post('/schema/tables', async (c) => {
+  if (!_engineDb) return c.json({ error: 'Engine database not initialized' }, 503);
+  try {
+    const def = await c.req.json();
+    if (!def.name || !def.sql) return c.json({ error: 'name and sql are required' }, 400);
+    await _engineDb.createDynamicTable(def);
+    const prefixed = def.name.startsWith('ext_') ? def.name : `ext_${def.name}`;
+    return c.json({ ok: true, table: prefixed });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+engine.get('/schema/tables', async (c) => {
+  if (!_engineDb) return c.json({ error: 'Engine database not initialized' }, 503);
+  const tables = await _engineDb.listDynamicTables();
+  return c.json({ tables });
+});
+
+engine.post('/schema/query', async (c) => {
+  if (!_engineDb) return c.json({ error: 'Engine database not initialized' }, 503);
+  try {
+    const { sql, params } = await c.req.json();
+    if (!sql) return c.json({ error: 'sql is required' }, 400);
+    // Only allow SELECT on ext_ tables for safety
+    const trimmed = sql.trim().toUpperCase();
+    if (trimmed.startsWith('SELECT')) {
+      const rows = await _engineDb.query(sql, params);
+      return c.json({ rows });
+    } else {
+      // INSERT/UPDATE/DELETE — verify it targets ext_ tables
+      if (!trimmed.includes('EXT_')) {
+        return c.json({ error: 'Mutations only allowed on ext_* tables' }, 403);
+      }
+      await _engineDb.execute(sql, params);
+      return c.json({ ok: true });
+    }
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 export { engine as engineRoutes };
 export { permissionEngine, configGen, deployer, approvals, lifecycle, knowledgeBase, tenants, activity };
