@@ -475,10 +475,36 @@ async function cmdSetup() {
       await dockerSetup.ensureDocker();
       spinner.succeed(`${c.bold('Docker')} — engine running`);
     } catch (err) {
-      spinner.fail(`Couldn't start Docker: ${(err as Error).message}`);
-      log('');
-      log(`  ${c.yellow('Tip:')} Install Docker manually from ${c.cyan('https://docker.com/get-docker')}`);
-      log(`  ${c.dim('Then run')} ${c.green('agenticmail setup')} ${c.dim('again.')}`);
+      const msg = (err as Error).message;
+      if (msg === 'DOCKER_MANUAL_START') {
+        spinner.fail(`Docker installed but couldn't start automatically`);
+        log('');
+        log(`  ${c.pink(c.bold('Don\'t worry! Here\'s how to fix this:'))}`);
+        log('');
+        log(`  ${c.pink('Step 1:')} Open a ${c.bold('new terminal window')}`);
+        log(`         ${c.dim('(Command + T on Mac, or open Terminal from your dock)')}`);
+        log('');
+        log(`  ${c.pink('Step 2:')} Run this command:`);
+        log(`         ${c.cyan('open -a Docker')}`);
+        log('');
+        log(`  ${c.pink('Step 3:')} Wait for Docker Desktop to fully load`);
+        log(`         ${c.dim('You\'ll see a whale icon in your menu bar (top of screen).')}`);
+        log(`         ${c.dim('Wait until it stops animating — that means it\'s ready.')}`);
+        log('');
+        log(`  ${c.pink('Step 4:')} Close that terminal window`);
+        log(`         ${c.dim('Just close the window normally (Command + W). Don\'t press Ctrl+C.')}`);
+        log('');
+        log(`  ${c.pink('Step 5:')} Come back here and run:`);
+        log(`         ${c.green('npx agenticmail@latest')}`);
+        log('');
+        log(`  ${c.dim('That\'s it! Docker only needs this manual start the first time.')}`);
+        log(`  ${c.dim('After that, it starts automatically.')}`);
+      } else {
+        spinner.fail(`Couldn't start Docker: ${msg}`);
+        log('');
+        log(`  ${c.yellow('Tip:')} Install Docker manually from ${c.cyan('https://docker.com/get-docker')}`);
+        log(`  ${c.dim('Then run')} ${c.green('agenticmail setup')} ${c.dim('again.')}`);
+      }
       process.exit(1);
     }
     await new Promise(r => setTimeout(r, 300));

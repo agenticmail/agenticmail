@@ -1,10 +1,164 @@
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync, execSync, spawn as spawnChild } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { writeFile, rename, chmod, mkdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, platform, arch } from 'node:os';
 
 export type InstallProgress = (message: string) => void;
+
+/**
+ * Run a command and show a rolling window of output (max 20 lines).
+ * Cleans up previous lines so the terminal stays tidy.
+ * Returns a promise that resolves when the command finishes.
+ */
+function runWithRollingOutput(
+  command: string,
+  args: string[],
+  opts: { timeout?: number; maxLines?: number } = {},
+): Promise<{ exitCode: number; fullOutput: string }> {
+  const maxLines = opts.maxLines ?? 20;
+  const timeout = opts.timeout ?? 300_000;
+
+  return new Promise((resolve, reject) => {
+    const child = spawnChild(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout,
+    });
+
+    const lines: string[] = [];
+    let displayedCount = 0;
+    let fullOutput = '';
+
+    const processData = (data: Buffer) => {
+      const text = data.toString();
+      fullOutput += text;
+      const newLines = text.split('\n');
+
+      for (const line of newLines) {
+        const trimmed = line.trimEnd();
+        if (!trimmed) continue;
+        lines.push(trimmed);
+
+        // Clear previously displayed lines
+        if (displayedCount > 0) {
+          const toClear = Math.min(displayedCount, maxLines);
+          process.stdout.write(`\x1b[${toClear}A`); // Move up
+          for (let i = 0; i < toClear; i++) {
+            process.stdout.write('\x1b[2K\n'); // Clear each line
+          }
+          process.stdout.write(`\x1b[${toClear}A`); // Move back up
+        }
+
+        // Show last N lines
+        const visible = lines.slice(-maxLines);
+        for (const vLine of visible) {
+          process.stdout.write(`  \x1b[90m${vLine.slice(0, 100)}\x1b[0m\n`);
+        }
+        displayedCount = visible.length;
+      }
+    };
+
+    child.stdout?.on('data', processData);
+    child.stderr?.on('data', processData);
+
+    child.on('close', (code) => {
+      // Clear the rolling output completely
+      if (displayedCount > 0) {
+        process.stdout.write(`\x1b[${displayedCount}A`);
+        for (let i = 0; i < displayedCount; i++) {
+          process.stdout.write('\x1b[2K\n');
+        }
+        process.stdout.write(`\x1b[${displayedCount}A`);
+      }
+      resolve({ exitCode: code ?? 1, fullOutput });
+    });
+
+    child.on('error', (err) => {
+      if (displayedCount > 0) {
+        process.stdout.write(`\x1b[${displayedCount}A`);
+        for (let i = 0; i < displayedCount; i++) {
+          process.stdout.write('\x1b[2K\n');
+        }
+        process.stdout.write(`\x1b[${displayedCount}A`);
+      }
+      reject(err);
+    });
+  });
+}
+
+/**
+ * Run a shell command string with rolling output.
+ */
+function runShellWithRollingOutput(
+  cmd: string,
+  opts: { timeout?: number; maxLines?: number } = {},
+): Promise<{ exitCode: number; fullOutput: string }> {
+  const maxLines = opts.maxLines ?? 20;
+  const timeout = opts.timeout ?? 300_000;
+
+  return new Promise((resolve, reject) => {
+    const child = spawnChild('sh', ['-c', cmd], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout,
+    });
+
+    const lines: string[] = [];
+    let displayedCount = 0;
+    let fullOutput = '';
+
+    const processData = (data: Buffer) => {
+      const text = data.toString();
+      fullOutput += text;
+      const newLines = text.split('\n');
+
+      for (const line of newLines) {
+        const trimmed = line.trimEnd();
+        if (!trimmed) continue;
+        lines.push(trimmed);
+
+        if (displayedCount > 0) {
+          const toClear = Math.min(displayedCount, maxLines);
+          process.stdout.write(`\x1b[${toClear}A`);
+          for (let i = 0; i < toClear; i++) {
+            process.stdout.write('\x1b[2K\n');
+          }
+          process.stdout.write(`\x1b[${toClear}A`);
+        }
+
+        const visible = lines.slice(-maxLines);
+        for (const vLine of visible) {
+          process.stdout.write(`  \x1b[90m${vLine.slice(0, 100)}\x1b[0m\n`);
+        }
+        displayedCount = visible.length;
+      }
+    };
+
+    child.stdout?.on('data', processData);
+    child.stderr?.on('data', processData);
+
+    child.on('close', (code) => {
+      if (displayedCount > 0) {
+        process.stdout.write(`\x1b[${displayedCount}A`);
+        for (let i = 0; i < displayedCount; i++) {
+          process.stdout.write('\x1b[2K\n');
+        }
+        process.stdout.write(`\x1b[${displayedCount}A`);
+      }
+      resolve({ exitCode: code ?? 1, fullOutput });
+    });
+
+    child.on('error', (err) => {
+      if (displayedCount > 0) {
+        process.stdout.write(`\x1b[${displayedCount}A`);
+        for (let i = 0; i < displayedCount; i++) {
+          process.stdout.write('\x1b[2K\n');
+        }
+        process.stdout.write(`\x1b[${displayedCount}A`);
+      }
+      reject(err);
+    });
+  });
+}
 
 /**
  * DependencyInstaller handles installing all external dependencies.
@@ -54,7 +208,10 @@ export class DependencyInstaller {
       } catch {
         throw new Error('Homebrew is required to install Docker on macOS. Install it from https://brew.sh then try again.');
       }
-      execFileSync('brew', ['install', '--cask', 'docker'], { timeout: 300_000, stdio: 'inherit' });
+      const brewResult = await runWithRollingOutput('brew', ['install', '--cask', 'docker'], { timeout: 300_000 });
+      if (brewResult.exitCode !== 0) {
+        throw new Error('Failed to install Docker via Homebrew. Try: brew install --cask docker');
+      }
       this.onProgress('Docker installed. Starting Docker Desktop...');
       this.startDockerDaemon();
       await this.waitForDocker();
@@ -62,7 +219,10 @@ export class DependencyInstaller {
       // Linux: install via official script (requires shell for pipe)
       this.onProgress('Installing Docker...');
       try {
-        execSync('curl -fsSL https://get.docker.com | sh', { timeout: 300_000, stdio: 'inherit' });
+        const result = await runShellWithRollingOutput('curl -fsSL https://get.docker.com | sh', { timeout: 300_000 });
+        if (result.exitCode !== 0) {
+          throw new Error('Install script failed');
+        }
       } catch {
         throw new Error('Failed to install Docker. Install it manually: https://docs.docker.com/get-docker/');
       }
@@ -181,7 +341,7 @@ export class DependencyInstaller {
     }
 
     throw new Error(
-      'Docker could not be started automatically. Please open Docker Desktop manually, wait for it to finish loading, then run agenticmail again.'
+      'DOCKER_MANUAL_START'
     );
   }
 
@@ -203,10 +363,10 @@ export class DependencyInstaller {
     }
 
     this.onProgress('__progress__:10:Pulling mail server image...');
-    execFileSync('docker', ['compose', '-f', composePath, 'up', '-d'], {
-      timeout: 120_000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const composeResult = await runWithRollingOutput('docker', ['compose', '-f', composePath, 'up', '-d'], { timeout: 120_000 });
+    if (composeResult.exitCode !== 0) {
+      throw new Error('Failed to start mail server container. Check Docker is running.');
+    }
 
     this.onProgress('__progress__:60:Waiting for mail server to start...');
 
