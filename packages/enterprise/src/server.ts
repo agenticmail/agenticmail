@@ -171,6 +171,24 @@ export function createServer(config: ServerConfig): ServerInstance {
   const adminRoutes = createAdminRoutes(config.db);
   api.route('/', adminRoutes);
 
+  // Engine routes (skills, permissions, deployment, approvals)
+  // Loaded lazily on first request to avoid top-level await
+  api.all('/engine/*', async (c, next) => {
+    try {
+      const { engineRoutes } = await import('./engine/routes.js');
+      // Replace this catch-all with the real router for subsequent requests
+      const subPath = c.req.path.replace(/^\/api\/engine/, '') || '/';
+      const subReq = new Request(new URL(subPath, 'http://localhost'), {
+        method: c.req.method,
+        headers: c.req.raw.headers,
+        body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
+      });
+      return engineRoutes.fetch(subReq);
+    } catch {
+      return c.json({ error: 'Engine module not available' }, 501);
+    }
+  });
+
   app.route('/api', api);
 
   // ─── Dashboard (Admin UI) ─────────────────────────────
