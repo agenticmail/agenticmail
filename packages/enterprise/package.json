@@ -4,7 +4,7 @@
   "description": "AgenticMail Enterprise — cloud-hosted AI agent identity, email, auth & compliance for organizations",
   "type": "module",
   "bin": {
-    "agenticmail-enterprise": "./dist/cli.js"
+    "agenticmail-enterprise": "dist/cli.js"
   },
   "exports": {
     ".": {
@@ -27,6 +27,15 @@
     "scim",
     "identity"
   ],
+  "author": "Ope Olatunji (https://github.com/ope-olatunji)",
+  "homepage": "https://github.com/agenticmail/enterprise",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agenticmail/enterprise.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agenticmail/enterprise/issues"
+  },
   "license": "MIT",
   "peerDependencies": {
     "openclaw": ">=0.1.0",

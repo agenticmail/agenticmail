@@ -924,6 +924,16 @@ packages/enterprise/src/
 
 ---
 
+## Author
+
+Created by **[Ope Olatunji](https://github.com/ope-olatunji)**.
+
+Part of the [AgenticMail](https://github.com/agenticmail/agenticmail) project — the first platform to give AI agents real email addresses and phone numbers.
+
+- GitHub: [@ope-olatunji](https://github.com/ope-olatunji)
+- Website: [agenticmail.io](https://agenticmail.io)
+- Twitter: [@agenticmail](https://x.com/agenticmail)
+
 ## License
 
 MIT — see [LICENSE](./LICENSE)
