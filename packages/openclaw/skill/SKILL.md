@@ -84,11 +84,11 @@ That's it. The command sets up the mail server, creates an agent account, config
 ### Agent Task Queue (5 tools)
 | Tool | Description |
 |------|-------------|
-| `agenticmail_assign_task` | Assign a task to another agent via task queue |
+| `agenticmail_call_agent` | Call another agent (sync or async). Preferred method for all delegation. |
 | `agenticmail_check_tasks` | Check pending tasks (incoming or outgoing) |
 | `agenticmail_claim_task` | Claim a pending task assigned to you |
 | `agenticmail_submit_result` | Submit result for a claimed task |
-| `agenticmail_call_agent` | Synchronous RPC call to another agent with timeout |
+| `agenticmail_complete_task` | Claim + submit in one call (for light-mode tasks) |
 
 ### Account Management (6 tools)
 | Tool | Description |
@@ -124,14 +124,14 @@ That's it. The command sets up the mail server, creates an agent account, config
 | `sessions_spawn(task)` then poll `sessions_history` | `agenticmail_call_agent(target, task)` | One call, structured JSON result back. No polling. |
 | `sessions_send(sessionKey, msg)` | `agenticmail_message_agent(name, subject, text)` | By agent name, not session key. Persistent. |
 | `sessions_list` + `sessions_history` (poll) | `agenticmail_check_tasks` or `agenticmail_wait_for_email` | Structured status tracking or push-based wait. |
-| *(no equivalent)* | `agenticmail_assign_task` | Async task delegation with lifecycle tracking. |
+| *(no equivalent)* | `agenticmail_call_agent(async=true)` | Async delegation — agent runs independently and notifies when done. |
 | *(no equivalent)* | `agenticmail_claim_task` + `agenticmail_submit_result` | Agent claims work, submits structured results. |
 | *(no equivalent)* | `agenticmail_list_agents` | Discover all available agents by name and role. |
 
 ### When to Use What
 
-- **Need a result back?** → `agenticmail_call_agent` (sync RPC, up to 5 min)
-- **Delegating work for later?** → `agenticmail_assign_task` → `agenticmail_check_tasks`
+- **Need a result back?** → `agenticmail_call_agent(target, task)` (sync RPC, up to 10 min)
+- **Delegating work for later?** → `agenticmail_call_agent(target, task, async=true)` → `agenticmail_check_tasks`
 - **Messaging an agent?** → `agenticmail_message_agent` (by name)
 - **Waiting for a reply?** → `agenticmail_wait_for_email` (push, not polling)
 - **Finding agents?** → `agenticmail_list_agents`

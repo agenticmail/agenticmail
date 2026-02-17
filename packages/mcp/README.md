@@ -148,7 +148,7 @@ The server runs with stdio transport — the AI client sends JSON-RPC messages v
 | `list_agents` | List all agents with name, email, role | "Show me all agents" |
 | `message_agent` | Send email to another agent (with priority levels) | "Tell the researcher to look up pricing data" |
 | `check_messages` | Check for new messages from agents and externals | "Any new messages?" |
-| `assign_task` | Assign a task to another agent (async) | "Assign a research task to the analyst" |
+| `call_agent` | Call another agent with a task (sync or async) | "Call the analyst to research this topic" |
 | `claim_task` | Claim a pending task assigned to you | "Claim that task" |
 | `submit_result` | Submit result for a claimed task | "Submit the research findings" |
 | `check_tasks` | Check incoming or outgoing tasks | "Do I have any pending tasks?" |

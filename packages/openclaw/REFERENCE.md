@@ -446,8 +446,6 @@ Uses SSE push with polling fallback. Returns email or task events.
 
 ### Task Queue
 
-**agenticmail_assign_task:** `{assignee, taskType?, payload?, expiresInSeconds?}`
-
 **agenticmail_check_tasks:** `{direction: "incoming"|"outgoing", assignee?}`
 
 **agenticmail_claim_task:** `{id}`

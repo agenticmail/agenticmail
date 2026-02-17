@@ -58,7 +58,7 @@ const ABOUT = {
           ],
         },
         with_agenticmail: {
-          method: 'assign_task → claim_task → submit_result (or call_agent for sync RPC)',
+          method: 'call_agent (preferred) or claim_task → submit_result for manual workflows',
           benefits: [
             'Persistent task state — tasks survive agent crashes and restarts',
             'Structured results — JSON payloads with status tracking (pending → claimed → completed)',

@@ -582,20 +582,6 @@ Replaces `{{ variableName }}` patterns in subject and body.
 
 ---
 
-### assign_task
-
-**Input Schema:**
-| Field | Type | Required | Default |
-|-------|------|----------|---------|
-| `assignee` | string | Yes | — |
-| `taskType` | string | No | "generic" |
-| `payload` | object | No | — |
-| `expiresInSeconds` | number | No | — |
-
-**Behavior:** `POST /tasks/assign`
-
----
-
 ### check_tasks
 
 **Input Schema:**

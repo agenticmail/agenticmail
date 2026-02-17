@@ -54,7 +54,6 @@
     "agenticmail_message_agent",
     "agenticmail_check_messages",
     "agenticmail_wait_for_email",
-    "agenticmail_assign_task",
     "agenticmail_check_tasks",
     "agenticmail_claim_task",
     "agenticmail_submit_result",

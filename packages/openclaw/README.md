@@ -184,7 +184,7 @@ Plugin configuration lives in `~/.openclaw/openclaw.json` (user config), not in 
 
 | Tool | Description |
 |------|-------------|
-| `agenticmail_assign_task` | Assign a task to another agent (async, with optional expiration) |
+| `agenticmail_call_agent` | Call another agent with a task (sync or async, auto-spawns sessions) |
 | `agenticmail_check_tasks` | Check incoming tasks (assigned to me) or outgoing tasks (I assigned) |
 | `agenticmail_claim_task` | Claim a pending task |
 | `agenticmail_submit_result` | Submit result for a claimed task |

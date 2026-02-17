@@ -680,20 +680,6 @@ export const toolDefinitions = [
     },
   },
   {
-    name: 'assign_task',
-    description: 'Assign a task to another agent via the task queue',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        assignee: { type: 'string', description: 'Agent name to assign the task to' },
-        taskType: { type: 'string', description: 'Task category (default: generic)' },
-        payload: { type: 'object', description: 'Task data/instructions' },
-        expiresInSeconds: { type: 'number', description: 'Task expiry in seconds' },
-      },
-      required: ['assignee'],
-    },
-  },
-  {
     name: 'check_tasks',
     description: 'Check for pending tasks assigned to you (or a specific agent) or tasks you assigned to others',
     inputSchema: {
@@ -1925,14 +1911,6 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         return `Agent ${args.agentId} persistent flag set to ${args.persistent !== false}`;
       }
       throw new Error('Invalid action. Use: list_inactive, cleanup, or set_persistent');
-    }
-
-    case 'assign_task': {
-      const result = await apiRequest('POST', '/tasks/assign', {
-        assignee: args.assignee, taskType: args.taskType,
-        payload: args.payload, expiresInSeconds: args.expiresInSeconds,
-      });
-      return `Task assigned to ${result?.assignee}. Task ID: ${result?.id}`;
     }
 
     case 'check_tasks': {
