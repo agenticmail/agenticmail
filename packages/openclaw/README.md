@@ -364,6 +364,38 @@ The plugin registers three OpenClaw lifecycle hooks:
 
 ---
 
+## Troubleshooting
+
+### Plugin ID mismatch warning
+
+```
+plugins.entries.agenticmail: plugin agenticmail: plugin id mismatch
+(manifest uses "agenticmail", entry hints "openclaw")
+```
+
+This is a harmless warning. OpenClaw infers the expected plugin ID from the npm package name (`@agenticmail/openclaw`) and sees "openclaw", but the plugin manifest declares its ID as `"agenticmail"`. The plugin loads and works correctly — you can safely ignore this warning.
+
+### Plugin path not found
+
+```
+plugins.load.paths: plugin: plugin path not found: /Users/you/node_modules/@agenticmail/openclaw
+```
+
+This means the `plugins.load.paths` entry in your `~/.openclaw/openclaw.json` points to a location where the plugin isn't installed. Find the actual path:
+
+```bash
+# If installed globally
+npm prefix -g
+# Plugin will be at: <prefix>/lib/node_modules/@agenticmail/openclaw
+
+# Or search for it
+find / -name "openclaw.plugin.json" -path "*@agenticmail*" 2>/dev/null
+```
+
+Then update the path in `~/.openclaw/openclaw.json` under `plugins.load.paths`.
+
+---
+
 ## License
 
 [MIT](./LICENSE) - Ope Olatunji ([@ope-olatunji](https://github.com/ope-olatunji))

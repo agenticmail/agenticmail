@@ -886,6 +886,29 @@ export DO_NOT_TRACK=1
 
 Telemetry is also automatically disabled in CI environments.
 
+## Troubleshooting
+
+### OpenClaw plugin ID mismatch warning
+
+```
+plugin id mismatch (manifest uses "agenticmail", entry hints "openclaw")
+```
+
+This is harmless. OpenClaw infers the plugin ID from the npm package name (`@agenticmail/openclaw`) but the manifest declares `"id": "agenticmail"`. The plugin loads and works correctly.
+
+### OpenClaw plugin path not found
+
+If OpenClaw reports the plugin path not found, update `plugins.load.paths` in `~/.openclaw/openclaw.json` to point to the correct location:
+
+```bash
+npm prefix -g
+# Plugin is at: <prefix>/lib/node_modules/@agenticmail/openclaw
+```
+
+### `agenticmail: command not found`
+
+Use `npx agenticmail` for one-off usage, or install globally with `npm install -g agenticmail`.
+
 ## License
 
 [MIT](./LICENSE) - Ope Olatunji ([@ope-olatunji](https://github.com/agenticmail/agenticmail))

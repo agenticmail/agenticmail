@@ -421,6 +421,39 @@ AGENTICMAIL_DOMAIN=yourdomain.com           # Custom domain
 
 ---
 
+## Troubleshooting
+
+### OpenClaw plugin ID mismatch warning
+
+If you see this warning when starting the OpenClaw gateway:
+
+```
+plugin id mismatch (manifest uses "agenticmail", entry hints "openclaw")
+```
+
+This is harmless. OpenClaw infers the plugin ID from the npm package name (`@agenticmail/openclaw`) but the manifest declares `"id": "agenticmail"`. The plugin loads and works correctly.
+
+### OpenClaw plugin path not found
+
+If OpenClaw reports the plugin path not found, the `plugins.load.paths` in `~/.openclaw/openclaw.json` points to the wrong location. Find the correct path:
+
+```bash
+npm prefix -g
+# Plugin is at: <prefix>/lib/node_modules/@agenticmail/openclaw
+```
+
+Update the path in `~/.openclaw/openclaw.json` accordingly.
+
+### `agenticmail: command not found`
+
+If you installed locally with `npm install agenticmail`, use `npx agenticmail` instead. For a global install:
+
+```bash
+npm install -g agenticmail
+```
+
+---
+
 ## License
 
 [MIT](./LICENSE) - Ope Olatunji ([@ope-olatunji](https://github.com/ope-olatunji))
