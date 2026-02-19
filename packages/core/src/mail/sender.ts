@@ -66,16 +66,32 @@ export class MailSender {
     const composer = new MailComposer(mailOpts);
     const raw = await composer.compile().build();
 
-    const result = await this.transporter.sendMail(mailOpts);
-
-    return {
-      messageId: result.messageId,
-      envelope: {
-        from: result.envelope.from || '',
-        to: Array.isArray(result.envelope.to) ? result.envelope.to : (result.envelope.to ? [result.envelope.to] : []),
-      },
-      raw,
-    };
+    // Retry transient SMTP failures (4xx) with exponential backoff
+    const MAX_RETRIES = 2;
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const result = await this.transporter.sendMail(mailOpts);
+        return {
+          messageId: result.messageId,
+          envelope: {
+            from: result.envelope.from || '',
+            to: Array.isArray(result.envelope.to) ? result.envelope.to : (result.envelope.to ? [result.envelope.to] : []),
+          },
+          raw,
+        };
+      } catch (err: any) {
+        lastError = err;
+        // Only retry on transient SMTP errors (4xx) or connection errors
+        const code = err?.responseCode ?? err?.code;
+        const isTransient = (typeof code === 'number' && code >= 400 && code < 500)
+          || code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ESOCKET';
+        if (!isTransient || attempt === MAX_RETRIES) throw err;
+        // Wait before retry: 1s, then 2s
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+    }
+    throw lastError!;
   }
 
   async verify(): Promise<boolean> {

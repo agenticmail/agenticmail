@@ -14,6 +14,14 @@ export class EmailSearchIndex {
   constructor(private db: Database.Database) {}
 
   index(email: SearchableEmail): void {
+    // FTS5 tables have no UNIQUE constraint — guard against duplicate entries
+    if (email.messageId) {
+      const existing = this.db.prepare(
+        'SELECT rowid FROM email_search WHERE agent_id = ? AND message_id = ?',
+      ).get(email.agentId, email.messageId);
+      if (existing) return;
+    }
+
     const stmt = this.db.prepare(`
       INSERT INTO email_search (agent_id, message_id, subject, from_address, to_address, body_text, received_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)

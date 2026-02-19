@@ -9,7 +9,15 @@ export interface InboxWatcherOptions {
   email: string;
   password: string;
   secure?: boolean;
+  /** Enable automatic reconnect with exponential backoff on disconnect (default: false) */
+  autoReconnect?: boolean;
+  /** Max reconnect attempts before giving up (default: Infinity) */
+  maxReconnectAttempts?: number;
 }
+
+const RECONNECT_INITIAL_MS = 2_000;
+const RECONNECT_MAX_MS = 60_000;
+const RECONNECT_FACTOR = 2;
 
 export class InboxWatcher extends EventEmitter {
   private client: ImapFlow;
@@ -17,6 +25,12 @@ export class InboxWatcher extends EventEmitter {
   private mailbox: string;
   private autoFetch: boolean;
   private _lock: any = null;
+  private _stopped = false;
+  private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private _reconnectDelay = RECONNECT_INITIAL_MS;
+  private _reconnectAttempts = 0;
+  private _maxReconnectAttempts: number;
+  private _autoReconnect: boolean;
 
   constructor(
     private options: InboxWatcherOptions,
@@ -25,6 +39,8 @@ export class InboxWatcher extends EventEmitter {
     super();
     this.mailbox = watcherOptions?.mailbox ?? 'INBOX';
     this.autoFetch = watcherOptions?.autoFetch ?? true;
+    this._autoReconnect = options.autoReconnect ?? false;
+    this._maxReconnectAttempts = options.maxReconnectAttempts ?? Infinity;
 
     this.client = new ImapFlow({
       host: options.host,
@@ -43,6 +59,7 @@ export class InboxWatcher extends EventEmitter {
 
   async start(): Promise<void> {
     if (this.watching) return;
+    this._stopped = false;
 
     // Create a fresh IMAP client each time (clients cannot be reused after logout)
     this.client = new ImapFlow({
@@ -64,6 +81,8 @@ export class InboxWatcher extends EventEmitter {
 
     try {
       this.watching = true;
+      this._reconnectDelay = RECONNECT_INITIAL_MS;
+      this._reconnectAttempts = 0;
 
       this.client.on('exists', async (data) => {
         try {
@@ -107,6 +126,7 @@ export class InboxWatcher extends EventEmitter {
       this.client.on('close', () => {
         this.watching = false;
         this.emit('close');
+        this._scheduleReconnect();
       });
 
       // Lock is intentionally held to receive IDLE notifications
@@ -117,9 +137,48 @@ export class InboxWatcher extends EventEmitter {
     }
   }
 
+  /** Schedule a reconnect attempt with exponential backoff */
+  private _scheduleReconnect(): void {
+    if (this._stopped || !this._autoReconnect) return;
+    if (this._reconnectAttempts >= this._maxReconnectAttempts) {
+      this.emit('reconnect_failed', { attempts: this._reconnectAttempts });
+      return;
+    }
+
+    const delay = this._reconnectDelay;
+    this._reconnectDelay = Math.min(this._reconnectDelay * RECONNECT_FACTOR, RECONNECT_MAX_MS);
+    this._reconnectAttempts++;
+
+    this.emit('reconnecting', { attempt: this._reconnectAttempts, delayMs: delay });
+
+    this._reconnectTimer = setTimeout(async () => {
+      if (this._stopped) return;
+      try {
+        // Clean up old client listeners before reconnecting
+        this.client.removeAllListeners();
+        if (this._lock) {
+          try { this._lock.release(); } catch { /* ignore */ }
+          this._lock = null;
+        }
+        await this.start();
+        this.emit('reconnected', { attempt: this._reconnectAttempts });
+      } catch (err) {
+        this.emit('error', err);
+        this._scheduleReconnect();
+      }
+    }, delay);
+  }
+
   async stop(): Promise<void> {
-    if (!this.watching) return;
+    if (!this.watching && !this._reconnectTimer) return;
+    this._stopped = true;
     this.watching = false;
+
+    // Cancel pending reconnect
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
 
     // Remove IMAP client listeners to prevent accumulation on restart
     this.client.removeAllListeners();

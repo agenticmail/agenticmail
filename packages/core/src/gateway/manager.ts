@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { join } from 'node:path';
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, createHash, scryptSync } from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { debug } from '../debug.js';
 import { RelayGateway, type InboundEmail } from './relay.js';
@@ -46,31 +46,54 @@ export interface GatewayManagerOptions {
 }
 
 /**
- * Encrypt a string using AES-256-GCM with the given key.
- * Returns "enc:iv:authTag:ciphertext" (all hex-encoded).
+ * Derive a 32-byte AES key from a master key using scrypt (with a random salt).
+ * Returns { derivedKey, salt }.
+ */
+function deriveKey(key: string, salt: Buffer): Buffer {
+  return scryptSync(key, salt, 32, { N: 16384, r: 8, p: 1 });
+}
+
+/**
+ * Encrypt a string using AES-256-GCM with scrypt-derived key.
+ * Returns "enc2:salt:iv:authTag:ciphertext" (all hex-encoded).
  */
 function encryptSecret(plaintext: string, key: string): string {
-  const keyHash = createHash('sha256').update(key).digest(); // 32 bytes
+  const salt = randomBytes(16);
+  const derivedKey = deriveKey(key, salt);
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', keyHash, iv);
+  const cipher = createCipheriv('aes-256-gcm', derivedKey, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const authTag = cipher.getAuthTag();
-  return `enc:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+  return `enc2:${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
 }
 
 /**
  * Decrypt a string encrypted with encryptSecret.
+ * Supports both new "enc2:" (scrypt) and legacy "enc:" (SHA-256) formats.
  * Returns the original plaintext, or the input unchanged if not encrypted.
  */
 function decryptSecret(value: string, key: string): string {
-  if (!value.startsWith('enc:')) return value; // not encrypted (legacy)
-  const parts = value.split(':');
-  if (parts.length !== 4) return value;
-  const [, ivHex, authTagHex, ciphertextHex] = parts;
-  const keyHash = createHash('sha256').update(key).digest();
-  const decipher = createDecipheriv('aes-256-gcm', keyHash, Buffer.from(ivHex, 'hex'));
-  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-  return Buffer.concat([decipher.update(Buffer.from(ciphertextHex, 'hex')), decipher.final()]).toString('utf8');
+  if (value.startsWith('enc2:')) {
+    // New scrypt-based format: enc2:salt:iv:authTag:ciphertext
+    const parts = value.split(':');
+    if (parts.length !== 5) return value;
+    const [, saltHex, ivHex, authTagHex, ciphertextHex] = parts;
+    const derivedKey = deriveKey(key, Buffer.from(saltHex, 'hex'));
+    const decipher = createDecipheriv('aes-256-gcm', derivedKey, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    return Buffer.concat([decipher.update(Buffer.from(ciphertextHex, 'hex')), decipher.final()]).toString('utf8');
+  }
+  if (value.startsWith('enc:')) {
+    // Legacy SHA-256 format: enc:iv:authTag:ciphertext — read-only for migration
+    const parts = value.split(':');
+    if (parts.length !== 4) return value;
+    const [, ivHex, authTagHex, ciphertextHex] = parts;
+    const keyHash = createHash('sha256').update(key).digest();
+    const decipher = createDecipheriv('aes-256-gcm', keyHash, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    return Buffer.concat([decipher.update(Buffer.from(ciphertextHex, 'hex')), decipher.final()]).toString('utf8');
+  }
+  return value; // plaintext (unencrypted legacy)
 }
 
 /**
@@ -183,14 +206,17 @@ export class GatewayManager {
       console.warn(`[GatewayManager] Approval reply check failed: ${(err as Error).message}`);
     }
 
-    // --- Spam filter: relay emails are always external, always score ---
+    // --- Spam filter: skip for internal @localhost emails (no SPF/DKIM to check) ---
     const parsed = inboundToParsedEmail(mail);
-    const spamResult = scoreEmail(parsed);
-    if (spamResult.isSpam) {
-      console.warn(`[GatewayManager] Spam blocked (score=${spamResult.score}, category=${spamResult.topCategory}): "${mail.subject}" from ${mail.from}`);
-      // Record delivery so we don't re-process on next poll
-      if (mail.messageId) this.recordDelivery(mail.messageId, agentName);
-      return;
+    const { isInternalEmail } = await import('../mail/spam-filter.js');
+    if (!isInternalEmail(parsed)) {
+      const spamResult = scoreEmail(parsed);
+      if (spamResult.isSpam) {
+        console.warn(`[GatewayManager] Spam blocked (score=${spamResult.score}, category=${spamResult.topCategory}): "${mail.subject}" from ${mail.from}`);
+        // Record delivery so we don't re-process on next poll
+        if (mail.messageId) this.recordDelivery(mail.messageId, agentName);
+        return;
+      }
     }
 
     let agent = await this.accountManager.getByName(agentName);

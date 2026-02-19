@@ -200,36 +200,44 @@ export class AgentDeletionService {
 
   private async archiveFolder(receiver: MailReceiver, folder: string): Promise<ArchivedEmail[]> {
     const archived: ArchivedEmail[] = [];
+    const PAGE_SIZE = 100;
 
     try {
-      // List all envelopes (up to 10000 — practical limit)
-      const envelopes = await receiver.listEnvelopes(folder, { limit: 10000 });
+      // Paginate through all messages to avoid loading thousands into memory at once
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const envelopes = await receiver.listEnvelopes(folder, { limit: PAGE_SIZE, offset });
+        if (envelopes.length === 0) break;
+        hasMore = envelopes.length === PAGE_SIZE;
+        offset += envelopes.length;
 
-      for (const env of envelopes) {
-        try {
-          const raw = await receiver.fetchMessage(env.uid, folder);
-          const parsed = await parseEmail(raw);
+        for (const env of envelopes) {
+          try {
+            const raw = await receiver.fetchMessage(env.uid, folder);
+            const parsed = await parseEmail(raw);
 
-          archived.push({
-            uid: env.uid,
-            messageId: parsed.messageId || env.messageId,
-            from: parsed.from?.[0]?.address ?? '',
-            to: parsed.to?.map((a) => a.address) ?? [],
-            subject: parsed.subject || env.subject,
-            date: parsed.date?.toISOString() ?? env.date?.toISOString?.() ?? '',
-            text: parsed.text,
-            html: parsed.html,
-          });
-        } catch {
-          // If individual message parse fails, use envelope data
-          archived.push({
-            uid: env.uid,
-            messageId: env.messageId,
-            from: env.from?.[0]?.address ?? '',
-            to: env.to?.map((a) => a.address) ?? [],
-            subject: env.subject,
-            date: env.date?.toISOString?.() ?? '',
-          });
+            archived.push({
+              uid: env.uid,
+              messageId: parsed.messageId || env.messageId,
+              from: parsed.from?.[0]?.address ?? '',
+              to: parsed.to?.map((a) => a.address) ?? [],
+              subject: parsed.subject || env.subject,
+              date: parsed.date?.toISOString() ?? env.date?.toISOString?.() ?? '',
+              text: parsed.text,
+              html: parsed.html,
+            });
+          } catch {
+            // If individual message parse fails, use envelope data
+            archived.push({
+              uid: env.uid,
+              messageId: env.messageId,
+              from: env.from?.[0]?.address ?? '',
+              to: env.to?.map((a) => a.address) ?? [],
+              subject: env.subject,
+              date: env.date?.toISOString?.() ?? '',
+            });
+          }
         }
       }
     } catch (err) {

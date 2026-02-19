@@ -82,12 +82,22 @@ export class MailReceiver {
       // Early return if offset is beyond available messages
       if (offset >= total) return envelopes;
 
-      // Fetch from newest to oldest
-      const end = Math.max(total - offset, 1);
-      const start = Math.max(end - limit + 1, 1);
-      const range = `${start}:${end}`;
+      // Use UID-based search + sort for stable pagination that isn't
+      // affected by message deletions between pages.
+      // Fetch ALL UIDs, sort descending (newest first), then slice for the page.
+      const allUids = await this.client.search({ all: true }, { uid: true });
+      if (!allUids || allUids.length === 0) return envelopes;
 
-      for await (const msg of this.client.fetch(range, {
+      // Sort UIDs descending (highest UID = newest message)
+      const sortedUids = Array.from(allUids).sort((a, b) => b - a);
+
+      // Apply offset and limit
+      const pageUids = sortedUids.slice(offset, offset + limit);
+      if (pageUids.length === 0) return envelopes;
+
+      // Fetch metadata for the selected UIDs
+      const uidRange = pageUids.join(',');
+      for await (const msg of this.client.fetch(uidRange, {
         uid: true,
         envelope: true,
         flags: true,
@@ -114,7 +124,9 @@ export class MailReceiver {
         });
       }
 
-      return envelopes.reverse(); // Newest first
+      // Sort by UID descending (newest first) since IMAP fetch order may vary
+      envelopes.sort((a, b) => b.uid - a.uid);
+      return envelopes;
     } finally {
       lock.release();
     }

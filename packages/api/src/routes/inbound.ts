@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import {
   parseEmail,
   MailSender,
@@ -7,7 +8,13 @@ import {
   type GatewayManager,
 } from '@agenticmail/core';
 
-const INBOUND_SECRET = process.env.AGENTICMAIL_INBOUND_SECRET || 'inbound_2sabi_secret_key';
+// Generate a random secret if none provided. Never fall back to a hardcoded value.
+const INBOUND_SECRET = process.env.AGENTICMAIL_INBOUND_SECRET || (() => {
+  const generated = randomUUID();
+  console.warn('[Inbound] WARNING: AGENTICMAIL_INBOUND_SECRET is not set. Generated a random secret for this session.');
+  console.warn(`[Inbound] Set AGENTICMAIL_INBOUND_SECRET="${generated}" in your environment to persist it across restarts.`);
+  return generated;
+})();
 const DEBUG = () => !!process.env.AGENTICMAIL_DEBUG;
 
 /**

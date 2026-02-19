@@ -85,6 +85,8 @@ export function createEventRoutes(accountManager: AccountManager, config: Agenti
         port: config.imap.port,
         email: agent.stalwartPrincipal,
         password,
+        autoReconnect: true,
+        maxReconnectAttempts: 20,
       });
 
       try {
@@ -205,6 +207,18 @@ export function createEventRoutes(accountManager: AccountManager, config: Agenti
 
       watcher.on('error', (err) => {
         safeWrite(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+      });
+
+      watcher.on('reconnecting', (info) => {
+        safeWrite(`data: ${JSON.stringify({ type: 'reconnecting', attempt: info.attempt, delayMs: info.delayMs })}\n\n`);
+      });
+
+      watcher.on('reconnected', (info) => {
+        safeWrite(`data: ${JSON.stringify({ type: 'reconnected', attempt: info.attempt })}\n\n`);
+      });
+
+      watcher.on('reconnect_failed', (info) => {
+        safeWrite(`data: ${JSON.stringify({ type: 'reconnect_failed', attempts: info.attempts })}\n\n`);
       });
 
       // Keep-alive ping every 30 seconds

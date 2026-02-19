@@ -51,7 +51,9 @@ export class AccountManager {
     const apiKey = generateApiKey();
     const password = options.password ?? generatePassword();
     const domain = options.domain ?? 'localhost';
-    if (domain !== 'localhost' && !/^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z]{2,}$/.test(domain)) {
+    // RFC-compliant domain validation: each label must start/end with alphanumeric,
+    // no consecutive dots, no hyphens at label boundaries, TLD must be 2+ alpha chars
+    if (domain !== 'localhost' && !/^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(domain)) {
       throw new Error(`Invalid domain "${domain}": must be a valid domain name`);
     }
     // Stalwart lowercases principal names and emails — match that to avoid auth mismatches

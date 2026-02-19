@@ -472,7 +472,12 @@ function getAttachmentText(content: string | Buffer | undefined, encoding?: stri
  */
 export function scanOutboundEmail(input: OutboundScanInput): OutboundScanResult {
   const recipients = Array.isArray(input.to) ? input.to : [input.to];
-  const allInternal = recipients.every(r => r.endsWith('@localhost'));
+  // Strict check: extract domain part after @ and compare exactly to 'localhost'
+  // to prevent @evil.localhost or @sub.localhost.com from bypassing the guard
+  const allInternal = recipients.every(r => {
+    const domain = r.split('@').pop()?.toLowerCase();
+    return domain === 'localhost';
+  });
 
   if (allInternal) {
     return { warnings: [], hasHighSeverity: false, hasMediumSeverity: false, blocked: false, summary: '' };
