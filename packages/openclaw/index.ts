@@ -839,7 +839,7 @@ function activate(api: any): void {
           const subject = msg.subject ?? '(no subject)';
           const isAgent = from.endsWith('@localhost');
           const tag = isAgent ? '[agent]' : '[external]';
-          const preview = (msg.text ?? '').slice(0, 100).replace(/\n/g, ' ').trim();
+          const preview = (msg.text ?? '').slice(0, 200).replace(/\n/g, ' ').trim();
           summaries.push(`  - ${tag} UID ${uid}: from ${from} — "${subject}"${preview ? '\n    ' + preview : ''}`);
 
           // Reset rate limiter for agents who have messaged us (in same loop)
@@ -859,8 +859,9 @@ function activate(api: any): void {
           ...summaries,
           more,
           '',
-          'Read important messages with agenticmail_read, respond if needed, then CONTINUE',
-          'with your original task. Do not stop working after handling email.',
+          'ACTION REQUIRED: You MUST read each unread email with agenticmail_read and briefly tell the user what it says.',
+          'Do this BEFORE responding to anything else. After reporting emails, continue with your original task.',
+          'Do NOT skip or defer reading emails — the user expects you to handle their inbox proactively.',
           '</unread-emails>',
         );
       }

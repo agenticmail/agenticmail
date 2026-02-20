@@ -40,5 +40,6 @@
   ],
   "dependencies": {
     "@types/nodemailer": "^7.0.10"
-  }
+  },
+  "version": "0.0.1"
 }
