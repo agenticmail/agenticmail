@@ -486,16 +486,41 @@ function activate(api: any): void {
                         const from = event.from ?? 'unknown';
                         const subject = event.subject ?? '(no subject)';
                         const wakeText = `New email received from ${from}: "${subject}". Read it with agenticmail_read(uid=${event.uid}), assess urgency, and decide: if urgent or time-sensitive, notify the user now. Otherwise, note it in memory and batch-notify later.`;
-                        try {
-                          await fetch(`http://127.0.0.1:${gatewayPort}/api/cron/wake`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ text: wakeText, mode: 'now' }),
-                            signal: AbortSignal.timeout(5_000),
-                          });
-                          console.log(`[agenticmail] Wake event sent for new email from ${from}: "${subject}"`);
-                        } catch (wakeErr) {
-                          console.warn(`[agenticmail] Failed to send wake event: ${(wakeErr as Error).message}`);
+                        // Strategy 1: Use hooks webhook to inject system event
+                        const hooksToken = process.env.OPENCLAW_HOOKS_TOKEN;
+                        let wakeSuccess = false;
+                        if (hooksToken) {
+                          try {
+                            const hookUrl = `http://127.0.0.1:${gatewayPort}/hooks/agent`;
+                            const resp = await fetch(hookUrl, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${hooksToken}`,
+                              },
+                              body: JSON.stringify({
+                                event: 'system',
+                                text: wakeText,
+                                sessionTarget: 'main',
+                              }),
+                              signal: AbortSignal.timeout(5_000),
+                            });
+                            if (resp.ok) {
+                              wakeSuccess = true;
+                              console.log(`[agenticmail] Wake event sent via webhook for new email from ${from}: "${subject}"`);
+                            }
+                          } catch { /* fall through to strategy 2 */ }
+                        }
+                        // Strategy 2: Try cron wake via tool API
+                        if (!wakeSuccess && api?.callTool) {
+                          try {
+                            await (api as any).callTool('cron', { action: 'wake', text: wakeText, mode: 'now' });
+                            wakeSuccess = true;
+                            console.log(`[agenticmail] Wake event sent via cron tool for new email from ${from}: "${subject}"`);
+                          } catch { /* ignore */ }
+                        }
+                        if (!wakeSuccess) {
+                          console.warn(`[agenticmail] Could not send wake event for email from ${from}: "${subject}"`);
                         }
                       }
                     } catch { /* skip malformed JSON */ }
