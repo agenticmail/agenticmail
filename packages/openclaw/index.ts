@@ -441,6 +441,88 @@ function activate(api: any): void {
     api.registerService(createMailMonitorService(ctx));
   }
 
+  // ─── Main agent email watcher ───────────────────────────────────────
+  // Background SSE connection to AgenticMail server. When a new email arrives,
+  // sends a cron wake event to wake the main agent session. The agent can then
+  // read the email, assess urgency, and decide whether to notify the user
+  // immediately or save it for later.
+  {
+    const gatewayPort = process.env.OPENCLAW_PORT || process.env.PORT || '3000';
+    const agentApiKey = ctx.config.apiKey;
+    const sseUrl = `${ctx.config.apiUrl}/api/agenticmail/events`;
+    let sseRetryMs = 5_000;
+    let sseController: AbortController | null = null;
+
+    const startMainWatcher = () => {
+      if (sseController) return;
+      sseController = new AbortController();
+
+      (async () => {
+        try {
+          const res = await fetch(sseUrl, {
+            headers: { 'Authorization': `Bearer ${agentApiKey}`, 'Accept': 'text/event-stream' },
+            signal: sseController!.signal,
+          });
+          if (!res.ok || !res.body) return;
+          sseRetryMs = 5_000; // reset backoff on successful connect
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              let boundary: number;
+              while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+                const frame = buffer.slice(0, boundary);
+                buffer = buffer.slice(boundary + 2);
+                for (const line of frame.split('\n')) {
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const event = JSON.parse(line.slice(6));
+                      if (event.type === 'new' && event.uid) {
+                        // New email arrived — wake the main agent
+                        const from = event.from ?? 'unknown';
+                        const subject = event.subject ?? '(no subject)';
+                        const wakeText = `New email received from ${from}: "${subject}". Read it with agenticmail_read(uid=${event.uid}), assess urgency, and decide: if urgent or time-sensitive, notify the user now. Otherwise, note it in memory and batch-notify later.`;
+                        try {
+                          await fetch(`http://127.0.0.1:${gatewayPort}/api/cron/wake`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: wakeText, mode: 'now' }),
+                            signal: AbortSignal.timeout(5_000),
+                          });
+                          console.log(`[agenticmail] Wake event sent for new email from ${from}: "${subject}"`);
+                        } catch (wakeErr) {
+                          console.warn(`[agenticmail] Failed to send wake event: ${(wakeErr as Error).message}`);
+                        }
+                      }
+                    } catch { /* skip malformed JSON */ }
+                  }
+                }
+              }
+            }
+          } finally {
+            try { reader.cancel(); } catch { /* ignore */ }
+          }
+        } catch (err) {
+          if ((err as Error).name !== 'AbortError') {
+            console.warn(`[agenticmail] Main email watcher error: ${(err as Error).message}`);
+          }
+        } finally {
+          sseController = null;
+          // Reconnect with backoff
+          sseRetryMs = Math.min(sseRetryMs * 1.5, 60_000);
+          setTimeout(startMainWatcher, sseRetryMs);
+        }
+      })();
+    };
+
+    // Start watching after a short delay (let server finish initializing)
+    setTimeout(startMainWatcher, 3_000);
+  }
+
   // Register /agenticmail command — opens the AgenticMail shell in a new terminal
   if (api?.registerCommand) {
     api.registerCommand({
