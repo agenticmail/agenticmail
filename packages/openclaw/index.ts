@@ -443,27 +443,34 @@ function activate(api: any): void {
 
   // ─── Main agent email watcher ───────────────────────────────────────
   // Background SSE connection to AgenticMail server. When a new email arrives,
-  // sends a cron wake event to wake the main agent session. The agent can then
-  // read the email, assess urgency, and decide whether to notify the user
-  // immediately or save it for later.
+  // sends a wake hook to start/resume the main agent session.
   {
-    const gatewayPort = process.env.OPENCLAW_PORT || process.env.PORT || '3000';
     const agentApiKey = ctx.config.apiKey;
     const sseUrl = `${ctx.config.apiUrl}/api/agenticmail/events`;
     let sseRetryMs = 5_000;
     let sseController: AbortController | null = null;
 
-    const startMainWatcher = () => {
+    const scheduleReconnect = () => {
+      sseController = null;
+      sseRetryMs = Math.min(sseRetryMs * 1.5, 60_000);
+      setTimeout(startMainWatcher, sseRetryMs);
+    };
+
+    function startMainWatcher() {
       if (sseController) return;
       sseController = new AbortController();
+      const ctrl = sseController;
 
       (async () => {
         try {
           const res = await fetch(sseUrl, {
             headers: { 'Authorization': `Bearer ${agentApiKey}`, 'Accept': 'text/event-stream' },
-            signal: sseController!.signal,
+            signal: ctrl.signal,
           });
-          if (!res.ok || !res.body) return;
+          if (!res.ok || !res.body) {
+            scheduleReconnect();
+            return;
+          }
           sseRetryMs = 5_000; // reset backoff on successful connect
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
@@ -478,55 +485,40 @@ function activate(api: any): void {
                 const frame = buffer.slice(0, boundary);
                 buffer = buffer.slice(boundary + 2);
                 for (const line of frame.split('\n')) {
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const event = JSON.parse(line.slice(6));
-                      if (event.type === 'new' && event.uid) {
-                        // New email arrived — wake the main agent
-                        const from = event.from ?? 'unknown';
-                        const subject = event.subject ?? '(no subject)';
-                        const wakeText = `New email received from ${from}: "${subject}". Read it with agenticmail_read(uid=${event.uid}), assess urgency, and decide: if urgent or time-sensitive, notify the user now. Otherwise, note it in memory and batch-notify later.`;
-                        // Use /hooks/wake endpoint to inject system event + trigger heartbeat
-                        const hooksToken = process.env.OPENCLAW_HOOKS_TOKEN;
-                        if (hooksToken) {
-                          try {
-                            const wakeUrl = `http://127.0.0.1:${gatewayPort}/hooks/wake`;
-                            const resp = await fetch(wakeUrl, {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${hooksToken}`,
-                              },
-                              body: JSON.stringify({ text: wakeText, mode: 'now' }),
-                              signal: AbortSignal.timeout(5_000),
-                            });
-                            if (!resp.ok) {
-                              const errBody = await resp.text().catch(() => '');
-                              console.warn(`[agenticmail] email wake failed (${resp.status}): ${errBody}`);
-                            }
-                          } catch { /* fail silently */ }
-                        } else {
-                          // hooks not configured — wake not possible
-                        }
+                  if (!line.startsWith('data: ')) continue;
+                  try {
+                    const event = JSON.parse(line.slice(6));
+                    if (event.type === 'new' && event.uid) {
+                      const from = event.from ?? 'unknown';
+                      const subject = event.subject ?? '(no subject)';
+                      const wakeText = `New email received from ${from}: "${subject}". Read it with agenticmail_read(uid=${event.uid}), assess urgency, and decide: if urgent or time-sensitive, notify the user now. Otherwise, note it in memory and batch-notify later.`;
+                      const hooksToken = process.env.OPENCLAW_HOOKS_TOKEN;
+                      const gwPort = process.env.OPENCLAW_PORT || '18789';
+                      if (hooksToken) {
+                        try {
+                          const resp = await fetch(`http://127.0.0.1:${gwPort}/hooks/wake`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${hooksToken}` },
+                            body: JSON.stringify({ text: wakeText, mode: 'now' }),
+                            signal: AbortSignal.timeout(5_000),
+                          });
+                          if (!resp.ok) {
+                            console.warn(`[agenticmail] email wake failed (${resp.status})`);
+                          }
+                        } catch { /* fail silently */ }
                       }
-                    } catch { /* skip malformed JSON */ }
-                  }
+                    }
+                  } catch { /* skip malformed JSON */ }
                 }
               }
             }
           } finally {
             try { reader.cancel(); } catch { /* ignore */ }
           }
-        } catch {
-          // SSE disconnected — will reconnect
-        } finally {
-          sseController = null;
-          // Reconnect with backoff
-          sseRetryMs = Math.min(sseRetryMs * 1.5, 60_000);
-          setTimeout(startMainWatcher, sseRetryMs);
-        }
+        } catch { /* SSE disconnected */ }
+        scheduleReconnect();
       })();
-    };
+    }
 
     // Start watching after a short delay (let server finish initializing)
     setTimeout(startMainWatcher, 3_000);
