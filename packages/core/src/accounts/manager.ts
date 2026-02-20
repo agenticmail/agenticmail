@@ -111,7 +111,7 @@ export class AccountManager {
   }
 
   async getByName(name: string): Promise<Agent | null> {
-    const stmt = this.db.prepare('SELECT * FROM agents WHERE name = ?');
+    const stmt = this.db.prepare('SELECT * FROM agents WHERE LOWER(name) = LOWER(?)');
     const row = stmt.get(name) as AgentRow | undefined;
     return row ? rowToAgent(row) : null;
   }
