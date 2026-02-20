@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/api",
-  "version": "0.5.50",
+  "version": "0.5.51",
   "description": "REST API server for AgenticMail — email and SMS endpoints for AI agents",
   "type": "module",
   "main": "dist/index.js",
