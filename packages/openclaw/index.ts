@@ -1058,6 +1058,6 @@ function activate(api: any): void {
  * and calls `register(api)` during plugin activation.
  */
 export default {
-  id: 'agenticmail',
+  id: 'openclaw',
   register: activate,
 };

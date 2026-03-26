@@ -21,9 +21,9 @@ try {
 
   let changed = false;
 
-  // Remove plugins.entries.agenticmail
-  if (config.plugins?.entries?.agenticmail) {
-    delete config.plugins.entries.agenticmail;
+  // Remove plugins.entries.openclaw
+  if (config.plugins?.entries?.openclaw) {
+    delete config.plugins.entries.openclaw;
     changed = true;
 
     // Clean up empty entries object

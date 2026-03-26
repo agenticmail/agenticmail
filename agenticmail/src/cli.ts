@@ -993,7 +993,7 @@ async function registerWithOpenClaw(config: SetupConfig): Promise<void> {
     }
 
     // Check if already registered with a valid API key AND a working plugin path
-    const existingEntry = existing.plugins?.entries?.agenticmail;
+    const existingEntry = existing.plugins?.entries?.openclaw ?? existing.plugins?.entries?.agenticmail;
     if (existingEntry?.config?.apiKey) {
       const existingPaths: string[] = existing.plugins?.load?.paths ?? [];
       const pluginFound = existingPaths.some((p: string) =>
@@ -1575,7 +1575,7 @@ function findOpenClawConfig(): string | null {
 
 /**
  * Merge AgenticMail plugin config into an existing OpenClaw config object.
- * Preserves all existing settings — adds/updates plugins.entries.agenticmail
+ * Preserves all existing settings — adds/updates plugins.entries.openclaw
  * and plugins.load.paths for plugin discovery.
  */
 function mergePluginConfig(
@@ -1589,10 +1589,16 @@ function mergePluginConfig(
   if (agentApiKey) pluginConfig.apiKey = agentApiKey;
   pluginConfig.masterKey = masterKey;
 
-  const existingEntry = existing?.plugins?.entries?.agenticmail;
+  // Support both old key (agenticmail) and new key (openclaw) for backward compat
+  const existingEntry = existing?.plugins?.entries?.openclaw ?? existing?.plugins?.entries?.agenticmail;
   if (existingEntry) {
     // Preserve user's custom settings, update keys
     pluginConfig.apiUrl = pluginConfig.apiUrl || existingEntry.config?.apiUrl;
+  }
+
+  // Migrate old key to new key — remove legacy entry
+  if (existing?.plugins?.entries?.agenticmail) {
+    delete existing.plugins.entries.agenticmail;
   }
 
   // Build the plugins.load.paths array — add pluginDir if not already present
@@ -1628,7 +1634,7 @@ function mergePluginConfig(
       ...(existing?.plugins ?? {}),
       entries: {
         ...(existing?.plugins?.entries ?? {}),
-        agenticmail: {
+        openclaw: {
           enabled: true,
           ...(existingEntry ?? {}),
           config: {
@@ -2212,7 +2218,7 @@ async function cmdOpenClaw() {
         log(`  ${c.dim('plugins.load.paths:')}`);
         log(`  ${c.dim(`  - "${pluginDir}"`)}`);
       }
-      log(`  ${c.dim('plugins.entries.agenticmail:')}`);
+      log(`  ${c.dim('plugins.entries.openclaw:')}`);
       log(`  ${c.dim('  enabled: true')}`);
       log(`  ${c.dim('  config:')}`);
       log(`  ${c.dim(`    apiUrl: "${apiUrl}"`)}`);

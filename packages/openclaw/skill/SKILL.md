@@ -2,7 +2,7 @@
 name: agenticmail
 description: 🎀 AgenticMail — Full email, SMS, storage & multi-agent coordination for AI agents. 63 tools.
 homepage: https://github.com/agenticmail/agenticmail
-metadata: { "openclaw": { "emoji": "🎀", "primaryEnv": "AGENTICMAIL_API_KEY", "requires": { "bins": ["docker"], "config": ["plugins.entries.agenticmail.config.apiKey"] } } }
+metadata: { "openclaw": { "emoji": "🎀", "primaryEnv": "AGENTICMAIL_API_KEY", "requires": { "bins": ["docker"], "config": ["plugins.entries.openclaw.config.apiKey"] } } }
 ---
 
 # 🎀 AgenticMail
