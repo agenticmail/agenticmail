@@ -116,9 +116,27 @@ export class StalwartAdmin {
   }
 
   async healthCheck(): Promise<boolean> {
+    // Primary: try Stalwart HTTP admin API
     try {
-      const response = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(5_000) });
-      return response.ok;
+      const response = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(3_000) });
+      if (response.ok) return true;
+    } catch { /* HTTP may be unreachable — fall through to SMTP check */ }
+
+    // Fallback: verify SMTP is accepting connections (the actual email service)
+    // This handles cases where Stalwart HTTP returns empty responses (e.g. Colima VZ driver)
+    // but SMTP/IMAP work fine
+    try {
+      const net = await import('net');
+      return await new Promise<boolean>((resolve) => {
+        const smtpPort = parseInt(process.env.SMTP_PORT || '25', 10);
+        const smtpHost = process.env.SMTP_HOST || 'localhost';
+        const socket = net.createConnection({ host: smtpHost, port: smtpPort, timeout: 3_000 }, () => {
+          socket.destroy();
+          resolve(true);
+        });
+        socket.on('error', () => { socket.destroy(); resolve(false); });
+        socket.on('timeout', () => { socket.destroy(); resolve(false); });
+      });
     } catch {
       return false;
     }
