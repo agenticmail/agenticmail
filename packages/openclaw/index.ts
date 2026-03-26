@@ -564,78 +564,30 @@ function activate(api: any): void {
   if (!api?.on) return;
 
   // ─── before_agent_start hook ───────────────────────────────────────
-  // 1. Auto-provision email accounts for sub-agents
-  // 2. Check inbox for unread mail and inject summary into context
+  // Side effects ONLY: auto-provision email accounts for sub-agents,
+  // send intro emails, start SSE watchers. No prompt mutation here —
+  // that's handled by before_prompt_build below.
   api.on('before_agent_start', async (_event: any, context: any) => {
     const sessionKey: string = context?.sessionKey ?? '';
-    let agentApiKey = ctx.config.apiKey;
-    const prependLines: string[] = [];
-
-    // --- AgenticMail coordination guidance ---
-    // Full guide for main agent sessions (they orchestrate work).
-    // Short summary for sub-agents (they just need to know the tools exist).
-    // Light-mode sub-agents get almost nothing — just task tools.
     const isSubAgent = isSubagentSession(sessionKey);
 
-    // Detect task mode from registry (set by spawnForTask)
+    // Detect task mode (don't delete — before_prompt_build needs it too)
     const taskMode = taskModes.get(sessionKey) || taskModes.get(sessionKey.split(':').pop() || '') || 'standard';
-    // Clean up consumed mode entries
-    taskModes.delete(sessionKey);
 
+    // Light mode: skip email account creation entirely
     if (isSubAgent && taskMode === 'light') {
-      // Light mode: absolute minimum context — one tool to complete the task
-      prependLines.push(
-        '<agenticmail-coordination>',
-        'Use agenticmail_complete_task(id, result) to submit your answer in one call.',
-        '</agenticmail-coordination>',
-      );
-    } else if (isSubAgent) {
-      // Standard/full sub-agents get a minimal summary — saves ~2K tokens per spawn
-      prependLines.push(
-        '<agenticmail-coordination>',
-        '🎀 AgenticMail coordination tools available:',
-        '- agenticmail_call_agent: Call another agent and get structured JSON result (preferred method)',
-        '- agenticmail_check_tasks / claim_task / submit_result / complete_task: Task queue with lifecycle tracking',
-        '- agenticmail_message_agent: Message an agent by name',
-        '- agenticmail_list_agents: Discover available agents',
-        '- agenticmail_check_tasks: Check task status (pending/claimed/completed)',
-        '- agenticmail_wait_for_email: Push-based wait for replies (no polling)',
-        'Prefer these over sessions_spawn/sessions_send for agent coordination.',
-        '</agenticmail-coordination>',
-      );
-    } else {
-      // Main agent gets a concise coordination guide (not the full migration essay)
-      prependLines.push(
-        '<agenticmail-coordination>',
-        '🎀 AgenticMail is installed — prefer these over sessions_spawn/sessions_send:',
-        '- agenticmail_call_agent(target, task, mode?) → RPC call, returns structured JSON. Use mode="light" for simple tasks (no email overhead). Use async=true for long-running tasks.',
-        '- agenticmail_message_agent → message agent by name; agenticmail_list_agents → discover agents',
-        '- agenticmail_check_tasks → check task status; agenticmail_wait_for_email → push-based wait (no polling)',
-        'Use call_agent for ALL agent delegation (sync and async). It auto-detects complexity and spawns sessions.',
-        '</agenticmail-coordination>',
-      );
-    }
-
-    // --- Sub-agent auto-provisioning ---
-    // Light mode: skip email account creation entirely — massive token + latency savings
-    if (isSubAgent && taskMode === 'light') {
-      // Light mode sub-agents only need claim_task and submit_result tools
-      // which work via the parent's API key — no dedicated account needed
       console.log(`[agenticmail] Light mode sub-agent (${sessionKey}) — skipping email provisioning`);
-      return prependLines.length > 0 ? { prependContext: prependLines.join('\n') } : undefined;
+      return;
     }
 
     if (isSubagentSession(sessionKey) && masterKey) {
       let account = subagentAccounts.get(sessionKey);
 
-      // Resolve parent email + spawn info at this scope so they're available
-      // both during provisioning and in the prepend context / intro email below.
       let parentEmail = '';
       const spawnInfo = pendingSpawns.shift();
       const spawnTask = spawnInfo?.task ?? '';
 
       if (!account) {
-        // Resolve parent agent's email for auto-CC on sub-agent outgoing mail
         try {
           const meRes = await fetch(`${baseUrl}/accounts/me`, {
             headers: { 'Authorization': `Bearer ${ctx.config.apiKey}` },
@@ -645,10 +597,8 @@ function activate(api: any): void {
             const me: any = await meRes.json();
             parentEmail = me?.email ?? '';
           }
-        } catch { /* ignore — auto-CC just won't activate */ }
+        } catch { /* ignore */ }
 
-        // Use the spawn label as the agent name (e.g., "researcher") if available,
-        // otherwise fall back to the session-key-derived name (e.g., "main-fdf4f8c9")
         const spawnLabel = spawnInfo?.label ?? '';
         const agentName = spawnLabel || deriveAgentName(sessionKey);
         try {
@@ -679,7 +629,6 @@ function activate(api: any): void {
             console.log(`[agenticmail] Provisioned email account ${account.email} for sub-agent session`);
           } else {
             const errText = await res.text().catch(() => '');
-            // If account already exists (409 or name conflict), retry with UUID suffix
             if (res.status === 409 || errText.includes('UNIQUE')) {
               const fallbackName = deriveAgentName(sessionKey);
               const retryName = spawnLabel ? `${spawnLabel}-${fallbackName.split('-').pop()}` : fallbackName;
@@ -721,21 +670,13 @@ function activate(api: any): void {
         }
       }
 
+      // Send auto-intro email in coordination thread
       if (account) {
-        agentApiKey = account.apiKey;
-
-        // --- Gather sibling sub-agents (teammates) for discovery ---
         const teammates: { name: string; email: string }[] = [];
         for (const [key, sibling] of subagentAccounts) {
-          if (key !== sessionKey) {
-            teammates.push({ name: sibling.name, email: sibling.email });
-          }
+          if (key !== sessionKey) teammates.push({ name: sibling.name, email: sibling.email });
         }
 
-        // --- Send auto-intro email in the coordination thread ---
-        // Skip for standard mode single-agent tasks (no teammates to coordinate with)
-        // Only send intros in full mode or when there are actual teammates
-        // Force @localhost so inter-agent emails never route through the relay/Gmail
         const rawParentEmail = parentEmail || account.parentEmail;
         const parentLocal = rawParentEmail.split('@')[0];
         const effectiveParentEmail = parentLocal ? `${parentLocal}@localhost` : '';
@@ -753,9 +694,7 @@ function activate(api: any): void {
               taskPreview ? `Task: ${taskPreview}` : '',
             ].filter(Boolean).join('\n');
 
-            // CC existing sub-agents so they learn about the new joiner
             const siblingEmails = teammates.map(t => t.email).join(', ');
-
             const sendPayload: Record<string, unknown> = {
               to: effectiveParentEmail,
               subject: existing ? `Re: ${coordSubject}` : coordSubject,
@@ -779,7 +718,6 @@ function activate(api: any): void {
 
             if (introRes.ok) {
               const introData: any = await introRes.json();
-              // First intro creates the thread anchor; subsequent intros are replies
               if (!existing && introData?.messageId) {
                 coordinationThreads.set(coordKey, {
                   messageId: introData.messageId,
@@ -792,8 +730,81 @@ function activate(api: any): void {
             console.warn(`[agenticmail] Failed to send intro email: ${(err as Error).message}`);
           }
         }
+      }
+    }
 
-        // --- Prepend context for sub-agent ---
+    // No prompt mutation — return void
+  });
+
+  // ─── before_prompt_build hook ──────────────────────────────────────
+  // All prompt/context injection lives here (replaces legacy prependContext
+  // from before_agent_start). Uses prependSystemContext for static guidance
+  // (cacheable across turns) and prependContext for dynamic per-turn content.
+  api.on('before_prompt_build', async (_event: any, context: any) => {
+    const sessionKey: string = context?.sessionKey ?? '';
+    let agentApiKey = ctx.config.apiKey;
+    const prependLines: string[] = [];
+
+    const isSubAgent = isSubagentSession(sessionKey);
+
+    // Detect task mode and clean up consumed entries
+    const taskMode = taskModes.get(sessionKey) || taskModes.get(sessionKey.split(':').pop() || '') || 'standard';
+    taskModes.delete(sessionKey);
+    // Also clean variant keys
+    for (const key of taskModes.keys()) {
+      if (key.endsWith(sessionKey.split(':').pop() || '___none___')) taskModes.delete(key);
+    }
+
+    // --- Static coordination guidance (cacheable via prependSystemContext) ---
+    let systemContext = '';
+
+    if (isSubAgent && taskMode === 'light') {
+      systemContext = [
+        '<agenticmail-coordination>',
+        'Use agenticmail_complete_task(id, result) to submit your answer in one call.',
+        '</agenticmail-coordination>',
+      ].join('\n');
+    } else if (isSubAgent) {
+      systemContext = [
+        '<agenticmail-coordination>',
+        '🎀 AgenticMail coordination tools available:',
+        '- agenticmail_call_agent: Call another agent and get structured JSON result (preferred method)',
+        '- agenticmail_check_tasks / claim_task / submit_result / complete_task: Task queue with lifecycle tracking',
+        '- agenticmail_message_agent: Message an agent by name',
+        '- agenticmail_list_agents: Discover available agents',
+        '- agenticmail_check_tasks: Check task status (pending/claimed/completed)',
+        '- agenticmail_wait_for_email: Push-based wait for replies (no polling)',
+        'Prefer these over sessions_spawn/sessions_send for agent coordination.',
+        '</agenticmail-coordination>',
+      ].join('\n');
+    } else {
+      systemContext = [
+        '<agenticmail-coordination>',
+        '🎀 AgenticMail is installed — prefer these over sessions_spawn/sessions_send:',
+        '- agenticmail_call_agent(target, task, mode?) → RPC call, returns structured JSON. Use mode="light" for simple tasks (no email overhead). Use async=true for long-running tasks.',
+        '- agenticmail_message_agent → message agent by name; agenticmail_list_agents → discover agents',
+        '- agenticmail_check_tasks → check task status; agenticmail_wait_for_email → push-based wait (no polling)',
+        'Use call_agent for ALL agent delegation (sync and async). It auto-detects complexity and spawns sessions.',
+        '</agenticmail-coordination>',
+      ].join('\n');
+    }
+
+    // Light mode: return just coordination guidance, nothing else
+    if (isSubAgent && taskMode === 'light') {
+      return { prependSystemContext: systemContext };
+    }
+
+    // --- Sub-agent identity and security context ---
+    if (isSubagentSession(sessionKey)) {
+      const account = subagentAccounts.get(sessionKey);
+      if (account) {
+        agentApiKey = account.apiKey;
+
+        const teammates: { name: string; email: string }[] = [];
+        for (const [key, sibling] of subagentAccounts) {
+          if (key !== sessionKey) teammates.push({ name: sibling.name, email: sibling.email });
+        }
+
         const teammateLines = teammates.length > 0
           ? ['Your teammates (message them by name with agenticmail_message_agent):',
              ...teammates.map(t => `  - ${t.name} (${t.email})`),
@@ -870,91 +881,83 @@ function activate(api: any): void {
     }
 
     // --- Inbox awareness check ---
-    // Skip for sub-agents in standard mode (they're task-focused, not checking mail on startup)
-    if (isSubAgent && taskMode === 'standard') {
-      return prependLines.length > 0 ? { prependContext: prependLines.join('\n') } : undefined;
-    }
-    if (!agentApiKey) return prependLines.length > 0 ? { prependContext: prependLines.join('\n') } : undefined;
-
-    try {
-      const headers: Record<string, string> = { 'Authorization': `Bearer ${agentApiKey}` };
-
-      const searchRes = await fetch(`${baseUrl}/mail/search`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seen: false }),
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!searchRes.ok) {
-        return prependLines.length > 0 ? { prependContext: prependLines.join('\n') } : undefined;
-      }
-
-      const data: any = await searchRes.json();
-      const uids: number[] = data?.uids ?? [];
-      if (uids.length === 0) {
-        return prependLines.length > 0 ? { prependContext: prependLines.join('\n') } : undefined;
-      }
-
-      // Resolve our own name once for rate limiter resets
-      let myName = '';
+    // Skip for sub-agents in standard mode (task-focused, not checking mail)
+    if (!(isSubAgent && taskMode === 'standard') && agentApiKey) {
       try {
-        const meRes = await fetch(`${baseUrl}/accounts/me`, {
-          headers,
-          signal: AbortSignal.timeout(3_000),
+        const headers: Record<string, string> = { 'Authorization': `Bearer ${agentApiKey}` };
+
+        const searchRes = await fetch(`${baseUrl}/mail/search`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seen: false }),
+          signal: AbortSignal.timeout(5_000),
         });
-        if (meRes.ok) {
-          const me: any = await meRes.json();
-          myName = me?.name ?? '';
-        }
-      } catch { /* ignore */ }
 
-      // Fetch brief details for up to 5 unseen messages (single pass)
-      const summaries: string[] = [];
-      for (const uid of uids.slice(0, 5)) {
-        try {
-          const msgRes = await fetch(`${baseUrl}/mail/messages/${uid}`, {
-            headers,
-            signal: AbortSignal.timeout(5_000),
-          });
-          if (!msgRes.ok) continue;
-          const msg: any = await msgRes.json();
-          const from = msg.from?.[0]?.address ?? 'unknown';
-          const subject = msg.subject ?? '(no subject)';
-          const isAgent = from.endsWith('@localhost');
-          const tag = isAgent ? '[agent]' : '[external]';
-          const preview = (msg.text ?? '').slice(0, 200).replace(/\n/g, ' ').trim();
-          summaries.push(`  - ${tag} UID ${uid}: from ${from} — "${subject}"${preview ? '\n    ' + preview : ''}`);
+        if (searchRes.ok) {
+          const data: any = await searchRes.json();
+          const uids: number[] = data?.uids ?? [];
 
-          // Reset rate limiter for agents who have messaged us (in same loop)
-          if (isAgent && myName) {
-            const senderName = from.split('@')[0] ?? '';
-            if (senderName) recordInboundAgentMessage(senderName, myName);
+          if (uids.length > 0) {
+            let myName = '';
+            try {
+              const meRes = await fetch(`${baseUrl}/accounts/me`, {
+                headers,
+                signal: AbortSignal.timeout(3_000),
+              });
+              if (meRes.ok) {
+                const me: any = await meRes.json();
+                myName = me?.name ?? '';
+              }
+            } catch { /* ignore */ }
+
+            const summaries: string[] = [];
+            for (const uid of uids.slice(0, 5)) {
+              try {
+                const msgRes = await fetch(`${baseUrl}/mail/messages/${uid}`, {
+                  headers,
+                  signal: AbortSignal.timeout(5_000),
+                });
+                if (!msgRes.ok) continue;
+                const msg: any = await msgRes.json();
+                const from = msg.from?.[0]?.address ?? 'unknown';
+                const subject = msg.subject ?? '(no subject)';
+                const isAgentMsg = from.endsWith('@localhost');
+                const tag = isAgentMsg ? '[agent]' : '[external]';
+                const preview = (msg.text ?? '').slice(0, 200).replace(/\n/g, ' ').trim();
+                summaries.push(`  - ${tag} UID ${uid}: from ${from} — "${subject}"${preview ? '\n    ' + preview : ''}`);
+
+                if (isAgentMsg && myName) {
+                  const senderName = from.split('@')[0] ?? '';
+                  if (senderName) recordInboundAgentMessage(senderName, myName);
+                }
+              } catch { /* skip */ }
+            }
+
+            if (summaries.length > 0) {
+              const more = uids.length > 5 ? `\n  (${uids.length - 5} more unread messages not shown)` : '';
+              prependLines.push(
+                '<unread-emails>',
+                `You have ${uids.length} unread email(s) in your inbox:`,
+                ...summaries,
+                more,
+                '',
+                'ACTION REQUIRED: You MUST read each unread email with agenticmail_read and briefly tell the user what it says.',
+                'Do this BEFORE responding to anything else. After reporting emails, continue with your original task.',
+                'Do NOT skip or defer reading emails — the user expects you to handle their inbox proactively.',
+                '</unread-emails>',
+              );
+            }
           }
-        } catch { /* skip */ }
+        }
+      } catch {
+        // Fail silently — inbox check is best-effort
       }
-
-      if (summaries.length > 0) {
-        const more = uids.length > 5 ? `\n  (${uids.length - 5} more unread messages not shown)` : '';
-
-        prependLines.push(
-          '<unread-emails>',
-          `You have ${uids.length} unread email(s) in your inbox:`,
-          ...summaries,
-          more,
-          '',
-          'ACTION REQUIRED: You MUST read each unread email with agenticmail_read and briefly tell the user what it says.',
-          'Do this BEFORE responding to anything else. After reporting emails, continue with your original task.',
-          'Do NOT skip or defer reading emails — the user expects you to handle their inbox proactively.',
-          '</unread-emails>',
-        );
-      }
-    } catch {
-      // Fail silently — inbox check is best-effort
     }
 
-    return prependLines.length > 0
-      ? { prependContext: prependLines.filter(Boolean).join('\n') }
-      : undefined;
+    const result: Record<string, string> = {};
+    if (systemContext) result.prependSystemContext = systemContext;
+    if (prependLines.length > 0) result.prependContext = prependLines.filter(Boolean).join('\n');
+    return Object.keys(result).length > 0 ? result : undefined;
   });
 
   // ─── before_tool_call hook ─────────────────────────────────────────
