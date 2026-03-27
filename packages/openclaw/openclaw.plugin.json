@@ -7,7 +7,7 @@
   "author": "agenticmail",
   "license": "MIT",
   "homepage": "https://github.com/agenticmail/agenticmail",
-  "channels": ["mail"],
+
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
