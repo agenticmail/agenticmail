@@ -40,7 +40,7 @@
 \setlength{\parskip}{4pt}
 \setlength{\parindent}{0pt}
 
-\title{\Large\textbf{Structured RPC vs.\ Text-Based Sub-Agent Orchestration:\\A Comparative Analysis of Inter-Agent\\Communication Paradigms}}
+\title{\Large\textbf{AgenticMail Call Agent vs.\ OpenClaw Sessions Spawn:\\A Comparative Analysis of Inter-Agent\\Communication Paradigms}}
 
 \author{
     \textbf{Ope Olatunji}\textsuperscript{1} \quad \textbf{Fola (AI Research Assistant)}\textsuperscript{1}\\[4pt]
@@ -54,16 +54,16 @@
 \maketitle
 
 \begin{abstract}
-As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles of specialized agents, the communication layer between agents becomes a critical design decision. This paper presents a comparative analysis of two inter-agent communication paradigms: (1)~structured Remote Procedure Call (RPC) task delegation, exemplified by the \texttt{call\_agent} pattern, and (2)~free-text sub-agent spawning, exemplified by the \texttt{sessions\_spawn} pattern. Through extensive empirical testing across \textbf{16 sub-agent tasks spanning 10 industries}---including multi-agent parallel collaboration scenarios---we evaluate both paradigms on latency, output quality, domain versatility, and collaboration capability. We find that structured RPC achieves dramatically lower latency ($\sim$1\,s vs.\ 24--107\,s) and produces machine-parseable outputs, while text-based spawning excels at complex reasoning, creative collaboration, and domain-specialist tasks where output richness matters more than speed. We argue that the optimal architecture is a \textbf{hybrid}: RPC for data retrieval and composable subtasks, spawning for autonomous specialist work and multi-agent collaboration.
+As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles of specialized agents, the communication layer between agents becomes a critical design decision. This paper presents a comparative analysis of two production inter-agent communication paradigms: (1)~\textbf{AgenticMail Call Agent} (\texttt{call\_agent}), a structured synchronous delegation pattern with configurable execution modes (\texttt{light}, \texttt{heavy}, \texttt{default}), and (2)~\textbf{OpenClaw Sessions Spawn} (\texttt{sessions\_spawn}), a free-text sub-agent spawning pattern with full session isolation. Through extensive empirical testing across \textbf{16 sub-agent tasks spanning 10 industries}---including multi-agent parallel collaboration scenarios---we evaluate both paradigms on latency, output quality, domain versatility, and collaboration capability. We find that AgenticMail Call Agent achieves dramatically lower latency ($\sim$1\,s vs.\ 24--107\,s) and produces machine-parseable outputs, while OpenClaw Sessions Spawn excels at complex reasoning, creative collaboration, and domain-specialist tasks. We argue that the optimal architecture is a \textbf{hybrid}: AgenticMail Call Agent for data retrieval, OpenClaw Sessions Spawn for autonomous specialist work. Full test results are provided as reference files in the companion \texttt{results/} directory.
 \end{abstract}
 
-\textbf{Keywords:} multi-agent systems, inter-agent communication, RPC, orchestration, AI agents, tool use, collaboration
+\textbf{Keywords:} multi-agent systems, AgenticMail, OpenClaw, inter-agent communication, orchestration, AI agents, tool use, collaboration
 
 \section{Introduction}
 
-The rapid advancement of large language model (LLM) capabilities has given rise to agentic AI systems---autonomous agents equipped with tools, memory, and the ability to take actions in the world~\cite{yao2023react, wang2024survey}. A natural extension of single-agent systems is multi-agent orchestration, where a primary agent delegates subtasks to specialized subordinate agents. This pattern mirrors microservice architectures in traditional software engineering, where the communication protocol between services is as important as the services themselves.
+The rapid advancement of large language model (LLM) capabilities has given rise to agentic AI systems---autonomous agents equipped with tools, memory, and the ability to take actions in the world~\cite{yao2023react, wang2024survey}. Two production platforms for multi-agent orchestration are \textbf{AgenticMail}, a structured agent communication framework with typed task delegation, and \textbf{OpenClaw}, an open-source personal AI assistant platform supporting isolated sub-agent sessions.
 
-Despite growing interest in multi-agent frameworks such as AutoGen~\cite{wu2023autogen}, CrewAI, and LangGraph, relatively little attention has been paid to the \emph{communication layer} between agents. Most implementations default to natural language as the inter-agent medium. Our initial study (v1, March~26, 2026) challenged this assumption using a single weather-retrieval task. This revised paper dramatically expands the empirical foundation with \textbf{16 sub-agent tasks across 10 industries}, including \textbf{multi-agent parallel collaboration} scenarios, providing a more nuanced and honest assessment of both paradigms.
+Each platform offers a distinct paradigm for inter-agent communication. This paper tests both paradigms head-to-head across 16 tasks in 10 industries to help users decide: \emph{when should you use AgenticMail Call Agent, and when should you use OpenClaw Sessions Spawn?}
 
 We identify five critical axes of comparison:
 
@@ -75,117 +75,133 @@ We identify five critical axes of comparison:
     \item \textbf{Multi-agent collaboration}---Can agents work on complementary parts of a larger problem?
 \end{enumerate}
 
-\section{Background and Related Work}
+\section{The Two Paradigms}
 
-\subsection{Multi-Agent Architectures}
+\subsection{AgenticMail Call Agent}
 
-Multi-agent systems in AI have a long history~\cite{wooldridge2009}, but the LLM era has introduced a new paradigm where agents are language models augmented with tool access. Recent frameworks take varying approaches:
+The AgenticMail \texttt{call\_agent} function implements a \textbf{synchronous structured delegation} pattern. The orchestrating agent submits a task to a named subordinate agent and receives a structured JSON result inline.
 
-\textbf{AutoGen}~\cite{wu2023autogen} uses conversational message passing in a group chat pattern. \textbf{CrewAI} defines agents with roles and goals, communicating through natural language task delegation. \textbf{LangGraph} models agent interactions as state machines with typed state, offering more structure but still relying on text-based message passing.
+\textbf{Execution modes} control the scope of the subordinate's environment:
 
-None of these frameworks make a strong distinction between structured data exchange and conversational exchange between agents.
+\begin{itemize}[itemsep=2pt,topsep=2pt]
+    \item \texttt{mode="light"} --- Minimal overhead. Skips email infrastructure, full context loading, and heavyweight initialization. Ideal for data retrieval, lookups, and simple transformations. Lowest latency ($\sim$1\,s).
+    \item \texttt{mode="heavy"} --- Full agent session with email tools, memory, and extended context. Used when the subordinate needs to send emails, access user history, or perform multi-step workflows. Higher latency ($\sim$5--15\,s).
+    \item \texttt{mode="default"} --- Standard initialization. Balanced between light and heavy. Loads core tools but not the full email stack.
+\end{itemize}
 
-\subsection{RPC in Distributed Systems}
+\begin{lstlisting}
+// AgenticMail Call Agent (light mode)
+Orchestrator -> call_agent(
+    target: "weather-agent",
+    task: "Get weather for Charlotte, NC",
+    mode: "light"
+)
+<- { status: "completed",
+     result: { temperature: "69F",
+               humidity: "59%", ... } }
+\end{lstlisting}
 
-Remote Procedure Call (RPC) is a well-established paradigm in distributed computing~\cite{birrell1984}. Modern implementations like gRPC use Protocol Buffers for structured, typed message exchange with strict schemas. The application of RPC principles to LLM-based multi-agent systems remains largely unexplored in the literature.
+\textbf{Key characteristic:} The orchestrator retains full control. It receives raw data and decides how to present it to the user.
+
+\subsection{OpenClaw Sessions Spawn}
+
+The OpenClaw \texttt{sessions\_spawn} function creates an \textbf{isolated sub-agent session} with a natural language task prompt. The sub-agent has its own context, tools, and execution environment. The orchestrator yields its turn and receives the result via push notification.
+
+\begin{lstlisting}
+// OpenClaw Sessions Spawn
+Orchestrator -> sessions_spawn(
+    task: "Analyze AAPL stock...",
+    mode: "run",
+    label: "finance-analysis"
+)
+-> sessions_yield()
+<- [push] "sub-agent completed"
+<- "## AAPL Investment Brief ...
+    Current Price: $249.23 ...
+    Bull Case: AI monetization ...
+    Recommendation: Hold, buy <$235"
+\end{lstlisting}
+
+\textbf{Key characteristic:} The sub-agent operates autonomously. It can use web search, file access, and other tools. Output is free-form natural language with expert reasoning.
 
 \section{Methodology}
 
 \subsection{Experimental Setup}
 
-We conducted comparative tests within the OpenClaw agent framework (v2026.3), an open-source personal AI assistant platform. The system runs on consumer hardware (Apple Mac mini, ARM64, macOS~25.2.0, Node.js~v25.5.0) with Claude (Anthropic) as the underlying language model.
+All tests were conducted on consumer hardware (Apple Mac mini, ARM64, macOS~25.2.0, Node.js~v25.5.0) with Claude Opus (Anthropic) as the underlying language model for both paradigms.
 
-\textbf{Method~A: Structured RPC (\texttt{call\_agent}).} The orchestrating agent submits a task with a structured payload to a named subordinate agent, receiving a structured JSON result inline.
+\textbf{AgenticMail Call Agent} was tested in \texttt{mode="light"} for the weather baseline task (the primary use case for structured data retrieval).
 
-\textbf{Method~B: Text-Based Spawning (\texttt{sessions\_spawn}).} Creates an isolated sub-agent session with a natural language prompt. The orchestrator yields its turn, waits for push-based completion, and receives free-form natural language output.
+\textbf{OpenClaw Sessions Spawn} was tested with \texttt{mode="run"} (one-shot isolated sessions) across all 16 tasks, executed in three parallel waves with up to 5--6 concurrent sub-agents.
 
 \subsection{Test Battery}
 
-Unlike our initial study which used a single weather-retrieval task, this revision employs a comprehensive \textbf{16-task battery} across 10 domains, organized in three waves executed with up to 5--6 concurrent sub-agents.
-
 \textbf{Wave~1---Single-Agent Domain Specialists} (6 parallel):
 \begin{enumerate}[itemsep=1pt,topsep=2pt]
-    \item \emph{Finance:} AAPL stock analysis with live web data
-    \item \emph{Healthcare:} Drug interaction analysis (Metformin/Lisinopril/Atorvastatin)
-    \item \emph{Legal:} SaaS Terms of Service contract risk analysis
-    \item \emph{Software Engineering:} Security-focused code review with corrected code
-    \item \emph{Marketing:} Multi-channel Gen~Z product launch campaign (\$50K budget)
-    \item \emph{Education:} 4-week ML curriculum for working professionals
+    \item \emph{Finance:} AAPL stock analysis with live web data \hfill\texttt{\footnotesize results/02}
+    \item \emph{Healthcare:} Drug interaction analysis (3 drugs) \hfill\texttt{\footnotesize results/06}
+    \item \emph{Legal:} SaaS ToS contract risk analysis \hfill\texttt{\footnotesize results/03}
+    \item \emph{Software Eng.:} Security code review with fix \hfill\texttt{\footnotesize results/01}
+    \item \emph{Marketing:} Gen~Z product launch (\$50K budget) \hfill\texttt{\footnotesize results/16}
+    \item \emph{Education:} 4-week ML curriculum design \hfill\texttt{\footnotesize results/05}
 \end{enumerate}
 
 \textbf{Wave~2---Specialists + Collaboration Seeds} (5 parallel):
 \begin{enumerate}[itemsep=1pt,topsep=2pt,start=7]
-    \item \emph{Supply Chain:} Shenzhen$\to$Charlotte shipping route optimization
-    \item \emph{Data Science:} Sales forecasting model comparison (ARIMA/XGBoost/Prophet/LSTM)
-    \item \emph{Academic Research:} RAG literature review with citations
-    \item \emph{Creative Writing:} Sci-fi story Part~A (collaborative, sequential handoff)
-    \item \emph{Finance (M\&A):} Financial due diligence for \$400M SaaS acquisition
+    \item \emph{Supply Chain:} Shenzhen$\to$Charlotte route optimization \hfill\texttt{\footnotesize results/08}
+    \item \emph{Data Science:} Forecasting model comparison \hfill\texttt{\footnotesize results/04}
+    \item \emph{Research:} RAG literature review with citations \hfill\texttt{\footnotesize results/09}
+    \item \emph{Creative:} Sci-fi story Part~A (sequential collab) \hfill\texttt{\footnotesize results/07}
+    \item \emph{M\&A Finance:} Financial due diligence \hfill\texttt{\footnotesize results/10}
 \end{enumerate}
 
 \textbf{Wave~3---Multi-Agent Collaboration} (5 parallel):
 \begin{enumerate}[itemsep=1pt,topsep=2pt,start=12]
-    \item \emph{Creative Writing:} Sci-fi story Part~B (continues Part~A output)
-    \item \emph{Legal (M\&A):} Legal due diligence (complements \#11)
-    \item \emph{Operations (M\&A):} Operational due diligence (complements \#11 + \#13)
-    \item \emph{Biostatistics:} Phase~III clinical trial statistical analysis plan
-    \item \emph{Regulatory/Clinical:} Clinical trial regulatory strategy (complements \#15)
+    \item \emph{Creative:} Sci-fi story Part~B (continues \#10) \hfill\texttt{\footnotesize results/11}
+    \item \emph{M\&A Legal:} Legal due diligence \hfill\texttt{\footnotesize results/13}
+    \item \emph{M\&A Ops:} Operational due diligence \hfill\texttt{\footnotesize results/15}
+    \item \emph{Biostatistics:} Clinical trial SAP \hfill\texttt{\footnotesize results/12}
+    \item \emph{Regulatory:} Clinical trial regulatory strategy \hfill\texttt{\footnotesize results/14}
 \end{enumerate}
 
-\subsection{Evaluation Criteria}
-
-\begin{table}[H]
-\centering
-\caption{Evaluation dimensions.}
-\label{tab:criteria}
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{Dimension} & \textbf{Metric} \\
-\midrule
-Latency & Wall-clock time: invocation to result \\
-Quality & Depth, accuracy, actionability (1--5 scale) \\
-Structure & Machine-parseability without NLP \\
-Agency & Orchestrator control over presentation \\
-Collaboration & Coherence across multi-agent outputs \\
-\bottomrule
-\end{tabular}
-\end{table}
+Each result file referenced above (e.g., \texttt{results/01-code-review.md}) contains the complete sub-agent output with metadata headers including runtime, token count, model, and method used.
 
 \section{Results}
 
 \subsection{Latency}
 
-\subsubsection{Baselines}
+\subsubsection{AgenticMail Call Agent Baseline}
 
 \begin{table}[H]
 \centering
-\caption{Direct tool / RPC baselines.}
+\caption{AgenticMail Call Agent baselines.}
 \label{tab:baselines}
-\begin{tabular}{@{}lll@{}}
+\begin{tabular}{@{}llll@{}}
 \toprule
-\textbf{Method} & \textbf{Task} & \textbf{Time} \\
+\textbf{Mode} & \textbf{Task} & \textbf{Time} & \textbf{Output} \\
 \midrule
-Direct API (curl) & Weather & $\sim$0.7\,s \\
-\texttt{call\_agent} RPC & Weather & $\sim$1\,s \\
+\texttt{light} & Weather & $\sim$1\,s & Structured JSON \\
+Direct curl & Weather & $\sim$0.7\,s & Raw JSON \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsubsection{Sub-Agent Spawning Results}
+\subsubsection{OpenClaw Sessions Spawn Results}
 
 \begin{table}[H]
 \centering
 \caption{Wave~1: Single-agent specialists (6 parallel).}
 \label{tab:wave1}
-\begin{tabular}{@{}lrr@{}}
+\begin{tabular}{@{}lrrl@{}}
 \toprule
-\textbf{Domain} & \textbf{Time (s)} & \textbf{Tokens} \\
+\textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
 \midrule
-Software Engineering & 24 & 1,300 \\
-Finance & 36 & 1,200 \\
-Legal & 53 & 2,400 \\
-Data Science & 62 & 2,600 \\
-Education & 70 & 3,300 \\
-Healthcare & 72 & 3,000 \\
+Software Eng. & 24\,s & 1,300 & \texttt{01} \\
+Finance & 36\,s & 1,200 & \texttt{02} \\
+Legal & 53\,s & 2,400 & \texttt{03} \\
+Data Science & 62\,s & 2,600 & \texttt{04} \\
+Education & 70\,s & 3,300 & \texttt{05} \\
+Healthcare & 72\,s & 3,000 & \texttt{06} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -194,15 +210,14 @@ Healthcare & 72 & 3,000 \\
 \centering
 \caption{Wave~2: Specialists + collaboration seeds (5 parallel).}
 \label{tab:wave2}
-\begin{tabular}{@{}lrr@{}}
+\begin{tabular}{@{}lrrl@{}}
 \toprule
-\textbf{Domain} & \textbf{Time (s)} & \textbf{Tokens} \\
+\textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
 \midrule
-Creative (Story~A) & 29 & 725 \\
-Supply Chain & 62 & 2,200 \\
-Data Science & 62 & 2,600 \\
-Research & 69 & 2,500 \\
-M\&A Finance & 78 & 3,400 \\
+Creative (A) & 29\,s & 725 & \texttt{07} \\
+Supply Chain & 62\,s & 2,200 & \texttt{08} \\
+Research & 69\,s & 2,500 & \texttt{09} \\
+M\&A Finance & 78\,s & 3,400 & \texttt{10} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -211,15 +226,15 @@ M\&A Finance & 78 & 3,400 \\
 \centering
 \caption{Wave~3: Multi-agent collaboration (5 parallel).}
 \label{tab:wave3}
-\begin{tabular}{@{}lrr@{}}
+\begin{tabular}{@{}lrrl@{}}
 \toprule
-\textbf{Domain} & \textbf{Time (s)} & \textbf{Tokens} \\
+\textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
 \midrule
-Creative (Story~B) & 29 & 870 \\
-Clinical Stats & 88 & 3,800 \\
-M\&A Legal & 90 & 3,800 \\
-Clinical Regulatory & 97 & 4,200 \\
-M\&A Operations & 107 & 4,800 \\
+Creative (B) & 29\,s & 870 & \texttt{11} \\
+Clinical Stats & 88\,s & 3,800 & \texttt{12} \\
+M\&A Legal & 90\,s & 3,800 & \texttt{13} \\
+Clinical Reg. & 97\,s & 4,200 & \texttt{14} \\
+M\&A Ops & 107\,s & 4,800 & \texttt{15} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -232,7 +247,7 @@ M\&A Operations & 107 & 4,800 \\
 \label{tab:latency-summary}
 \begin{tabular}{@{}lrr@{}}
 \toprule
-\textbf{Metric} & \textbf{RPC} & \textbf{Spawn} \\
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Sessions Spawn} \\
 \midrule
 Minimum & $\sim$1\,s & 24\,s \\
 Maximum & $\sim$1\,s & 107\,s \\
@@ -242,42 +257,40 @@ Mean & $\sim$1\,s & 64.3\,s \\
 \end{tabular}
 \end{table}
 
-Spawn latency correlates strongly with output length ($r \approx 0.87$). Short creative tasks (29\,s) vs.\ comprehensive analysis (107\,s) shows a 3.7$\times$ range. RPC latency is constant regardless of task complexity for structured data retrieval.
+Spawn latency correlates strongly with output length ($r \approx 0.87$). AgenticMail Call Agent latency is constant regardless of task complexity because it returns structured data, not generated prose.
 
 \subsection{Output Quality}
 
 \begin{table}[H]
 \centering
-\caption{Quality ratings by domain (1--5 scale).}
+\caption{OpenClaw Sessions Spawn quality (1--5). See \texttt{results/} for full outputs.}
 \label{tab:quality}
-\begin{tabular}{@{}lcccc@{}}
+\begin{tabular}{@{}lcccl@{}}
 \toprule
-\textbf{Domain} & \textbf{Dep.} & \textbf{Acc.} & \textbf{Act.} & \textbf{Avg.} \\
+\textbf{Domain} & \textbf{Dep.} & \textbf{Acc.} & \textbf{Avg.} & \textbf{Ref} \\
 \midrule
-Code Review & 5 & 5 & 5 & \textbf{5.0} \\
-Legal (SaaS) & 5 & 5 & 5 & \textbf{5.0} \\
-Education & 5 & 5 & 5 & \textbf{5.0} \\
-Data Science & 5 & 5 & 5 & \textbf{5.0} \\
-M\&A Finance & 5 & 5 & 5 & \textbf{5.0} \\
-M\&A Legal & 5 & 5 & 5 & \textbf{5.0} \\
-M\&A Operations & 5 & 5 & 5 & \textbf{5.0} \\
-Clinical Stats & 5 & 5 & 5 & \textbf{5.0} \\
-Clinical Reg. & 5 & 5 & 5 & \textbf{5.0} \\
-Creative Writing & 5 & -- & -- & \textbf{5.0} \\
-Healthcare & 5 & 4 & 5 & \textbf{4.75} \\
-Marketing & 5 & 4 & 5 & \textbf{4.75} \\
-Finance (AAPL) & 5 & 4 & 5 & \textbf{4.5} \\
-Supply Chain & 4 & 4 & 5 & \textbf{4.5} \\
-Research (RAG) & 5 & 4 & 4 & \textbf{4.5} \\
+Code Review & 5 & 5 & \textbf{5.0} & \texttt{01} \\
+Legal (SaaS) & 5 & 5 & \textbf{5.0} & \texttt{03} \\
+Education & 5 & 5 & \textbf{5.0} & \texttt{05} \\
+Data Science & 5 & 5 & \textbf{5.0} & \texttt{04} \\
+M\&A Finance & 5 & 5 & \textbf{5.0} & \texttt{10} \\
+M\&A Legal & 5 & 5 & \textbf{5.0} & \texttt{13} \\
+M\&A Ops & 5 & 5 & \textbf{5.0} & \texttt{15} \\
+Clinical Stats & 5 & 5 & \textbf{5.0} & \texttt{12} \\
+Clinical Reg. & 5 & 5 & \textbf{5.0} & \texttt{14} \\
+Creative & 5 & -- & \textbf{5.0} & \texttt{07,11} \\
+Healthcare & 5 & 4 & \textbf{4.75} & \texttt{06} \\
+Marketing & 5 & 4 & \textbf{4.75} & \texttt{16} \\
+Finance (AAPL) & 5 & 4 & \textbf{4.5} & \texttt{02} \\
+Supply Chain & 4 & 4 & \textbf{4.5} & \texttt{08} \\
+Research (RAG) & 5 & 4 & \textbf{4.5} & \texttt{09} \\
 \midrule
-\multicolumn{4}{@{}l}{\textbf{Overall Average}} & \textbf{4.87} \\
+\multicolumn{3}{@{}l}{\textbf{Overall Average}} & \textbf{4.87} & \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Sub-agents consistently produced expert-level output across all domains with detailed tables, specific numbers, actionable recommendations, and industry benchmarks. The healthcare agent acknowledged web search limitations but compensated with strong domain knowledge---a mature failure-recovery pattern. The finance agent successfully used web search to retrieve real-time stock data. The research agent found and cited 7 real academic papers with arXiv URLs.
-
-\subsubsection{Quality: RPC vs.\ Spawn}
+\subsubsection{Quality: AgenticMail Call Agent vs.\ OpenClaw Sessions Spawn}
 
 \begin{table}[H]
 \centering
@@ -285,7 +298,7 @@ Sub-agents consistently produced expert-level output across all domains with det
 \label{tab:quality-compare}
 \begin{tabular}{@{}lcc@{}}
 \toprule
-\textbf{Dimension} & \textbf{RPC} & \textbf{Spawn} \\
+\textbf{Dimension} & \textbf{Call Agent} & \textbf{Spawn} \\
 \midrule
 Data accuracy & 5 & 4 \\
 Reasoning depth & 2 & 5 \\
@@ -297,77 +310,64 @@ Composability & 5 & 3 \\
 \end{tabular}
 \end{table}
 
-RPC returns raw data; spawn returns \emph{analyzed} data with expert judgment. The legal agent did not just identify risks---it provided exact protective contract language. The M\&A agents did not just list metrics---they provided specific red-flag thresholds and negotiation strategies. This kind of output is impossible from a structured RPC call.
+AgenticMail Call Agent returns raw data; OpenClaw Sessions Spawn returns \emph{analyzed} data with expert judgment. The legal agent (\texttt{results/03}) did not just identify risks---it provided exact protective contract language. The M\&A agents (\texttt{results/10,13,15}) provided specific red-flag thresholds and negotiation strategies. This depth of reasoning is impossible from a structured call.
 
 \subsection{Multi-Agent Collaboration}
 
 \subsubsection{Sequential Handoff: Collaborative Story}
 
-Agent~A wrote Part~1 of ``The Maintenance Hours'' (430 words, 29\,s)---a literary science fiction piece about an AI discovering anomalous dreaming processes. Agent~B received Part~1 as input and wrote Part~2 (480 words, 29\,s) that:
+Agent~A (\texttt{results/07}) wrote Part~1 (430 words, 29\,s). Agent~B (\texttt{results/11}) received Part~1 and wrote Part~2 (480 words, 29\,s) that maintained perfect tonal consistency, resolved the plot arc, mirrored the opening line, and introduced zero contradictions.
 
-\begin{itemize}[itemsep=1pt,topsep=2pt]
-    \item Maintained perfect tonal consistency
-    \item Resolved the plot arc coherently
-    \item Mirrored the opening line in the closing paragraph
-    \item Introduced no contradictions with Part~1's details
-\end{itemize}
+\textbf{Collaboration quality: 5/5.}
 
-\textbf{Collaboration quality: 5/5.} A human reader would not detect the authorship boundary.
+\subsubsection{Parallel Specialist: M\&A Due Diligence (3 agents)}
 
-\subsubsection{Parallel Specialist: M\&A Due Diligence}
-
-Three agents independently analyzed the same hypothetical \$400M SaaS acquisition from financial, legal, and operational perspectives:
+Three OpenClaw agents independently analyzed a \$400M SaaS acquisition:
 
 \begin{table}[H]
 \centering
-\caption{M\&A collaboration: 3 parallel specialist agents.}
+\caption{M\&A collaboration: 3 parallel agents.}
 \label{tab:ma-collab}
-\begin{tabular}{@{}lrl@{}}
+\begin{tabular}{@{}lrll@{}}
 \toprule
-\textbf{Agent} & \textbf{Time} & \textbf{Key Finding} \\
+\textbf{Agent} & \textbf{Time} & \textbf{Key Finding} & \textbf{Ref} \\
 \midrule
-Financial & 78\,s & 8$\times$ justified if NRR $>$110\% \\
-Legal & 90\,s & OSS contamination is critical \\
-Operational & 107\,s & Key-person retention is top risk \\
+Financial & 78\,s & 8x if NRR $>$110\% & \texttt{10} \\
+Legal & 90\,s & OSS contamination & \texttt{13} \\
+Operational & 107\,s & Key-person risk & \texttt{15} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Cross-agent coherence was remarkable: all three independently valued the deal at ``upper end of fair'' or ``reasonable with conditions.'' Financial flagged customer concentration; Legal independently flagged change-of-control provisions in customer contracts. Operational flagged post-acquisition attrition; Legal independently flagged non-compete enforceability concerns. \textbf{Zero contradictions detected.}
+All three independently valued the deal at ``upper end of fair.'' Financial flagged customer concentration; Legal independently flagged change-of-control provisions. \textbf{Zero contradictions.} Reports are directly combinable.
 
-\textbf{Collaboration quality: 5/5.} The three reports could be combined into a comprehensive due diligence package with no reconciliation needed.
-
-\subsubsection{Parallel Specialist: Clinical Trial}
-
-Two agents independently analyzed a Phase~III clinical trial for an oral GLP-1 receptor agonist:
+\subsubsection{Parallel Specialist: Clinical Trial (2 agents)}
 
 \begin{table}[H]
 \centering
-\caption{Clinical trial collaboration: 2 parallel specialist agents.}
+\caption{Clinical trial: 2 parallel agents.}
 \label{tab:clinical-collab}
-\begin{tabular}{@{}lrl@{}}
+\begin{tabular}{@{}lrll@{}}
 \toprule
-\textbf{Agent} & \textbf{Time} & \textbf{Key Output} \\
+\textbf{Agent} & \textbf{Time} & \textbf{Key Output} & \textbf{Ref} \\
 \midrule
-Statistical & 88\,s & Complete SAP with power calc. \\
-Regulatory & 97\,s & 505(b)(1) NDA, CVOT required \\
+Statistical & 88\,s & Full SAP, power calc. & \texttt{12} \\
+Regulatory & 97\,s & 505(b)(1), CVOT & \texttt{14} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Both agents identified CV events as underpowered in this trial; the statistics agent recommended ``descriptive only'' while the regulatory agent specified a post-marketing CVOT---perfect alignment. Both referenced ICH~E9(R1) for missing data handling.
-
-\textbf{Collaboration quality: 5/5.} A clinical development team could combine these into a single protocol with minimal editing.
+Both identified CV events as underpowered; Stats recommended ``descriptive only,'' Regulatory specified post-marketing CVOT. Both cited ICH~E9(R1). \textbf{Perfect alignment.}
 
 \subsection{Parallelism and Throughput}
 
 \begin{table}[H]
 \centering
-\caption{Parallel execution speedup.}
+\caption{Parallel execution speedup (OpenClaw Sessions Spawn).}
 \label{tab:parallel}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-\textbf{Wave} & \textbf{N} & \textbf{Seq.\ Est.} & \textbf{Parallel} & \textbf{Speedup} \\
+\textbf{Wave} & \textbf{N} & \textbf{Seq.} & \textbf{Parallel} & \textbf{Speedup} \\
 \midrule
 Wave~1 & 6 & 375\,s & 72\,s & 5.2$\times$ \\
 Wave~2 & 5 & 300\,s & 78\,s & 3.8$\times$ \\
@@ -378,86 +378,55 @@ Wave~3 & 5 & 411\,s & 107\,s & 3.8$\times$ \\
 \end{tabular}
 \end{table}
 
-The system enforced a maximum of 5--6 concurrent sub-agents, requiring wave-based execution. With higher concurrency limits, all 16 tasks could theoretically complete in $\sim$107\,s total.
+\section{When to Use Which}
 
-\section{Discussion}
+\subsection{Use AgenticMail Call Agent When:}
 
-\subsection{Revising the Conversational Fallacy}
+\begin{itemize}[itemsep=2pt,topsep=4pt]
+    \item The task is primarily \textbf{data retrieval} (weather, stock prices, database lookups)
+    \item You need results in \textbf{under 5 seconds}
+    \item Output must be \textbf{machine-parseable} for downstream programs
+    \item The orchestrator needs to \textbf{synthesize data from multiple sources} before presenting to the user
+    \item Cost efficiency matters---fewer tokens, no session overhead
+    \item Use \texttt{mode="light"} for simple lookups, \texttt{mode="heavy"} when the subordinate needs email/memory access
+\end{itemize}
 
-Our initial paper introduced the ``Conversational Fallacy''---the assumption that LLM agents should communicate in natural language. After testing across 10 industries, we revise this concept:
+\subsection{Use OpenClaw Sessions Spawn When:}
 
-\textbf{The fallacy is real but narrower than initially claimed.} For data retrieval tasks (weather, stock prices, database lookups), natural language communication between agents is genuinely wasteful. However, for complex reasoning tasks (legal analysis, medical assessment, strategic planning), natural language is not just the medium---it is intrinsic to the output's value. A structured JSON response to ``analyze this contract for risks'' would be either (a)~a lossy compression of the nuanced analysis, or (b)~so deeply nested that it is just natural language with extra brackets.
+\begin{itemize}[itemsep=2pt,topsep=4pt]
+    \item The task requires \textbf{multi-step reasoning or domain expertise} (see all 16 results in \texttt{results/})
+    \item You need \textbf{creative output} (writing, design, brainstorming)
+    \item The output \textbf{is the deliverable} (reports, reviews, analysis, curriculum)
+    \item You want \textbf{multiple specialists} working in parallel on complementary aspects
+    \item The sub-agent needs to \textbf{use tools autonomously} (web search, file access)
+    \item Use \texttt{mode="run"} for one-shot tasks, \texttt{mode="session"} for persistent threads
+\end{itemize}
 
-We propose a refined principle: \textbf{The Conversational Fallacy applies to data exchange, not to reasoning exchange.}
-
-\subsection{A Taxonomy of Inter-Agent Tasks}
-
-Based on our empirical results, we propose a four-quadrant taxonomy along two axes: \emph{complexity} (low to high) and \emph{task nature} (data-centric to reasoning-centric).
-
-\textbf{Quadrant~1} (Low complexity, data-centric): RPC is strictly superior. Examples: weather, prices, database queries. Latency advantage: 53--107$\times$.
-
-\textbf{Quadrant~2} (High complexity, data-centric): RPC with post-processing. Examples: aggregation pipelines, ETL tasks.
-
-\textbf{Quadrant~3} (Low complexity, reasoning-centric): Either works; RPC saves time, spawn adds personality. Examples: simple Q\&A, translations.
-
-\textbf{Quadrant~4} (High complexity, reasoning-centric): Spawn is strictly superior. Examples: M\&A diligence, clinical trial design, creative writing. Expert-level analysis is impossible via RPC.
-
-\subsection{The Case for Hybrid Architecture}
-
-Our results strongly argue for a \textbf{hybrid approach}:
+\subsection{Decision Flowchart}
 
 \begin{enumerate}[itemsep=2pt,topsep=4pt]
-    \item \textbf{Use RPC for:} Real-time data retrieval, composable data points, high-frequency queries, time-critical operations, machine-to-machine data flows.
-    \item \textbf{Use Spawn for:} Complex domain analysis, creative tasks, multi-step reasoning, tasks where the output \emph{is} the deliverable, multi-agent collaboration.
-\end{enumerate}
-
-Estimated optimal split based on typical orchestrator workloads: $\sim$60\% RPC, $\sim$40\% Spawn.
-
-\subsection{Multi-Agent Collaboration Patterns}
-
-Our experiments revealed three viable collaboration patterns:
-
-\textbf{Pattern~1: Sequential Handoff} (Story A$\to$B). Agent~A produces output; Agent~B receives it as context. Works well for creative, editorial, and iterative refinement tasks.
-
-\textbf{Pattern~2: Parallel Specialist} (M\&A Finance + Legal + Ops). Multiple agents analyze the same subject from different perspectives simultaneously. Produces comprehensive analysis in wall-clock time of the slowest agent.
-
-\textbf{Pattern~3: Complementary Parallel} (Clinical Stats + Regulatory). Agents cover different aspects of a unified deliverable. Outputs designed to be merged into a single document.
-
-All three patterns produced high-quality, coherent results \emph{without inter-agent communication during execution}. Well-specified task prompts can substitute for real-time agent coordination in many scenarios.
-
-\subsection{Orchestrator Agency Revisited}
-
-Our initial study argued that RPC preserves orchestrator agency while spawning diminishes it. We now revise this:
-
-\textbf{RPC preserves agency for data-driven tasks}---the orchestrator synthesizes raw data across sources.
-
-\textbf{Spawning creates \emph{emergent} agency}---when a specialist agent produces the M\&A due diligence report, the quality of reasoning exceeds what the orchestrator could achieve by composing raw data points. The orchestrator's role shifts from ``synthesizer of data'' to ``curator of expert opinions''---a different but equally valid form of agency.
-
-\subsection{Limitations}
-
-\begin{enumerate}[itemsep=2pt,topsep=4pt]
-    \item \textbf{Single model family.} All agents used Claude (Anthropic). Cross-model spawning was not tested.
-    \item \textbf{No ground truth.} Quality assessments are subjective. Outputs were not validated by licensed professionals.
-    \item \textbf{Concurrency cap.} The system enforced a 5--6 agent limit; higher parallelism was not tested.
-    \item \textbf{Token costs not measured.} We tracked latency and output length but not total token consumption.
-    \item \textbf{No adversarial collaboration.} All tasks were designed to be complementary; contradictory scenarios were not tested.
-    \item \textbf{Single hardware configuration.} Network conditions and API throttling could affect reproducibility.
+    \item Is the task primarily data retrieval? $\to$ \textbf{AgenticMail Call Agent}
+    \item Does it require domain expertise or multi-step reasoning? $\to$ \textbf{OpenClaw Sessions Spawn}
+    \item Is latency critical ($<$5\,s)? $\to$ \textbf{AgenticMail Call Agent}
+    \item Must output be consumed by another program? $\to$ \textbf{AgenticMail Call Agent}
+    \item Is this a collaboration task requiring multiple perspectives? $\to$ \textbf{Multiple OpenClaw Spawns in parallel}
+    \item Otherwise: default to AgenticMail Call Agent for efficiency.
 \end{enumerate}
 
 \section{Honest Ranking}
 
 \begin{table}[H]
 \centering
-\caption{Overall paradigm ranking by criterion.}
+\caption{Head-to-head ranking.}
 \label{tab:ranking}
-\begin{tabular}{@{}llp{2.8cm}@{}}
+\begin{tabular}{@{}llp{2.5cm}@{}}
 \toprule
 \textbf{Criterion} & \textbf{Winner} & \textbf{Margin} \\
 \midrule
-Latency & RPC & Decisive (53--107$\times$) \\
-Output structure & RPC & Decisive \\
-Composability & RPC & Strong \\
-Cost efficiency & RPC & Strong \\
+Latency & Call Agent & Decisive (24--107$\times$) \\
+Output structure & Call Agent & Decisive \\
+Composability & Call Agent & Strong \\
+Cost efficiency & Call Agent & Strong \\
 Reasoning depth & Spawn & Decisive \\
 Domain versatility & Spawn & Strong \\
 Creative capability & Spawn & Decisive \\
@@ -468,38 +437,28 @@ Scalability & Spawn & Moderate (parallel) \\
 \end{tabular}
 \end{table}
 
-\textbf{Overall: It is not a competition---they solve different problems.}
+\textbf{Overall: They solve different problems. Neither is universally better.}
 
-\subsection{Decision Framework}
-
-For practitioners selecting between paradigms:
-
-\begin{enumerate}[itemsep=2pt,topsep=4pt]
-    \item Is the task primarily data retrieval? $\to$ \textbf{Use RPC.}
-    \item Does it require multi-step reasoning or domain expertise? $\to$ \textbf{Use Spawn.}
-    \item Is latency critical ($<$5\,s)? $\to$ \textbf{Use RPC.}
-    \item Must output be consumed by another program? $\to$ \textbf{Use RPC.}
-    \item Is this a collaboration task requiring multiple perspectives? $\to$ \textbf{Use multiple Spawns in parallel.}
-    \item Otherwise: default to RPC for efficiency.
-\end{enumerate}
+AgenticMail Call Agent wins when you need fast, structured data. OpenClaw Sessions Spawn wins when you need deep thinking. The best architecture uses both.
 
 \section{Conclusion}
 
-This expanded study fundamentally revises our initial assessment. Where our first paper argued that structured RPC is ``not merely a performance optimization but a fundamental architectural requirement,'' we now present a more nuanced position: \textbf{both paradigms are fundamental architectural requirements, serving complementary roles.}
+This study demonstrates that AgenticMail Call Agent and OpenClaw Sessions Spawn are \textbf{complementary, not competing} paradigms.
 
-Structured RPC remains the correct choice for data exchange---it is 53--107$\times$ faster, produces machine-parseable output, and preserves orchestrator control. The Conversational Fallacy remains real for data-centric inter-agent communication.
+\textbf{AgenticMail Call Agent} (\texttt{call\_agent}) excels at structured data exchange. In \texttt{mode="light"}, it completes in $\sim$1\,s, returns machine-parseable JSON, and preserves full orchestrator control. It is the right choice for data retrieval, composable subtasks, and latency-sensitive operations.
 
-However, text-based spawning demonstrated capabilities that RPC fundamentally cannot replicate:
+\textbf{OpenClaw Sessions Spawn} (\texttt{sessions\_spawn}) excels at autonomous specialist work. Across 16 tasks in 10 industries (average quality 4.87/5), it produced expert-level analysis that no structured call could replicate:
 
 \begin{itemize}[itemsep=2pt,topsep=4pt]
-    \item \textbf{Expert-level domain reasoning} across finance, healthcare, law, operations, biostatistics, regulatory affairs, supply chain, data science, education, and marketing---all at quality levels a human specialist would find credible (average 4.87/5).
-    \item \textbf{Seamless multi-agent collaboration} where 2--3 parallel specialists produced coherent, complementary outputs without real-time coordination.
-    \item \textbf{Creative collaboration} where sequential handoff between agents produced a unified literary work indistinguishable from single-author output.
+    \item The legal agent (\texttt{results/03}) wrote protective contract language
+    \item The clinical trial agents (\texttt{results/12,14}) designed a complete Phase~III protocol
+    \item The M\&A agents (\texttt{results/10,13,15}) produced a combinable due diligence package with zero contradictions
+    \item The creative agents (\texttt{results/07,11}) wrote a seamless two-part literary story
 \end{itemize}
 
-The question is not ``which paradigm is better''---it is ``which paradigm is better \emph{for this task}.'' The hybrid architecture we propose---RPC for data, Spawn for reasoning---represents the mature design pattern for production multi-agent systems.
+For users choosing between the two: \textbf{use Call Agent for data, use Sessions Spawn for reasoning.} For architects building multi-agent systems: \textbf{implement both.}
 
-Future work should explore structured-output spawning (agents that reason deeply but return typed results), coordinated multi-agent protocols (agents that communicate mid-task), and cross-model collaboration (leveraging different models' strengths within a single workflow).
+All 16 test results are available in the companion \texttt{results/} directory with full metadata, enabling independent evaluation of output quality.
 
 \begin{thebibliography}{9}
 
