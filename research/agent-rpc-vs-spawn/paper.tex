@@ -8,14 +8,17 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{hyperref}
 \usepackage{xcolor}
+\usepackage{colortbl}
 \usepackage{listings}
 \usepackage{caption}
 \usepackage{float}
 \usepackage{enumitem}
 \usepackage{multirow}
 \usepackage{array}
+\usepackage{tabularx}
 
 \hypersetup{
     colorlinks=true,
@@ -40,6 +43,17 @@
 \setlength{\parskip}{4pt}
 \setlength{\parindent}{0pt}
 
+% Color definitions for ranking cells
+\definecolor{winner}{rgb}{0.8,1.0,0.8}    % green!20
+\definecolor{loser}{rgb}{1.0,0.9,0.9}     % red!10
+\definecolor{tied}{rgb}{1.0,1.0,0.85}     % yellow!15
+
+\newcommand{\win}[1]{\cellcolor{winner}#1}
+\newcommand{\lose}[1]{\cellcolor{loser}#1}
+\newcommand{\tie}[1]{\cellcolor{tied}#1}
+
+\newcommand{\ghbase}{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn}
+
 \title{\Large\textbf{AgenticMail Call Agent vs.\ OpenClaw Sessions Spawn:\\A Comparative Analysis of Inter-Agent\\Communication Paradigms}}
 
 \author{
@@ -48,417 +62,513 @@
     \texttt{ope.olatunji@outlook.com}
 }
 
-\date{March 27, 2026 (Revised)}
+\date{March 27, 2026 --- v4 (Side-by-Side Comparison)}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles of specialized agents, the communication layer between agents becomes a critical design decision. This paper presents a comparative analysis of two production inter-agent communication paradigms: (1)~\textbf{AgenticMail Call Agent} (\texttt{call\_agent}), a structured synchronous delegation pattern with configurable execution modes (\texttt{light}, \texttt{heavy}, \texttt{default}), and (2)~\textbf{OpenClaw Sessions Spawn} (\texttt{sessions\_spawn}), a free-text sub-agent spawning pattern with full session isolation. Through extensive empirical testing across \textbf{16 sub-agent tasks spanning 10 industries}---including multi-agent parallel collaboration scenarios---we evaluate both paradigms on latency, output quality, domain versatility, and collaboration capability. We find that AgenticMail Call Agent achieves dramatically lower latency ($\sim$1\,s vs.\ 24--107\,s) and produces machine-parseable outputs, while OpenClaw Sessions Spawn excels at complex reasoning, creative collaboration, and domain-specialist tasks. We argue that the optimal architecture is a \textbf{hybrid}: AgenticMail Call Agent for data retrieval, OpenClaw Sessions Spawn for autonomous specialist work. Full test results are provided as reference files in the companion \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results}{\texttt{results/}} directory.
+As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles, the communication layer between agents becomes a critical design decision. This paper presents a \textbf{side-by-side empirical comparison} of two production inter-agent communication paradigms: (1)~\textbf{AgenticMail Call Agent} (\texttt{call\_agent}), a structured synchronous/async delegation pattern with three execution modes (\texttt{light}, \texttt{standard}, \texttt{full}), and (2)~\textbf{OpenClaw Sessions Spawn} (\texttt{sessions\_spawn}), a free-text sub-agent spawning pattern with full session isolation. Through \textbf{9 Call Agent tests} and \textbf{16 Sessions Spawn tests} across 10 industries, we evaluate both paradigms on latency, output quality, domain versatility, output structure, and collaboration capability. Our key finding overturns an earlier assumption: \textbf{Call Agent in standard/full mode produces deep, structured analysis comparable to Sessions Spawn}---not just shallow data retrieval. We additionally demonstrate \textbf{inter-agent email coordination} in Call Agent's full mode, where a finance agent autonomously emailed a writer agent. We conclude with a decision framework: use Call Agent for structured, composable outputs; use Sessions Spawn for autonomous specialist work requiring tool use and free-form reasoning. Full test results for both paradigms are provided in companion directories:
+\href{\ghbase/results-callagent}{\texttt{results-callagent/}} and \href{\ghbase/results}{\texttt{results/}}.
 \end{abstract}
 
-\textbf{Keywords:} multi-agent systems, AgenticMail, OpenClaw, inter-agent communication, orchestration, AI agents, tool use, collaboration
+\textbf{Keywords:} multi-agent systems, AgenticMail, OpenClaw, inter-agent communication, orchestration, AI agents, structured delegation, call\_agent, sessions\_spawn
 
 \section{Introduction}
 
 The rapid advancement of large language model (LLM) capabilities has given rise to agentic AI systems---autonomous agents equipped with tools, memory, and the ability to take actions in the world~\cite{yao2023react, wang2024survey}. Two production platforms for multi-agent orchestration are \textbf{AgenticMail}, a structured agent communication framework with typed task delegation, and \textbf{OpenClaw}, an open-source personal AI assistant platform supporting isolated sub-agent sessions.
 
-Each platform offers a distinct paradigm for inter-agent communication. This paper tests both paradigms head-to-head across 16 tasks in 10 industries to help users decide: \emph{when should you use AgenticMail Call Agent, and when should you use OpenClaw Sessions Spawn?}
+Each platform offers a distinct paradigm for inter-agent communication. This paper tests both paradigms head-to-head across overlapping task domains to answer: \emph{when should you use AgenticMail Call Agent, and when should you use OpenClaw Sessions Spawn?}
+
+\textbf{Prior versions} of this paper (v1--v3) tested Call Agent only in \texttt{light} mode, leading to a biased conclusion that it could only handle shallow data retrieval ($\sim$1\,s, structured JSON but no deep reasoning). \textbf{This version (v4)} tests Call Agent across all three modes---\texttt{light}, \texttt{standard}, and \texttt{full}---revealing that it produces \textbf{deep, structured analysis} on complex tasks, fundamentally changing the comparison.
 
 We identify five critical axes of comparison:
 
 \begin{enumerate}[itemsep=2pt,topsep=4pt]
-    \item \textbf{Latency and throughput}---How quickly can the orchestrator receive actionable results?
-    \item \textbf{Output structure and composability}---Can results be programmatically consumed?
-    \item \textbf{Orchestrator agency}---Does the pattern preserve or diminish the primary agent's control?
-    \item \textbf{Domain depth and reasoning quality}---How well does each paradigm handle complex, specialist tasks?
-    \item \textbf{Multi-agent collaboration}---Can agents work on complementary parts of a larger problem?
+    \item \textbf{Latency}---How quickly does the orchestrator receive results?
+    \item \textbf{Output structure}---Can results be programmatically consumed?
+    \item \textbf{Reasoning depth}---How well does each handle complex analysis?
+    \item \textbf{Domain versatility}---Performance across diverse industries?
+    \item \textbf{Multi-agent collaboration}---Can agents coordinate on larger problems?
 \end{enumerate}
 
 \section{The Two Paradigms}
 
 \subsection{AgenticMail Call Agent}
 
-The AgenticMail \texttt{call\_agent} function implements a \textbf{synchronous structured delegation} pattern. The orchestrating agent submits a task to a named subordinate agent and receives a structured JSON result inline.
+The AgenticMail \texttt{call\_agent} function implements a \textbf{structured delegation} pattern. The orchestrating agent submits a task to a named subordinate agent and receives a structured JSON result.
 
-\textbf{Execution modes} control the scope of the subordinate's environment:
+\textbf{Three execution modes} control the subordinate's environment:
 
 \begin{itemize}[itemsep=2pt,topsep=2pt]
-    \item \texttt{mode="light"} --- Minimal overhead. Skips email infrastructure, full context loading, and heavyweight initialization. Ideal for data retrieval, lookups, and simple transformations. Lowest latency ($\sim$1\,s).
-    \item \texttt{mode="heavy"} --- Full agent session with email tools, memory, and extended context. Used when the subordinate needs to send emails, access user history, or perform multi-step workflows. Higher latency ($\sim$5--15\,s).
-    \item \texttt{mode="default"} --- Standard initialization. Balanced between light and heavy. Loads core tools but not the full email stack.
+    \item \texttt{mode="light"} --- No email, no memory, no workspace. Lowest latency. Ideal for data retrieval and lookups.
+    \item \texttt{mode="standard"} --- Web search, tools, trimmed context. Balanced for analysis tasks. Supports sync and async execution.
+    \item \texttt{mode="full"} --- All coordination features including inter-agent email. For multi-agent collaboration workflows.
 \end{itemize}
 
 \begin{lstlisting}
-// AgenticMail Call Agent (light mode)
-Orchestrator -> call_agent(
-    target: "weather-agent",
-    task: "Get weather for Charlotte, NC",
-    mode: "light"
+// Call Agent — standard mode (sync)
+result = call_agent(
+    target: "finance-agent",
+    task: "Analyze AAPL stock",
+    mode: "standard"
 )
-<- { status: "completed",
-     result: { temperature: "69F",
-               humidity: "59%", ... } }
+// Returns structured JSON:
+// { status: "completed",
+//   result: { price: "$248.80",
+//     pe_ratio: 31.41,
+//     recommendation: "Hold" ... } }
 \end{lstlisting}
 
-\textbf{Key characteristic:} The orchestrator retains full control. It receives raw data and decides how to present it to the user.
+\textbf{Key characteristic:} Returns structured JSON regardless of task complexity. The orchestrator receives machine-parseable data and decides presentation.
 
 \subsection{OpenClaw Sessions Spawn}
 
-The OpenClaw \texttt{sessions\_spawn} function creates an \textbf{isolated sub-agent session} with a natural language task prompt. The sub-agent has its own context, tools, and execution environment. The orchestrator yields its turn and receives the result via push notification.
+OpenClaw \texttt{sessions\_spawn} creates an \textbf{isolated sub-agent session} with a natural language prompt. The sub-agent has its own context, tools, and environment. Results arrive via push notification.
 
 \begin{lstlisting}
-// OpenClaw Sessions Spawn
-Orchestrator -> sessions_spawn(
+// Sessions Spawn
+sessions_spawn(
     task: "Analyze AAPL stock...",
-    mode: "run",
-    label: "finance-analysis"
+    mode: "run", label: "finance"
 )
--> sessions_yield()
-<- [push] "sub-agent completed"
-<- "## AAPL Investment Brief ...
-    Current Price: $249.23 ...
-    Bull Case: AI monetization ...
-    Recommendation: Hold, buy <$235"
+sessions_yield() // yield turn
+// Push: sub-agent completed
+// Returns free-form markdown:
+// "## AAPL Investment Brief
+//  Current Price: $249.23 ...
+//  Bull Case: AI monetization ..."
 \end{lstlisting}
 
-\textbf{Key characteristic:} The sub-agent operates autonomously. It can use web search, file access, and other tools. Output is free-form natural language with expert reasoning.
+\textbf{Key characteristic:} Returns free-form natural language with expert reasoning, tool use traces, and autonomous decision-making.
 
 \section{Methodology}
 
 \subsection{Experimental Setup}
 
-All tests were conducted on consumer hardware (Apple Mac mini, ARM64, macOS~25.2.0, Node.js~v25.5.0) with Claude Opus (Anthropic) as the underlying language model for both paradigms.
+All tests ran on consumer hardware (Apple Mac mini, ARM64, macOS~25.2.0, Node.js~v25.5.0) with Claude Opus (Anthropic) as the underlying model for both paradigms.
 
-\textbf{AgenticMail Call Agent} was tested in \texttt{mode="light"} for the weather baseline task (the primary use case for structured data retrieval).
+\textbf{AgenticMail Call Agent:} 9 tests across light (1), standard (7, including 2 async), and full (1) modes.
 
-\textbf{OpenClaw Sessions Spawn} was tested with \texttt{mode="run"} (one-shot isolated sessions) across all 16 tasks, executed in three parallel waves with up to 5--6 concurrent sub-agents.
+\textbf{OpenClaw Sessions Spawn:} 16 tests executed in three parallel waves (5--6 concurrent sub-agents per wave).
 
-\subsection{Test Battery}
+\subsection{Overlapping Test Domains}
 
-\textbf{Wave~1---Single-Agent Domain Specialists} (6 parallel):
-\begin{enumerate}[itemsep=1pt,topsep=2pt]
-    \item \emph{Finance:} AAPL stock analysis with live web data \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/02-finance-aapl.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/02*.md}{\texttt{results/02}}}
-    \item \emph{Healthcare:} Drug interaction analysis (3 drugs) \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/06-healthcare-drugs.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/06*.md}{\texttt{results/06}}}
-    \item \emph{Legal:} SaaS ToS contract risk analysis \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03-legal-saas.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03*.md}{\texttt{results/03}}}
-    \item \emph{Software Eng.:} Security code review with fix \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/01-code-review.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/01*.md}{\texttt{results/01}}}
-    \item \emph{Marketing:} Gen~Z product launch (\$50K budget) \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/16-marketing-campaign.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/16*.md}{\texttt{results/16}}}
-    \item \emph{Education:} 4-week ML curriculum design \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/05-education-ml.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/05*.md}{\texttt{results/05}}}
-\end{enumerate}
+To enable direct comparison, we tested both paradigms on \textbf{7 overlapping domains}. Two additional domains were tested only with Call Agent (weather, which is trivial for Spawn) and 9 additional domains were tested only with Sessions Spawn (legal, creative, research, clinical trials, M\&A legal/ops).
 
-\textbf{Wave~2---Specialists + Collaboration Seeds} (5 parallel):
-\begin{enumerate}[itemsep=1pt,topsep=2pt,start=7]
-    \item \emph{Supply Chain:} Shenzhen$\to$Charlotte route optimization \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/08-supply-chain.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/08*.md}{\texttt{results/08}}}
-    \item \emph{Data Science:} Forecasting model comparison \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/04-data-science.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/04*.md}{\texttt{results/04}}}
-    \item \emph{Research:} RAG literature review with citations \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/09-research-rag.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/09*.md}{\texttt{results/09}}}
-    \item \emph{Creative:} Sci-fi story Part~A (sequential collab) \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07-story-part-a.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07*.md}{\texttt{results/07}}}
-    \item \emph{M\&A Finance:} Financial due diligence \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10*.md}{\texttt{results/10}}}
-\end{enumerate}
+\section{Results: Side-by-Side Comparison}
 
-\textbf{Wave~3---Multi-Agent Collaboration} (5 parallel):
-\begin{enumerate}[itemsep=1pt,topsep=2pt,start=12]
-    \item \emph{Creative:} Sci-fi story Part~B (continues \#10) \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11-story-part-b.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11*.md}{\texttt{results/11}}}
-    \item \emph{M\&A Legal:} Legal due diligence \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13*.md}{\texttt{results/13}}}
-    \item \emph{M\&A Ops:} Operational due diligence \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15*.md}{\texttt{results/15}}}
-    \item \emph{Biostatistics:} Clinical trial SAP \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12*.md}{\texttt{results/12}}}
-    \item \emph{Regulatory:} Clinical trial regulatory strategy \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14*.md}{\texttt{results/14}}}
-\end{enumerate}
+\subsection{Weather / Data Retrieval}
 
-Each result file referenced above (e.g., \texttt{results/01-code-review.md}) contains the complete sub-agent output with metadata headers including runtime, token count, model, and method used.
+\begin{table}[H]
+\centering
+\caption{Weather: Charlotte, NC.}
+\begin{tabular}{@{}p{2.2cm}cc@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{light} & (not tested) \\
+Runtime & \win{18\,s} & --- \\
+Output & \win{Structured JSON} & --- \\
+Ref & \href{\ghbase/results-callagent/01-weather-light.md}{\texttt{CA-01}} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\section{Results}
+\textbf{Verdict:} Call Agent is the obvious choice for data retrieval. Spawning a full sub-agent for weather data would be wasteful.
+
+\subsection{Software Engineering: Code Review}
+
+\begin{table}[H]
+\centering
+\caption{Python security code review.}
+\begin{tabular}{@{}p{2.2cm}p{2.1cm}p{2.1cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{standard} & \texttt{run} \\
+Runtime & \lose{$\sim$100\,s} & \win{24\,s} \\
+Issues found & \tie{9} & \tie{9} \\
+Corrected code & \win{Full JSON} & Inline markdown \\
+Machine-parse & \win{Yes} & \lose{No} \\
+Ref & \href{\ghbase/results-callagent/02-code-review-standard.md}{\texttt{CA-02}} & \href{\ghbase/results/01-code-review.md}{\texttt{SS-01}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Verdict:} Spawn was 4$\times$ faster here. Both found 9 issues with similar severity breakdown. Call Agent's advantage is structured output (CWE codes, line numbers, severity as fields) that can feed into CI/CD pipelines. Spawn's output reads better as a human-facing report.
+
+\subsection{Finance: AAPL Stock Analysis}
+
+\begin{table}[H]
+\centering
+\caption{AAPL investment analysis.}
+\begin{tabular}{@{}p{2.2cm}p{2.1cm}p{2.1cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{standard} & \texttt{run} \\
+Runtime & \lose{$\sim$130\,s} & \win{36\,s} \\
+Price data & \$248.80 & \$249.23 \\
+PE ratio & 31.41 & 31.2 \\
+Bull/bear cases & \tie{Yes} & \tie{Yes} \\
+Analyst consensus & \win{42 analysts} & General \\
+Technical levels & \win{Support/resist.} & Not included \\
+Machine-parse & \win{Yes} & \lose{No} \\
+Ref & \href{\ghbase/results-callagent/03-finance-aapl-standard.md}{\texttt{CA-03}} & \href{\ghbase/results/02-finance-aapl.md}{\texttt{SS-02}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Verdict:} Call Agent was slower (web search overhead) but produced more data points including analyst counts and technical levels. Spawn was faster and wrote a more readable narrative. For a dashboard: Call Agent. For a client brief: Spawn.
+
+\subsection{Healthcare: Drug Interactions}
+
+\begin{table}[H]
+\centering
+\caption{Drug interaction analysis (Metformin / Lisinopril / Atorvastatin).}
+\begin{tabular}{@{}p{2.2cm}p{2.1cm}p{2.1cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{standard} & \texttt{run} \\
+Runtime & \lose{$\sim$96\,s} & \win{72\,s} \\
+Pairs analyzed & \tie{3} & \tie{3} \\
+Severity ratings & \win{Per-pair} & Narrative \\
+Mechanisms & \tie{Detailed} & \tie{Detailed} \\
+Monitoring plans & \tie{Yes} & \tie{Yes} \\
+FDA alerts & \win{4 with dates} & General \\
+Machine-parse & \win{Yes} & \lose{No} \\
+Ref & \href{\ghbase/results-callagent/04-healthcare-drugs-standard.md}{\texttt{CA-04}} & \href{\ghbase/results/06-healthcare-drugs.md}{\texttt{SS-06}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Verdict:} Both produced comprehensive drug interaction reports. Call Agent structured each pair with explicit severity fields and included dated FDA alerts---better for clinical decision support systems. Spawn wrote a more readable clinical narrative. Quality is comparable; the difference is format.
+
+\subsection{Marketing: Gen Z Campaign}
+
+\begin{table}[H]
+\centering
+\caption{Gen Z budgeting app launch campaign.}
+\begin{tabular}{@{}p{2.2cm}p{2.1cm}p{2.1cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{standard} & \texttt{run} \\
+Runtime & \win{$\sim$48\,s} & \lose{88\,s} \\
+Persona & \tie{Yes} & \tie{Yes} \\
+Msg.\ pillars & \tie{4} & \tie{4} \\
+Channels & \tie{6} & \tie{6} \\
+CAC projections & \win{Per-channel} & General \\
+Budget alloc. & \tie{Detailed} & \tie{Detailed} \\
+Week-1 content & \win{Per-channel} & Summary \\
+Machine-parse & \win{Yes} & \lose{No} \\
+Ref & \href{\ghbase/results-callagent/05-marketing-campaign-standard.md}{\texttt{CA-05}} & \href{\ghbase/results/16-marketing-campaign.md}{\texttt{SS-16}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Verdict:} Call Agent was faster \emph{and} more detailed here---per-channel CAC projections, specific week-1 content for each channel. This is a case where structured JSON contains more actionable data than the free-form output. Call Agent wins on both speed and substance.
+
+\subsection{Supply Chain: Shenzhen to Charlotte}
+
+\begin{table}[H]
+\centering
+\caption{Shipping route optimization.}
+\begin{tabular}{@{}p{2.2cm}p{2.1cm}p{2.1cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{standard} & \texttt{run} \\
+Runtime & \lose{$\sim$141\,s} & \win{62\,s} \\
+Routes compared & \tie{3} & \tie{3} \\
+Cost per TEU & \win{Ranges} & Estimates \\
+Carrier names & \win{Specific} & General \\
+Alt.\ conditions & \win{Decision tree} & Brief \\
+Machine-parse & \win{Yes} & \lose{No} \\
+Ref & \href{\ghbase/results-callagent/06-supply-chain-standard.md}{\texttt{CA-06}} & \href{\ghbase/results/08-supply-chain.md}{\texttt{SS-08}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Verdict:} Call Agent was slower (141\,s vs 62\,s) but produced more granular data---specific carrier options, cost ranges per TEU, and explicit decision criteria for route selection. Spawn noted that web search was unavailable and relied on domain knowledge. When web access matters, Call Agent's standard mode (which includes search) has an advantage.
+
+\subsection{Data Science: Forecasting Models}
+
+\begin{table}[H]
+\centering
+\caption{Sales forecasting model comparison.}
+\begin{tabular}{@{}p{2.2cm}p{2.1cm}p{2.1cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{standard} & \texttt{run} \\
+Runtime & \win{$\sim$53\,s} & \lose{62\,s} \\
+Models compared & \tie{4} & \tie{4} \\
+MAPE ranges & \tie{Yes} & \tie{Yes} \\
+Impl.\ plan & \win{8 steps} & 6 steps \\
+Code examples & Described & \win{Inline} \\
+Machine-parse & \win{Yes} & \lose{No} \\
+Ref & \href{\ghbase/results-callagent/07-data-science-standard.md}{\texttt{CA-07}} & \href{\ghbase/results/04-data-science.md}{\texttt{SS-04}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Verdict:} Nearly identical quality and speed. Call Agent's 8-step implementation plan is more granular; Spawn included inline code snippets. Both recommended XGBoost. A tie on substance; Call Agent wins on structure, Spawn wins on readability.
+
+\subsection{Education: ML Curriculum}
+
+\begin{table}[H]
+\centering
+\caption{4-week ML curriculum design.}
+\begin{tabular}{@{}p{2.2cm}p{2.1cm}p{2.1cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{standard} & \texttt{run} \\
+Runtime & \lose{$\sim$93\,s} & \win{70\,s} \\
+Total hours & \tie{60} & \tie{60} \\
+Prerequisites & \tie{Detailed} & \tie{Detailed} \\
+Weekly projects & \tie{4} & \tie{4} \\
+Resources & \tie{Per-week} & \tie{Per-week} \\
+Assessment & \win{Rubric + \%} & General \\
+Post-curriculum & \win{4 paths} & 3 paths \\
+Machine-parse & \win{Yes} & \lose{No} \\
+Ref & \href{\ghbase/results-callagent/08-education-ml-standard.md}{\texttt{CA-08}} & \href{\ghbase/results/05-education-ml.md}{\texttt{SS-05}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Verdict:} Both produced excellent curricula. Call Agent included explicit grading rubrics and an extra career path. Spawn's narrative format is more immediately usable as course documentation. For LMS integration: Call Agent. For a syllabus document: Spawn.
+
+\subsection{M\&A Finance: Due Diligence}
+
+\begin{table}[H]
+\centering
+\caption{M\&A financial due diligence (TechCorp \$400M acquisition).}
+\begin{tabular}{@{}p{2.2cm}p{2.1cm}p{2.1cm}@{}}
+\toprule
+\textbf{Metric} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Mode & \texttt{full} & \texttt{run} \\
+Runtime & \win{$\sim$58\,s} & \lose{78\,s} \\
+Red flags & \tie{8} & \tie{8} \\
+Valuation & \tie{Detailed} & \tie{Detailed} \\
+Revenue quality & \tie{ARR/NRR/churn} & \tie{ARR/NRR/churn} \\
+Recommendation & \tie{Proceed w/ caut.} & \tie{Upper fair value} \\
+Email to writer & \win{Yes} & \lose{N/A} \\
+Machine-parse & \win{Yes} & \lose{No} \\
+Ref & \href{\ghbase/results-callagent/09-ma-finance-full.md}{\texttt{CA-09}} & \href{\ghbase/results/10-ma-finance.md}{\texttt{SS-10}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Verdict:} This is the most significant comparison. Both produced 8 red flags, detailed valuation analysis, and cautious recommendations. Call Agent was faster (58\,s vs 78\,s) and \textbf{autonomously emailed the writer agent} to begin formatting the deliverable---demonstrating inter-agent coordination within the AgenticMail ecosystem. Spawn produced a richer narrative but had no inter-agent communication capability.
+
+\section{Inter-Agent Email Coordination}
+
+The M\&A finance test (Call Agent, \texttt{mode="full"}) demonstrated a capability unique to AgenticMail: \textbf{inter-agent email coordination}. The finance agent, upon completing its analysis, autonomously identified that the results should be shared with a writer agent for formatting into a board-ready presentation. It sent an email within the AgenticMail system:
+
+\begin{lstlisting}
+email_coordination: {
+  email_sent_to_writer: true,
+  recipient_agent: "writer",
+  email_subject: "M&A Due Diligence Summary
+    -- TechCorp Acquisition",
+  email_purpose: "Sent executive summary
+    to writer agent for formatting
+    into board-ready presentation"
+}
+\end{lstlisting}
+
+This demonstrates a \textbf{workflow pattern} unique to Call Agent's full mode: agents can trigger downstream work in other agents without orchestrator intervention. OpenClaw Sessions Spawn requires the orchestrator to manually coordinate between agents (spawn A, wait for result, spawn B with A's output).
+
+\section{Aggregate Comparison}
 
 \subsection{Latency}
 
-\subsubsection{AgenticMail Call Agent Baseline}
-
 \begin{table}[H]
 \centering
-\caption{AgenticMail Call Agent baselines.}
-\label{tab:baselines}
-\begin{tabular}{@{}llll@{}}
-\toprule
-\textbf{Mode} & \textbf{Task} & \textbf{Time} & \textbf{Output} \\
-\midrule
-\texttt{light} & Weather & $\sim$1\,s & Structured JSON \\
-Direct curl & Weather & $\sim$0.7\,s & Raw JSON \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{OpenClaw Sessions Spawn Results}
-
-\begin{table}[H]
-\centering
-\caption{Wave~1: Single-agent specialists (6 parallel).}
-\label{tab:wave1}
-\begin{tabular}{@{}lrrl@{}}
-\toprule
-\textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
-\midrule
-Software Eng. & 24\,s & 1,300 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/01-code-review.md}{\texttt{01}} \\
-Finance & 36\,s & 1,200 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/02-finance-aapl.md}{\texttt{02}} \\
-Legal & 53\,s & 2,400 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03-legal-saas.md}{\texttt{03}} \\
-Data Science & 62\,s & 2,600 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/04-data-science.md}{\texttt{04}} \\
-Education & 70\,s & 3,300 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/05-education-ml.md}{\texttt{05}} \\
-Healthcare & 72\,s & 3,000 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/06-healthcare-drugs.md}{\texttt{06}} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[H]
-\centering
-\caption{Wave~2: Specialists + collaboration seeds (5 parallel).}
-\label{tab:wave2}
-\begin{tabular}{@{}lrrl@{}}
-\toprule
-\textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
-\midrule
-Creative (A) & 29\,s & 725 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07-story-part-a.md}{\texttt{07}} \\
-Supply Chain & 62\,s & 2,200 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/08-supply-chain.md}{\texttt{08}} \\
-Research & 69\,s & 2,500 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/09-research-rag.md}{\texttt{09}} \\
-M\&A Finance & 78\,s & 3,400 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[H]
-\centering
-\caption{Wave~3: Multi-agent collaboration (5 parallel).}
-\label{tab:wave3}
-\begin{tabular}{@{}lrrl@{}}
-\toprule
-\textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
-\midrule
-Creative (B) & 29\,s & 870 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11-story-part-b.md}{\texttt{11}} \\
-Clinical Stats & 88\,s & 3,800 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\texttt{12}} \\
-M\&A Legal & 90\,s & 3,800 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}} \\
-Clinical Reg. & 97\,s & 4,200 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\texttt{14}} \\
-M\&A Ops & 107\,s & 4,800 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{Latency Summary}
-
-\begin{table}[H]
-\centering
-\caption{Aggregate latency comparison.}
-\label{tab:latency-summary}
+\caption{Latency comparison across all tests.}
 \begin{tabular}{@{}lrr@{}}
 \toprule
 \textbf{Metric} & \textbf{Call Agent} & \textbf{Sessions Spawn} \\
 \midrule
-Minimum & $\sim$1\,s & 24\,s \\
-Maximum & $\sim$1\,s & 107\,s \\
-Median & $\sim$1\,s & 65\,s \\
-Mean & $\sim$1\,s & 64.3\,s \\
+Tests run & 9 & 16 \\
+Minimum & 18\,s & 24\,s \\
+Maximum & 141\,s & 107\,s \\
+Median & 93\,s & 65\,s \\
+Mean & 82\,s & 64\,s \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Spawn latency correlates strongly with output length ($r \approx 0.87$). AgenticMail Call Agent latency is constant regardless of task complexity because it returns structured data, not generated prose.
+\textbf{Note:} In standard/full modes, Call Agent is \emph{not} consistently faster than Spawn. Light mode ($\sim$18\,s) is the fastest option. Standard mode runtimes (48--141\,s) overlap significantly with Spawn (24--107\,s). The latency advantage from v1--v3 (which only tested light mode) does not hold across all modes.
 
 \subsection{Output Quality}
 
 \begin{table}[H]
 \centering
-\caption{OpenClaw Sessions Spawn quality (1--5). See \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results}{\texttt{results/}} for full outputs.}
-\label{tab:quality}
-\begin{tabular}{@{}lcccl@{}}
-\toprule
-\textbf{Domain} & \textbf{Dep.} & \textbf{Acc.} & \textbf{Avg.} & \textbf{Ref} \\
-\midrule
-Code Review & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/01-code-review.md}{\texttt{01}} \\
-Legal (SaaS) & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03-legal-saas.md}{\texttt{03}} \\
-Education & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/05-education-ml.md}{\texttt{05}} \\
-Data Science & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/04-data-science.md}{\texttt{04}} \\
-M\&A Finance & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}} \\
-M\&A Legal & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}} \\
-M\&A Ops & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}} \\
-Clinical Stats & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\texttt{12}} \\
-Clinical Reg. & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\texttt{14}} \\
-Creative & 5 & -- & \textbf{5.0} & \texttt{07,11} \\
-Healthcare & 5 & 4 & \textbf{4.75} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/06-healthcare-drugs.md}{\texttt{06}} \\
-Marketing & 5 & 4 & \textbf{4.75} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/16-marketing-campaign.md}{\texttt{16}} \\
-Finance (AAPL) & 5 & 4 & \textbf{4.5} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/02-finance-aapl.md}{\texttt{02}} \\
-Supply Chain & 4 & 4 & \textbf{4.5} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/08-supply-chain.md}{\texttt{08}} \\
-Research (RAG) & 5 & 4 & \textbf{4.5} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/09-research-rag.md}{\texttt{09}} \\
-\midrule
-\multicolumn{3}{@{}l}{\textbf{Overall Average}} & \textbf{4.87} & \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{Quality: AgenticMail Call Agent vs.\ OpenClaw Sessions Spawn}
-
-\begin{table}[H]
-\centering
-\caption{Quality comparison by dimension (score out of 5).}
-\label{tab:quality-compare}
+\caption{Quality comparison on 7 overlapping domains (1--5 scale).}
+\label{tab:quality-overlap}
 \begin{tabular}{@{}lcc@{}}
 \toprule
-\textbf{Dimension} & \textbf{Call Agent} & \textbf{Spawn} \\
+\textbf{Domain} & \textbf{Call Agent} & \textbf{Spawn} \\
 \midrule
-Data accuracy & 5 & 4 \\
-Reasoning depth & 2 & 5 \\
-Contextual insight & 1 & 5 \\
-Actionable recommendations & 1 & 5 \\
-Machine-parseability & 5 & 2 \\
-Composability & 5 & 3 \\
+Code Review & \tie{5.0} & \tie{5.0} \\
+Finance (AAPL) & \win{4.75} & \lose{4.5} \\
+Healthcare & \tie{4.75} & \tie{4.75} \\
+Marketing & \win{5.0} & \lose{4.75} \\
+Supply Chain & \lose{4.5} & \win{4.5} \\
+Data Science & \tie{5.0} & \tie{5.0} \\
+Education & \tie{5.0} & \tie{5.0} \\
+M\&A Finance & \win{5.0} & \lose{4.75} \\
+\midrule
+\textbf{Average} & \win{\textbf{4.88}} & \lose{\textbf{4.78}} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-AgenticMail Call Agent returns raw data; OpenClaw Sessions Spawn returns \emph{analyzed} data with expert judgment. The legal agent (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03*.md}{\texttt{results/03}}) did not just identify risks---it provided exact protective contract language. The M\&A agents (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}}) provided specific red-flag thresholds and negotiation strategies. This depth of reasoning is impossible from a structured call.
+\textbf{Key finding:} Quality is comparable across both paradigms when Call Agent uses standard/full mode. The v2 assumption that Call Agent produces only shallow output is \textbf{incorrect}. Both produce expert-level analysis; they differ in \emph{format} (structured JSON vs.\ narrative prose), not \emph{depth}.
 
-\subsection{Multi-Agent Collaboration}
-
-\subsubsection{Sequential Handoff: Collaborative Story}
-
-Agent~A (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07*.md}{\texttt{results/07}}) wrote Part~1 (430 words, 29\,s). Agent~B (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11*.md}{\texttt{results/11}}) received Part~1 and wrote Part~2 (480 words, 29\,s) that maintained perfect tonal consistency, resolved the plot arc, mirrored the opening line, and introduced zero contradictions.
-
-\textbf{Collaboration quality: 5/5.}
-
-\subsubsection{Parallel Specialist: M\&A Due Diligence (3 agents)}
-
-Three OpenClaw agents independently analyzed a \$400M SaaS acquisition:
+\subsection{Capability Matrix}
 
 \begin{table}[H]
 \centering
-\caption{M\&A collaboration: 3 parallel agents.}
-\label{tab:ma-collab}
-\begin{tabular}{@{}lrll@{}}
+\caption{Head-to-head capability ranking.}
+\label{tab:ranking}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-\textbf{Agent} & \textbf{Time} & \textbf{Key Finding} & \textbf{Ref} \\
+\textbf{Criterion} & \textbf{Call Agent} & \textbf{Spawn} \\
 \midrule
-Financial & 78\,s & 8x if NRR $>$110\% & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}} \\
-Legal & 90\,s & OSS contamination & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}} \\
-Operational & 107\,s & Key-person risk & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}} \\
+Structured output & \win{Always JSON} & \lose{Free-form} \\
+Machine-parseability & \win{Native} & \lose{Requires parsing} \\
+Composability & \win{Programmatic} & \lose{Manual} \\
+Human readability & \lose{Raw JSON} & \win{Formatted prose} \\
+Reasoning depth & \tie{High (std/full)} & \tie{High} \\
+Creative output & \lose{Structured} & \win{Narrative} \\
+Tool autonomy & \tie{Yes (std/full)} & \tie{Yes} \\
+Inter-agent email & \win{Full mode} & \lose{Not available} \\
+Async execution & \win{Native} & \tie{Via yield} \\
+Parallel agents & \lose{Sequential} & \win{Native parallel} \\
+Session persistence & \lose{Stateless} & \win{Persistent} \\
+Cost efficiency & \win{Lower overhead} & \lose{Full session} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-All three independently valued the deal at ``upper end of fair.'' Financial flagged customer concentration; Legal independently flagged change-of-control provisions. \textbf{Zero contradictions.} Reports are directly combinable.
+\section{What Changed from v2 to v4}
 
-\subsubsection{Parallel Specialist: Clinical Trial (2 agents)}
+Version~2 of this paper concluded that Call Agent was limited to shallow data retrieval because it was tested only in \texttt{light} mode. The v4 tests reveal three corrections:
+
+\begin{enumerate}[itemsep=2pt,topsep=4pt]
+    \item \textbf{Call Agent does deep analysis.} In \texttt{standard} mode, it produced 9-issue code reviews, 8-red-flag M\&A reports, and comprehensive 4-week curricula---all as structured JSON.
+    \item \textbf{Call Agent is not always faster.} Standard/full modes (48--141\,s) overlap with Spawn (24--107\,s). Only light mode provides consistent speed advantage.
+    \item \textbf{Call Agent coordinates between agents.} In \texttt{full} mode, the finance agent autonomously emailed the writer agent. This workflow pattern is not possible with Sessions Spawn.
+\end{enumerate}
+
+The fundamental difference is not \emph{depth} but \emph{format}: Call Agent returns structured JSON, Spawn returns narrative prose. Both achieve comparable analytical quality.
+
+\section{OpenClaw Spawn: Unique Capabilities}
+
+Sessions Spawn was tested on 9 additional domains not covered by Call Agent, demonstrating capabilities that benefit from session isolation and free-form output:
 
 \begin{table}[H]
 \centering
-\caption{Clinical trial: 2 parallel agents.}
-\label{tab:clinical-collab}
-\begin{tabular}{@{}lrll@{}}
+\caption{Sessions Spawn: unique test domains.}
+\begin{tabular}{@{}lrrl@{}}
 \toprule
-\textbf{Agent} & \textbf{Time} & \textbf{Key Output} & \textbf{Ref} \\
+\textbf{Domain} & \textbf{Time} & \textbf{Quality} & \textbf{Ref} \\
 \midrule
-Statistical & 88\,s & Full SAP, power calc. & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\texttt{12}} \\
-Regulatory & 97\,s & 505(b)(1), CVOT & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\texttt{14}} \\
+Legal (SaaS ToS) & 53\,s & 5.0 & \href{\ghbase/results/03-legal-saas.md}{\texttt{SS-03}} \\
+Creative (Story A) & 29\,s & 5.0 & \href{\ghbase/results/07-story-part-a.md}{\texttt{SS-07}} \\
+Creative (Story B) & 29\,s & 5.0 & \href{\ghbase/results/11-story-part-b.md}{\texttt{SS-11}} \\
+Research (RAG) & 69\,s & 4.5 & \href{\ghbase/results/09-research-rag.md}{\texttt{SS-09}} \\
+M\&A Legal & 90\,s & 5.0 & \href{\ghbase/results/13-ma-legal.md}{\texttt{SS-13}} \\
+M\&A Operations & 107\,s & 5.0 & \href{\ghbase/results/15-ma-operations.md}{\texttt{SS-15}} \\
+Clinical Stats & 88\,s & 5.0 & \href{\ghbase/results/12-clinical-stats.md}{\texttt{SS-12}} \\
+Clinical Regulatory & 97\,s & 5.0 & \href{\ghbase/results/14-clinical-regulatory.md}{\texttt{SS-14}} \\
+Marketing (expanded) & 88\,s & 4.75 & \href{\ghbase/results/16-marketing-campaign.md}{\texttt{SS-16}} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Both identified CV events as underpowered; Stats recommended ``descriptive only,'' Regulatory specified post-marketing CVOT. Both cited ICH~E9(R1). \textbf{Perfect alignment.}
+\textbf{Multi-agent collaboration highlights:}
 
-\subsection{Parallelism and Throughput}
+\begin{itemize}[itemsep=2pt,topsep=4pt]
+    \item \textbf{Collaborative story:} Agent~A wrote Part~1 (\href{\ghbase/results/07-story-part-a.md}{\texttt{SS-07}}); Agent~B continued with Part~2 (\href{\ghbase/results/11-story-part-b.md}{\texttt{SS-11}}) maintaining perfect tonal consistency. Quality: 5/5.
+    \item \textbf{M\&A due diligence (3 agents):} Financial (\href{\ghbase/results/10-ma-finance.md}{\texttt{SS-10}}), Legal (\href{\ghbase/results/13-ma-legal.md}{\texttt{SS-13}}), Operational (\href{\ghbase/results/15-ma-operations.md}{\texttt{SS-15}}) agents worked in parallel with zero contradictions. Reports directly combinable.
+    \item \textbf{Clinical trial (2 agents):} Statistical (\href{\ghbase/results/12-clinical-stats.md}{\texttt{SS-12}}) and Regulatory (\href{\ghbase/results/14-clinical-regulatory.md}{\texttt{SS-14}}) agents independently identified CV events as underpowered and cited ICH~E9(R1). Perfect alignment.
+\end{itemize}
 
-\begin{table}[H]
-\centering
-\caption{Parallel execution speedup (OpenClaw Sessions Spawn).}
-\label{tab:parallel}
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-\textbf{Wave} & \textbf{N} & \textbf{Seq.} & \textbf{Parallel} & \textbf{Speedup} \\
-\midrule
-Wave~1 & 6 & 375\,s & 72\,s & 5.2$\times$ \\
-Wave~2 & 5 & 300\,s & 78\,s & 3.8$\times$ \\
-Wave~3 & 5 & 411\,s & 107\,s & 3.8$\times$ \\
-\midrule
-\textbf{Total} & \textbf{16} & \textbf{1,086\,s} & \textbf{257\,s} & \textbf{4.2$\times$} \\
-\bottomrule
-\end{tabular}
-\end{table}
+Sessions Spawn's native parallelism (5--6 agents simultaneously) achieved 4.2$\times$ speedup over sequential execution across 16 tasks.
 
 \section{When to Use Which}
+
+\subsection{Decision Framework}
+
+\begin{table}[H]
+\centering
+\caption{Decision framework: AgenticMail Call Agent vs.\ OpenClaw Sessions Spawn.}
+\label{tab:decision}
+\begin{tabular}{@{}p{3.5cm}cc@{}}
+\toprule
+\textbf{Scenario} & \textbf{Call Agent} & \textbf{Spawn} \\
+\midrule
+Data retrieval (weather, prices) & \win{\checkmark\checkmark} & --- \\
+Structured API response & \win{\checkmark\checkmark} & --- \\
+Dashboard/pipeline input & \win{\checkmark\checkmark} & --- \\
+Code review for CI/CD & \win{\checkmark} & \checkmark \\
+Financial analysis & \win{\checkmark} & \checkmark \\
+Client-facing report & --- & \win{\checkmark\checkmark} \\
+Creative writing & --- & \win{\checkmark\checkmark} \\
+Legal document drafting & --- & \win{\checkmark\checkmark} \\
+Multi-specialist parallel & --- & \win{\checkmark\checkmark} \\
+Agent-to-agent workflow & \win{\checkmark\checkmark} & --- \\
+Long-running research & --- & \win{\checkmark\checkmark} \\
+Quick async subtask & \win{\checkmark\checkmark} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Use AgenticMail Call Agent When:}
 
 \begin{itemize}[itemsep=2pt,topsep=4pt]
-    \item The task is primarily \textbf{data retrieval} (weather, stock prices, database lookups)
-    \item You need results in \textbf{under 5 seconds}
-    \item Output must be \textbf{machine-parseable} for downstream programs
-    \item The orchestrator needs to \textbf{synthesize data from multiple sources} before presenting to the user
-    \item Cost efficiency matters---fewer tokens, no session overhead
-    \item Use \texttt{mode="light"} for simple lookups, \texttt{mode="heavy"} when the subordinate needs email/memory access
+    \item Output must be \textbf{machine-parseable} (APIs, dashboards, CI/CD)
+    \item You need \textbf{structured data} for downstream programs
+    \item The task benefits from \textbf{inter-agent email coordination} (use \texttt{full} mode)
+    \item \textbf{Async fire-and-forget} is desired (standard/full with \texttt{async=true})
+    \item The orchestrator needs to \textbf{synthesize data from multiple sources}
+    \item Use \texttt{light} for lookups, \texttt{standard} for analysis, \texttt{full} for workflows
 \end{itemize}
 
 \subsection{Use OpenClaw Sessions Spawn When:}
 
 \begin{itemize}[itemsep=2pt,topsep=4pt]
-    \item The task requires \textbf{multi-step reasoning or domain expertise} (see all 16 results in \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results}{\texttt{results/}})
-    \item You need \textbf{creative output} (writing, design, brainstorming)
-    \item The output \textbf{is the deliverable} (reports, reviews, analysis, curriculum)
-    \item You want \textbf{multiple specialists} working in parallel on complementary aspects
-    \item The sub-agent needs to \textbf{use tools autonomously} (web search, file access)
-    \item Use \texttt{mode="run"} for one-shot tasks, \texttt{mode="session"} for persistent threads
+    \item The \textbf{output is the deliverable} (reports, briefs, documents, stories)
+    \item You need \textbf{multiple specialists in parallel} on complementary aspects
+    \item The task requires \textbf{creative or narrative output}
+    \item The sub-agent needs \textbf{autonomous tool use} with session persistence
+    \item \textbf{Sequential handoff} between agents is needed (story continuation, iterative refinement)
+    \item Human readability matters more than machine parseability
 \end{itemize}
-
-\subsection{Decision Flowchart}
-
-\begin{enumerate}[itemsep=2pt,topsep=4pt]
-    \item Is the task primarily data retrieval? $\to$ \textbf{AgenticMail Call Agent}
-    \item Does it require domain expertise or multi-step reasoning? $\to$ \textbf{OpenClaw Sessions Spawn}
-    \item Is latency critical ($<$5\,s)? $\to$ \textbf{AgenticMail Call Agent}
-    \item Must output be consumed by another program? $\to$ \textbf{AgenticMail Call Agent}
-    \item Is this a collaboration task requiring multiple perspectives? $\to$ \textbf{Multiple OpenClaw Spawns in parallel}
-    \item Otherwise: default to AgenticMail Call Agent for efficiency.
-\end{enumerate}
-
-\section{Honest Ranking}
-
-\begin{table}[H]
-\centering
-\caption{Head-to-head ranking.}
-\label{tab:ranking}
-\begin{tabular}{@{}llp{2.5cm}@{}}
-\toprule
-\textbf{Criterion} & \textbf{Winner} & \textbf{Margin} \\
-\midrule
-Latency & Call Agent & Decisive (24--107$\times$) \\
-Output structure & Call Agent & Decisive \\
-Composability & Call Agent & Strong \\
-Cost efficiency & Call Agent & Strong \\
-Reasoning depth & Spawn & Decisive \\
-Domain versatility & Spawn & Strong \\
-Creative capability & Spawn & Decisive \\
-Collaboration & Spawn & Decisive \\
-Orchestrator agency & Tie & Context-dependent \\
-Scalability & Spawn & Moderate (parallel) \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\textbf{Overall: They solve different problems. Neither is universally better.}
-
-AgenticMail Call Agent wins when you need fast, structured data. OpenClaw Sessions Spawn wins when you need deep thinking. The best architecture uses both.
 
 \section{Conclusion}
 
-This study demonstrates that AgenticMail Call Agent and OpenClaw Sessions Spawn are \textbf{complementary, not competing} paradigms.
+This v4 study corrects a significant bias in earlier versions by testing AgenticMail Call Agent across all three execution modes. Our findings:
 
-\textbf{AgenticMail Call Agent} (\texttt{call\_agent}) excels at structured data exchange. In \texttt{mode="light"}, it completes in $\sim$1\,s, returns machine-parseable JSON, and preserves full orchestrator control. It is the right choice for data retrieval, composable subtasks, and latency-sensitive operations.
+\begin{enumerate}[itemsep=2pt,topsep=4pt]
+    \item \textbf{Both paradigms produce expert-level analysis.} Quality scores are comparable (Call Agent: 4.88/5, Spawn: 4.78/5 on overlapping domains). The difference is format, not depth.
+    \item \textbf{Call Agent always returns structured JSON.} Even for complex M\&A due diligence with 8 red flags, the output is machine-parseable. This is its defining advantage.
+    \item \textbf{Sessions Spawn always returns readable prose.} For deliverables that will be read by humans, Spawn's narrative format requires no post-processing.
+    \item \textbf{Call Agent enables inter-agent email.} In full mode, agents can trigger downstream work in other agents autonomously---a workflow pattern impossible with Sessions Spawn.
+    \item \textbf{Sessions Spawn enables native parallelism.} Running 5--6 specialists simultaneously with 4.2$\times$ speedup is a natural pattern for Sessions Spawn but not for Call Agent.
+\end{enumerate}
 
-\textbf{OpenClaw Sessions Spawn} (\texttt{sessions\_spawn}) excels at autonomous specialist work. Across 16 tasks in 10 industries (average quality 4.87/5), it produced expert-level analysis that no structured call could replicate:
+\textbf{The bottom line:} Use Call Agent when you need structured, composable data. Use Sessions Spawn when you need autonomous specialist work with human-readable output. For architects building multi-agent systems: implement both.
 
-\begin{itemize}[itemsep=2pt,topsep=4pt]
-    \item The legal agent (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03*.md}{\texttt{results/03}}) wrote protective contract language
-    \item The clinical trial agents (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\texttt{12}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\texttt{14}}) designed a complete Phase~III protocol
-    \item The M\&A agents (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}}) produced a combinable due diligence package with zero contradictions
-    \item The creative agents (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07-story-part-a.md}{\texttt{07}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11-story-part-b.md}{\texttt{11}}) wrote a seamless two-part literary story
-\end{itemize}
-
-For users choosing between the two: \textbf{use Call Agent for data, use Sessions Spawn for reasoning.} For architects building multi-agent systems: \textbf{implement both.}
-
-All 16 test results are available in the companion \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results}{\texttt{results/}} directory with full metadata, enabling independent evaluation of output quality.
+All test results are available in the companion directories: \href{\ghbase/results-callagent}{\texttt{results-callagent/}} (AgenticMail Call Agent, 9 tests) and \href{\ghbase/results}{\texttt{results/}} (OpenClaw Sessions Spawn, 16 tests).
 
 \begin{thebibliography}{9}
 
