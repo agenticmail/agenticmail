@@ -75,7 +75,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use(
     rateLimit({
       windowMs: 60 * 1000,
-      max: 100,
+      max: 10000,
       standardHeaders: true,
       legacyHeaders: false,
       message: { error: 'Too many requests, please try again later' },
