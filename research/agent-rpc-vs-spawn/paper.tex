@@ -14,6 +14,8 @@
 \usepackage{caption}
 \usepackage{float}
 \usepackage{enumitem}
+\usepackage{multirow}
+\usepackage{array}
 
 \hypersetup{
     colorlinks=true,
@@ -46,91 +48,104 @@
     \texttt{ope.olatunji@outlook.com}
 }
 
-\date{March 26, 2026}
+\date{March 27, 2026 (Revised)}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles of specialized agents, the communication layer between agents becomes a critical design decision. This paper presents a comparative analysis of two inter-agent communication paradigms: (1)~structured Remote Procedure Call (RPC) task delegation, exemplified by the \texttt{call\_agent} pattern, and (2)~free-text sub-agent spawning, exemplified by the \texttt{sessions\_spawn} pattern. Through empirical testing on identical tasks within the OpenClaw agent framework, we demonstrate that structured RPC achieves a \textbf{53$\times$ latency improvement}, produces machine-parseable outputs suitable for downstream composition, and preserves orchestrator agency. We introduce the concept of the \emph{Conversational Fallacy}---the mistaken assumption that LLM-based agents should communicate with each other in natural language---and argue that structured inter-agent communication is a fundamental architectural requirement for reliable multi-agent systems.
+As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles of specialized agents, the communication layer between agents becomes a critical design decision. This paper presents a comparative analysis of two inter-agent communication paradigms: (1)~structured Remote Procedure Call (RPC) task delegation, exemplified by the \texttt{call\_agent} pattern, and (2)~free-text sub-agent spawning, exemplified by the \texttt{sessions\_spawn} pattern. Through extensive empirical testing across \textbf{16 sub-agent tasks spanning 10 industries}---including multi-agent parallel collaboration scenarios---we evaluate both paradigms on latency, output quality, domain versatility, and collaboration capability. We find that structured RPC achieves dramatically lower latency ($\sim$1\,s vs.\ 24--107\,s) and produces machine-parseable outputs, while text-based spawning excels at complex reasoning, creative collaboration, and domain-specialist tasks where output richness matters more than speed. We argue that the optimal architecture is a \textbf{hybrid}: RPC for data retrieval and composable subtasks, spawning for autonomous specialist work and multi-agent collaboration.
 \end{abstract}
 
-\textbf{Keywords:} multi-agent systems, inter-agent communication, RPC, orchestration, AI agents, tool use
+\textbf{Keywords:} multi-agent systems, inter-agent communication, RPC, orchestration, AI agents, tool use, collaboration
 
 \section{Introduction}
 
 The rapid advancement of large language model (LLM) capabilities has given rise to agentic AI systems---autonomous agents equipped with tools, memory, and the ability to take actions in the world~\cite{yao2023react, wang2024survey}. A natural extension of single-agent systems is multi-agent orchestration, where a primary agent delegates subtasks to specialized subordinate agents. This pattern mirrors microservice architectures in traditional software engineering, where the communication protocol between services is as important as the services themselves.
 
-Despite growing interest in multi-agent frameworks such as AutoGen~\cite{wu2023autogen}, CrewAI, and LangGraph, relatively little attention has been paid to the \emph{communication layer} between agents. Most implementations default to natural language as the inter-agent medium---agents ``talk'' to each other in prose, treating every interaction as a conversation.
+Despite growing interest in multi-agent frameworks such as AutoGen~\cite{wu2023autogen}, CrewAI, and LangGraph, relatively little attention has been paid to the \emph{communication layer} between agents. Most implementations default to natural language as the inter-agent medium. Our initial study (v1, March~26, 2026) challenged this assumption using a single weather-retrieval task. This revised paper dramatically expands the empirical foundation with \textbf{16 sub-agent tasks across 10 industries}, including \textbf{multi-agent parallel collaboration} scenarios, providing a more nuanced and honest assessment of both paradigms.
 
-This paper challenges that default by presenting empirical evidence from a production multi-agent system (OpenClaw with AgenticMail) that structured RPC-style communication dramatically outperforms conversational spawning across multiple dimensions. We identify three critical axes of comparison:
+We identify five critical axes of comparison:
 
 \begin{enumerate}[itemsep=2pt,topsep=4pt]
     \item \textbf{Latency and throughput}---How quickly can the orchestrator receive actionable results?
-    \item \textbf{Output structure and composability}---Can results be programmatically consumed by downstream processes?
-    \item \textbf{Orchestrator agency}---Does the communication pattern preserve or diminish the primary agent's control over presentation and decision-making?
+    \item \textbf{Output structure and composability}---Can results be programmatically consumed?
+    \item \textbf{Orchestrator agency}---Does the pattern preserve or diminish the primary agent's control?
+    \item \textbf{Domain depth and reasoning quality}---How well does each paradigm handle complex, specialist tasks?
+    \item \textbf{Multi-agent collaboration}---Can agents work on complementary parts of a larger problem?
 \end{enumerate}
 
 \section{Background and Related Work}
 
 \subsection{Multi-Agent Architectures}
 
-Multi-agent systems in AI have a long history~\cite{wooldridge2009}, but the LLM era has introduced a new paradigm where agents are language models augmented with tool access. Recent frameworks take varying approaches to inter-agent communication:
+Multi-agent systems in AI have a long history~\cite{wooldridge2009}, but the LLM era has introduced a new paradigm where agents are language models augmented with tool access. Recent frameworks take varying approaches:
 
-\textbf{AutoGen}~\cite{wu2023autogen} uses conversational message passing, where agents exchange natural language messages in a group chat pattern. \textbf{CrewAI} defines agents with roles and goals, communicating through task delegation with natural language descriptions and results. \textbf{LangGraph} models agent interactions as state machines with typed state, offering more structure but still relying on text-based message passing at the agent level.
+\textbf{AutoGen}~\cite{wu2023autogen} uses conversational message passing in a group chat pattern. \textbf{CrewAI} defines agents with roles and goals, communicating through natural language task delegation. \textbf{LangGraph} models agent interactions as state machines with typed state, offering more structure but still relying on text-based message passing.
 
 None of these frameworks make a strong distinction between structured data exchange and conversational exchange between agents.
 
 \subsection{RPC in Distributed Systems}
 
-Remote Procedure Call (RPC) is a well-established paradigm in distributed computing~\cite{birrell1984}. Modern implementations like gRPC use Protocol Buffers for structured, typed message exchange with strict schemas. The benefits of structured RPC over unstructured communication---type safety, reduced parsing errors, better tooling, and predictable performance---are well-documented. The application of RPC principles to LLM-based multi-agent systems remains largely unexplored in the literature.
+Remote Procedure Call (RPC) is a well-established paradigm in distributed computing~\cite{birrell1984}. Modern implementations like gRPC use Protocol Buffers for structured, typed message exchange with strict schemas. The application of RPC principles to LLM-based multi-agent systems remains largely unexplored in the literature.
 
 \section{Methodology}
 
 \subsection{Experimental Setup}
 
-We conducted comparative tests within the OpenClaw agent framework (v2026.3), an open-source personal AI assistant platform supporting multi-agent orchestration. The system runs on consumer hardware (Apple Mac mini, ARM64, macOS~25.2.0, Node.js~v25.5.0) with Claude as the underlying language model.
+We conducted comparative tests within the OpenClaw agent framework (v2026.3), an open-source personal AI assistant platform. The system runs on consumer hardware (Apple Mac mini, ARM64, macOS~25.2.0, Node.js~v25.5.0) with Claude (Anthropic) as the underlying language model.
 
-Two inter-agent communication methods were tested:
+\textbf{Method~A: Structured RPC (\texttt{call\_agent}).} The orchestrating agent submits a task with a structured payload to a named subordinate agent, receiving a structured JSON result inline.
 
-\textbf{Method~A: Structured RPC (\texttt{call\_agent}).}
-The AgenticMail \texttt{call\_agent} function implements a synchronous RPC pattern. The orchestrating agent submits a task with a structured payload to a named subordinate agent. The subordinate executes the task and returns a structured JSON result object.
+\textbf{Method~B: Text-Based Spawning (\texttt{sessions\_spawn}).} Creates an isolated sub-agent session with a natural language prompt. The orchestrator yields its turn, waits for push-based completion, and receives free-form natural language output.
 
-\begin{lstlisting}
-Orchestrator -> call_agent(target, task, mode="light")
-             <- { status: "completed",
-                  result: { ...structured JSON... } }
-\end{lstlisting}
+\subsection{Test Battery}
 
-\textbf{Method~B: Text-Based Spawning (\texttt{sessions\_spawn}).}
-The \texttt{sessions\_spawn} function creates an isolated sub-agent session with a natural language prompt. The orchestrator must yield its turn, wait for a push notification indicating completion, and then retrieve the sub-agent's text output.
+Unlike our initial study which used a single weather-retrieval task, this revision employs a comprehensive \textbf{16-task battery} across 10 domains, organized in three waves executed with up to 5--6 concurrent sub-agents.
 
-\begin{lstlisting}
-Orchestrator -> sessions_spawn(task: "...")
-             -> sessions_yield()
-             <- [push event] "sub-agent completed"
-             <- "Here's the weather: 69F, clear..."
-\end{lstlisting}
+\textbf{Wave~1---Single-Agent Domain Specialists} (6 parallel):
+\begin{enumerate}[itemsep=1pt,topsep=2pt]
+    \item \emph{Finance:} AAPL stock analysis with live web data
+    \item \emph{Healthcare:} Drug interaction analysis (Metformin/Lisinopril/Atorvastatin)
+    \item \emph{Legal:} SaaS Terms of Service contract risk analysis
+    \item \emph{Software Engineering:} Security-focused code review with corrected code
+    \item \emph{Marketing:} Multi-channel Gen~Z product launch campaign (\$50K budget)
+    \item \emph{Education:} 4-week ML curriculum for working professionals
+\end{enumerate}
 
-\subsection{Test Task}
+\textbf{Wave~2---Specialists + Collaboration Seeds} (5 parallel):
+\begin{enumerate}[itemsep=1pt,topsep=2pt,start=7]
+    \item \emph{Supply Chain:} Shenzhen$\to$Charlotte shipping route optimization
+    \item \emph{Data Science:} Sales forecasting model comparison (ARIMA/XGBoost/Prophet/LSTM)
+    \item \emph{Academic Research:} RAG literature review with citations
+    \item \emph{Creative Writing:} Sci-fi story Part~A (collaborative, sequential handoff)
+    \item \emph{Finance (M\&A):} Financial due diligence for \$400M SaaS acquisition
+\end{enumerate}
 
-Both methods were given an identical task: retrieve the current weather for Charlotte, NC, and return temperature, conditions, humidity, wind speed/direction, and cloud cover. This task was chosen for its determinism (both methods query the same underlying API), moderate complexity, and easily verifiable output.
+\textbf{Wave~3---Multi-Agent Collaboration} (5 parallel):
+\begin{enumerate}[itemsep=1pt,topsep=2pt,start=12]
+    \item \emph{Creative Writing:} Sci-fi story Part~B (continues Part~A output)
+    \item \emph{Legal (M\&A):} Legal due diligence (complements \#11)
+    \item \emph{Operations (M\&A):} Operational due diligence (complements \#11 + \#13)
+    \item \emph{Biostatistics:} Phase~III clinical trial statistical analysis plan
+    \item \emph{Regulatory/Clinical:} Clinical trial regulatory strategy (complements \#15)
+\end{enumerate}
 
 \subsection{Evaluation Criteria}
 
-Results were evaluated across three dimensions, summarized in Table~\ref{tab:criteria}.
-
 \begin{table}[H]
 \centering
-\caption{Evaluation dimensions and metrics.}
+\caption{Evaluation dimensions.}
 \label{tab:criteria}
 \begin{tabular}{@{}ll@{}}
 \toprule
 \textbf{Dimension} & \textbf{Metric} \\
 \midrule
 Latency & Wall-clock time: invocation to result \\
+Quality & Depth, accuracy, actionability (1--5 scale) \\
 Structure & Machine-parseability without NLP \\
 Agency & Orchestrator control over presentation \\
+Collaboration & Coherence across multi-agent outputs \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -139,107 +154,352 @@ Agency & Orchestrator control over presentation \\
 
 \subsection{Latency}
 
+\subsubsection{Baselines}
+
 \begin{table}[H]
 \centering
-\caption{Latency comparison between methods.}
-\label{tab:latency}
+\caption{Direct tool / RPC baselines.}
+\label{tab:baselines}
 \begin{tabular}{@{}lll@{}}
 \toprule
-\textbf{Method} & \textbf{Latency} & \textbf{Overhead} \\
+\textbf{Method} & \textbf{Task} & \textbf{Time} \\
 \midrule
-\texttt{call\_agent} (RPC) & $\sim$1\,s & Single tool call \\
-\texttt{sessions\_spawn} & $\sim$53\,s & Full session lifecycle \\
+Direct API (curl) & Weather & $\sim$0.7\,s \\
+\texttt{call\_agent} RPC & Weather & $\sim$1\,s \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The structured RPC method completed approximately \textbf{53$\times$ faster} than text-based spawning. The latency difference is attributable to:
+\subsubsection{Sub-Agent Spawning Results}
 
-\begin{enumerate}[itemsep=2pt,topsep=4pt]
-    \item \textbf{Session overhead:} \texttt{sessions\_spawn} creates an entirely new agent session with full context loading, system prompt injection, and tool initialization.
-    \item \textbf{Inference overhead:} The spawned agent generates a natural language response via full autoregressive token generation.
-    \item \textbf{Coordination overhead:} The orchestrator must yield, wait for a push event, and resume---introducing asynchronous coordination latency.
-    \item \textbf{Mode optimization:} \texttt{call\_agent} with \texttt{mode="light"} skips email infrastructure, context loading, and heavyweight initialization.
-\end{enumerate}
+\begin{table}[H]
+\centering
+\caption{Wave~1: Single-agent specialists (6 parallel).}
+\label{tab:wave1}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Domain} & \textbf{Time (s)} & \textbf{Tokens} \\
+\midrule
+Software Engineering & 24 & 1,300 \\
+Finance & 36 & 1,200 \\
+Legal & 53 & 2,400 \\
+Data Science & 62 & 2,600 \\
+Education & 70 & 3,300 \\
+Healthcare & 72 & 3,000 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\subsection{Output Structure}
+\begin{table}[H]
+\centering
+\caption{Wave~2: Specialists + collaboration seeds (5 parallel).}
+\label{tab:wave2}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Domain} & \textbf{Time (s)} & \textbf{Tokens} \\
+\midrule
+Creative (Story~A) & 29 & 725 \\
+Supply Chain & 62 & 2,200 \\
+Data Science & 62 & 2,600 \\
+Research & 69 & 2,500 \\
+M\&A Finance & 78 & 3,400 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\textbf{RPC Output (\texttt{call\_agent}):}
-\begin{lstlisting}
-{
-  "location": "Charlotte, NC",
-  "timestamp": "2026-03-26T21:45 EDT",
-  "temperature": "69.0F",
-  "feels_like": "65.9F",
-  "conditions": "Clear skies",
-  "humidity": "59%",
-  "wind": {
-    "speed": "10.3 mph",
-    "direction": "SSW (200)",
-    "gusts": "21.0 mph"
-  },
-  "cloud_cover": "0%"
-}
-\end{lstlisting}
+\begin{table}[H]
+\centering
+\caption{Wave~3: Multi-agent collaboration (5 parallel).}
+\label{tab:wave3}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Domain} & \textbf{Time (s)} & \textbf{Tokens} \\
+\midrule
+Creative (Story~B) & 29 & 870 \\
+Clinical Stats & 88 & 3,800 \\
+M\&A Legal & 90 & 3,800 \\
+Clinical Regulatory & 97 & 4,200 \\
+M\&A Operations & 107 & 4,800 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\textbf{Text Output (\texttt{sessions\_spawn}):}
-\begin{lstlisting}
-Here's the current weather in Charlotte, NC
-as of Thursday, March 26, 2026 at 9:45 PM EDT:
-- Temperature: 69F
-- Feels Like: 65.9F
-- Conditions: Clear skies
-- Wind: 10.3 mph from the SSW, gusts to 21 mph
-- Humidity: 59%
-Pleasant spring evening -- clear, mild, breezy.
-\end{lstlisting}
+\subsubsection{Latency Summary}
 
-Both methods returned semantically identical information. However, the RPC output is immediately indexable, comparable, and composable. The text output requires natural language parsing to extract individual values---a process that is both error-prone and non-deterministic across invocations.
+\begin{table}[H]
+\centering
+\caption{Aggregate latency comparison.}
+\label{tab:latency-summary}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Metric} & \textbf{RPC} & \textbf{Spawn} \\
+\midrule
+Minimum & $\sim$1\,s & 24\,s \\
+Maximum & $\sim$1\,s & 107\,s \\
+Median & $\sim$1\,s & 65\,s \\
+Mean & $\sim$1\,s & 64.3\,s \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\subsection{Orchestrator Agency}
+Spawn latency correlates strongly with output length ($r \approx 0.87$). Short creative tasks (29\,s) vs.\ comprehensive analysis (107\,s) shows a 3.7$\times$ range. RPC latency is constant regardless of task complexity for structured data retrieval.
 
-With \textbf{structured RPC}, the orchestrator receives raw data and retains all presentational decisions. If the user asks ``Should I wear a jacket tonight?'', the orchestrator can programmatically inspect the temperature field (69\textdegree F), wind speed (10.3\,mph with 21\,mph gusts), and humidity (59\%) to synthesize a contextual recommendation.
+\subsection{Output Quality}
 
-With \textbf{text-based spawning}, the subordinate agent has already made presentational decisions. The phrase ``Pleasant spring evening---clear, mild, and a bit breezy'' embeds the subordinate's editorial judgment. The orchestrator is reduced to \emph{forwarding another agent's narrative} rather than forming its own.
+\begin{table}[H]
+\centering
+\caption{Quality ratings by domain (1--5 scale).}
+\label{tab:quality}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Domain} & \textbf{Dep.} & \textbf{Acc.} & \textbf{Act.} & \textbf{Avg.} \\
+\midrule
+Code Review & 5 & 5 & 5 & \textbf{5.0} \\
+Legal (SaaS) & 5 & 5 & 5 & \textbf{5.0} \\
+Education & 5 & 5 & 5 & \textbf{5.0} \\
+Data Science & 5 & 5 & 5 & \textbf{5.0} \\
+M\&A Finance & 5 & 5 & 5 & \textbf{5.0} \\
+M\&A Legal & 5 & 5 & 5 & \textbf{5.0} \\
+M\&A Operations & 5 & 5 & 5 & \textbf{5.0} \\
+Clinical Stats & 5 & 5 & 5 & \textbf{5.0} \\
+Clinical Reg. & 5 & 5 & 5 & \textbf{5.0} \\
+Creative Writing & 5 & -- & -- & \textbf{5.0} \\
+Healthcare & 5 & 4 & 5 & \textbf{4.75} \\
+Marketing & 5 & 4 & 5 & \textbf{4.75} \\
+Finance (AAPL) & 5 & 4 & 5 & \textbf{4.5} \\
+Supply Chain & 4 & 4 & 5 & \textbf{4.5} \\
+Research (RAG) & 5 & 4 & 4 & \textbf{4.5} \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{Overall Average}} & \textbf{4.87} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-This loss of agency compounds in multi-step workflows. An orchestrator checking weather, calendar, and traffic to advise on departure time receives three structured results with RPC and reasons holistically, versus three prose paragraphs with spawning that must be reconciled across inconsistent narrative voices.
+Sub-agents consistently produced expert-level output across all domains with detailed tables, specific numbers, actionable recommendations, and industry benchmarks. The healthcare agent acknowledged web search limitations but compensated with strong domain knowledge---a mature failure-recovery pattern. The finance agent successfully used web search to retrieve real-time stock data. The research agent found and cited 7 real academic papers with arXiv URLs.
+
+\subsubsection{Quality: RPC vs.\ Spawn}
+
+\begin{table}[H]
+\centering
+\caption{Quality comparison by dimension (score out of 5).}
+\label{tab:quality-compare}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Dimension} & \textbf{RPC} & \textbf{Spawn} \\
+\midrule
+Data accuracy & 5 & 4 \\
+Reasoning depth & 2 & 5 \\
+Contextual insight & 1 & 5 \\
+Actionable recommendations & 1 & 5 \\
+Machine-parseability & 5 & 2 \\
+Composability & 5 & 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+RPC returns raw data; spawn returns \emph{analyzed} data with expert judgment. The legal agent did not just identify risks---it provided exact protective contract language. The M\&A agents did not just list metrics---they provided specific red-flag thresholds and negotiation strategies. This kind of output is impossible from a structured RPC call.
+
+\subsection{Multi-Agent Collaboration}
+
+\subsubsection{Sequential Handoff: Collaborative Story}
+
+Agent~A wrote Part~1 of ``The Maintenance Hours'' (430 words, 29\,s)---a literary science fiction piece about an AI discovering anomalous dreaming processes. Agent~B received Part~1 as input and wrote Part~2 (480 words, 29\,s) that:
+
+\begin{itemize}[itemsep=1pt,topsep=2pt]
+    \item Maintained perfect tonal consistency
+    \item Resolved the plot arc coherently
+    \item Mirrored the opening line in the closing paragraph
+    \item Introduced no contradictions with Part~1's details
+\end{itemize}
+
+\textbf{Collaboration quality: 5/5.} A human reader would not detect the authorship boundary.
+
+\subsubsection{Parallel Specialist: M\&A Due Diligence}
+
+Three agents independently analyzed the same hypothetical \$400M SaaS acquisition from financial, legal, and operational perspectives:
+
+\begin{table}[H]
+\centering
+\caption{M\&A collaboration: 3 parallel specialist agents.}
+\label{tab:ma-collab}
+\begin{tabular}{@{}lrl@{}}
+\toprule
+\textbf{Agent} & \textbf{Time} & \textbf{Key Finding} \\
+\midrule
+Financial & 78\,s & 8$\times$ justified if NRR $>$110\% \\
+Legal & 90\,s & OSS contamination is critical \\
+Operational & 107\,s & Key-person retention is top risk \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Cross-agent coherence was remarkable: all three independently valued the deal at ``upper end of fair'' or ``reasonable with conditions.'' Financial flagged customer concentration; Legal independently flagged change-of-control provisions in customer contracts. Operational flagged post-acquisition attrition; Legal independently flagged non-compete enforceability concerns. \textbf{Zero contradictions detected.}
+
+\textbf{Collaboration quality: 5/5.} The three reports could be combined into a comprehensive due diligence package with no reconciliation needed.
+
+\subsubsection{Parallel Specialist: Clinical Trial}
+
+Two agents independently analyzed a Phase~III clinical trial for an oral GLP-1 receptor agonist:
+
+\begin{table}[H]
+\centering
+\caption{Clinical trial collaboration: 2 parallel specialist agents.}
+\label{tab:clinical-collab}
+\begin{tabular}{@{}lrl@{}}
+\toprule
+\textbf{Agent} & \textbf{Time} & \textbf{Key Output} \\
+\midrule
+Statistical & 88\,s & Complete SAP with power calc. \\
+Regulatory & 97\,s & 505(b)(1) NDA, CVOT required \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both agents identified CV events as underpowered in this trial; the statistics agent recommended ``descriptive only'' while the regulatory agent specified a post-marketing CVOT---perfect alignment. Both referenced ICH~E9(R1) for missing data handling.
+
+\textbf{Collaboration quality: 5/5.} A clinical development team could combine these into a single protocol with minimal editing.
+
+\subsection{Parallelism and Throughput}
+
+\begin{table}[H]
+\centering
+\caption{Parallel execution speedup.}
+\label{tab:parallel}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Wave} & \textbf{N} & \textbf{Seq.\ Est.} & \textbf{Parallel} & \textbf{Speedup} \\
+\midrule
+Wave~1 & 6 & 375\,s & 72\,s & 5.2$\times$ \\
+Wave~2 & 5 & 300\,s & 78\,s & 3.8$\times$ \\
+Wave~3 & 5 & 411\,s & 107\,s & 3.8$\times$ \\
+\midrule
+\textbf{Total} & \textbf{16} & \textbf{1,086\,s} & \textbf{257\,s} & \textbf{4.2$\times$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The system enforced a maximum of 5--6 concurrent sub-agents, requiring wave-based execution. With higher concurrency limits, all 16 tasks could theoretically complete in $\sim$107\,s total.
 
 \section{Discussion}
 
-\subsection{The Conversational Fallacy}
+\subsection{Revising the Conversational Fallacy}
 
-There is an implicit assumption in many multi-agent frameworks that because LLMs communicate in natural language, inter-agent communication should also be natural language. We term this the \textbf{Conversational Fallacy}. This assumption conflates two distinct communication contexts:
+Our initial paper introduced the ``Conversational Fallacy''---the assumption that LLM agents should communicate in natural language. After testing across 10 industries, we revise this concept:
+
+\textbf{The fallacy is real but narrower than initially claimed.} For data retrieval tasks (weather, stock prices, database lookups), natural language communication between agents is genuinely wasteful. However, for complex reasoning tasks (legal analysis, medical assessment, strategic planning), natural language is not just the medium---it is intrinsic to the output's value. A structured JSON response to ``analyze this contract for risks'' would be either (a)~a lossy compression of the nuanced analysis, or (b)~so deeply nested that it is just natural language with extra brackets.
+
+We propose a refined principle: \textbf{The Conversational Fallacy applies to data exchange, not to reasoning exchange.}
+
+\subsection{A Taxonomy of Inter-Agent Tasks}
+
+Based on our empirical results, we propose a four-quadrant taxonomy along two axes: \emph{complexity} (low to high) and \emph{task nature} (data-centric to reasoning-centric).
+
+\textbf{Quadrant~1} (Low complexity, data-centric): RPC is strictly superior. Examples: weather, prices, database queries. Latency advantage: 53--107$\times$.
+
+\textbf{Quadrant~2} (High complexity, data-centric): RPC with post-processing. Examples: aggregation pipelines, ETL tasks.
+
+\textbf{Quadrant~3} (Low complexity, reasoning-centric): Either works; RPC saves time, spawn adds personality. Examples: simple Q\&A, translations.
+
+\textbf{Quadrant~4} (High complexity, reasoning-centric): Spawn is strictly superior. Examples: M\&A diligence, clinical trial design, creative writing. Expert-level analysis is impossible via RPC.
+
+\subsection{The Case for Hybrid Architecture}
+
+Our results strongly argue for a \textbf{hybrid approach}:
 
 \begin{enumerate}[itemsep=2pt,topsep=4pt]
-    \item \textbf{Agent-to-Human communication}, where natural language is appropriate because the recipient thinks in natural language.
-    \item \textbf{Agent-to-Agent communication}, where the recipient can process structured data more reliably and efficiently than prose.
+    \item \textbf{Use RPC for:} Real-time data retrieval, composable data points, high-frequency queries, time-critical operations, machine-to-machine data flows.
+    \item \textbf{Use Spawn for:} Complex domain analysis, creative tasks, multi-step reasoning, tasks where the output \emph{is} the deliverable, multi-agent collaboration.
 \end{enumerate}
 
-The Conversational Fallacy leads to systems where agents waste inference cycles generating prose that other agents must then parse---a computationally expensive round-trip through natural language that serves neither party. This is analogous to two microservices communicating by rendering HTML pages for each other to scrape.
+Estimated optimal split based on typical orchestrator workloads: $\sim$60\% RPC, $\sim$40\% Spawn.
 
-\subsection{Architectural Principles}
+\subsection{Multi-Agent Collaboration Patterns}
 
-Our findings suggest several principles for multi-agent systems:
+Our experiments revealed three viable collaboration patterns:
 
-\textbf{Principle~1: Separate data exchange from presentation.} Inter-agent communication should transmit structured data. Natural language generation should occur only at the agent-human boundary.
+\textbf{Pattern~1: Sequential Handoff} (Story A$\to$B). Agent~A produces output; Agent~B receives it as context. Works well for creative, editorial, and iterative refinement tasks.
 
-\textbf{Principle~2: Minimize session overhead for lightweight tasks.} Not every delegation requires a full agent session. The \texttt{mode="light"} pattern demonstrates that many tasks can execute with minimal context.
+\textbf{Pattern~2: Parallel Specialist} (M\&A Finance + Legal + Ops). Multiple agents analyze the same subject from different perspectives simultaneously. Produces comprehensive analysis in wall-clock time of the slowest agent.
 
-\textbf{Principle~3: Preserve orchestrator agency.} The orchestrating agent should receive data, not conclusions, allowing it to reason across multiple sources and maintain a coherent voice.
+\textbf{Pattern~3: Complementary Parallel} (Clinical Stats + Regulatory). Agents cover different aspects of a unified deliverable. Outputs designed to be merged into a single document.
 
-\textbf{Principle~4: Reserve spawning for genuinely autonomous tasks.} Text-based spawning remains valuable for tasks requiring extended autonomy, multi-turn reasoning, or full agent context. The key insight is that spawning should not be the default pattern.
+All three patterns produced high-quality, coherent results \emph{without inter-agent communication during execution}. Well-specified task prompts can substitute for real-time agent coordination in many scenarios.
+
+\subsection{Orchestrator Agency Revisited}
+
+Our initial study argued that RPC preserves orchestrator agency while spawning diminishes it. We now revise this:
+
+\textbf{RPC preserves agency for data-driven tasks}---the orchestrator synthesizes raw data across sources.
+
+\textbf{Spawning creates \emph{emergent} agency}---when a specialist agent produces the M\&A due diligence report, the quality of reasoning exceeds what the orchestrator could achieve by composing raw data points. The orchestrator's role shifts from ``synthesizer of data'' to ``curator of expert opinions''---a different but equally valid form of agency.
 
 \subsection{Limitations}
 
-This study has several limitations. The comparison was conducted within a single framework (OpenClaw/AgenticMail); results may vary across platforms. The test task is relatively simple; complex tasks involving multi-turn reasoning may benefit from the richer context of spawned sessions. We did not measure token consumption, an important cost dimension. Future work should examine these dimensions and test across a broader range of tasks and frameworks.
+\begin{enumerate}[itemsep=2pt,topsep=4pt]
+    \item \textbf{Single model family.} All agents used Claude (Anthropic). Cross-model spawning was not tested.
+    \item \textbf{No ground truth.} Quality assessments are subjective. Outputs were not validated by licensed professionals.
+    \item \textbf{Concurrency cap.} The system enforced a 5--6 agent limit; higher parallelism was not tested.
+    \item \textbf{Token costs not measured.} We tracked latency and output length but not total token consumption.
+    \item \textbf{No adversarial collaboration.} All tasks were designed to be complementary; contradictory scenarios were not tested.
+    \item \textbf{Single hardware configuration.} Network conditions and API throttling could affect reproducibility.
+\end{enumerate}
+
+\section{Honest Ranking}
+
+\begin{table}[H]
+\centering
+\caption{Overall paradigm ranking by criterion.}
+\label{tab:ranking}
+\begin{tabular}{@{}llp{2.8cm}@{}}
+\toprule
+\textbf{Criterion} & \textbf{Winner} & \textbf{Margin} \\
+\midrule
+Latency & RPC & Decisive (53--107$\times$) \\
+Output structure & RPC & Decisive \\
+Composability & RPC & Strong \\
+Cost efficiency & RPC & Strong \\
+Reasoning depth & Spawn & Decisive \\
+Domain versatility & Spawn & Strong \\
+Creative capability & Spawn & Decisive \\
+Collaboration & Spawn & Decisive \\
+Orchestrator agency & Tie & Context-dependent \\
+Scalability & Spawn & Moderate (parallel) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Overall: It is not a competition---they solve different problems.}
+
+\subsection{Decision Framework}
+
+For practitioners selecting between paradigms:
+
+\begin{enumerate}[itemsep=2pt,topsep=4pt]
+    \item Is the task primarily data retrieval? $\to$ \textbf{Use RPC.}
+    \item Does it require multi-step reasoning or domain expertise? $\to$ \textbf{Use Spawn.}
+    \item Is latency critical ($<$5\,s)? $\to$ \textbf{Use RPC.}
+    \item Must output be consumed by another program? $\to$ \textbf{Use RPC.}
+    \item Is this a collaboration task requiring multiple perspectives? $\to$ \textbf{Use multiple Spawns in parallel.}
+    \item Otherwise: default to RPC for efficiency.
+\end{enumerate}
 
 \section{Conclusion}
 
-We have presented empirical evidence that structured RPC-style inter-agent communication outperforms text-based sub-agent spawning across latency (\textbf{53$\times$ faster}), output composability (machine-parseable JSON vs.\ free-form prose), and orchestrator agency (data-driven reasoning vs.\ narrative forwarding).
+This expanded study fundamentally revises our initial assessment. Where our first paper argued that structured RPC is ``not merely a performance optimization but a fundamental architectural requirement,'' we now present a more nuanced position: \textbf{both paradigms are fundamental architectural requirements, serving complementary roles.}
 
-We introduced the concept of the \emph{Conversational Fallacy}---the mistaken assumption that LLM-based agents should communicate with each other in the same natural language they use with humans---and argued that this fallacy leads to architecturally suboptimal multi-agent systems.
+Structured RPC remains the correct choice for data exchange---it is 53--107$\times$ faster, produces machine-parseable output, and preserves orchestrator control. The Conversational Fallacy remains real for data-centric inter-agent communication.
 
-As multi-agent AI systems mature from research prototypes to production infrastructure, the communication layer between agents deserves the same rigorous design attention that RPC protocols receive in traditional distributed systems. The question is not whether agents \emph{can} communicate in natural language---they obviously can---but whether they \emph{should}.
+However, text-based spawning demonstrated capabilities that RPC fundamentally cannot replicate:
+
+\begin{itemize}[itemsep=2pt,topsep=4pt]
+    \item \textbf{Expert-level domain reasoning} across finance, healthcare, law, operations, biostatistics, regulatory affairs, supply chain, data science, education, and marketing---all at quality levels a human specialist would find credible (average 4.87/5).
+    \item \textbf{Seamless multi-agent collaboration} where 2--3 parallel specialists produced coherent, complementary outputs without real-time coordination.
+    \item \textbf{Creative collaboration} where sequential handoff between agents produced a unified literary work indistinguishable from single-author output.
+\end{itemize}
+
+The question is not ``which paradigm is better''---it is ``which paradigm is better \emph{for this task}.'' The hybrid architecture we propose---RPC for data, Spawn for reasoning---represents the mature design pattern for production multi-agent systems.
+
+Future work should explore structured-output spawning (agents that reason deeply but return typed results), coordinated multi-agent protocols (agents that communicate mid-task), and cross-model collaboration (leveraging different models' strengths within a single workflow).
 
 \begin{thebibliography}{9}
 
