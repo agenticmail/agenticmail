@@ -1,0 +1,263 @@
+\documentclass[11pt,twocolumn]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{geometry}
+\geometry{letterpaper, margin=0.75in, columnsep=0.3in}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{enumitem}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=blue!60!black,
+    urlcolor=blue!60!black
+}
+
+\lstset{
+    basicstyle=\ttfamily\scriptsize,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!8},
+    keywordstyle=\color{blue!70!black},
+    stringstyle=\color{red!60!black},
+    commentstyle=\color{green!50!black},
+    columns=flexible,
+    aboveskip=6pt,
+    belowskip=6pt
+}
+
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+
+\title{\Large\textbf{Structured RPC vs.\ Text-Based Sub-Agent Orchestration:\\A Comparative Analysis of Inter-Agent\\Communication Paradigms}}
+
+\author{
+    \textbf{Ope Olatunji}\textsuperscript{1} \quad \textbf{Fola (AI Research Assistant)}\textsuperscript{1}\\[4pt]
+    \textsuperscript{1}AgenticMail / OpenClaw Research\\[2pt]
+    \texttt{ope.olatunji@outlook.com}
+}
+
+\date{March 26, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles of specialized agents, the communication layer between agents becomes a critical design decision. This paper presents a comparative analysis of two inter-agent communication paradigms: (1)~structured Remote Procedure Call (RPC) task delegation, exemplified by the \texttt{call\_agent} pattern, and (2)~free-text sub-agent spawning, exemplified by the \texttt{sessions\_spawn} pattern. Through empirical testing on identical tasks within the OpenClaw agent framework, we demonstrate that structured RPC achieves a \textbf{53$\times$ latency improvement}, produces machine-parseable outputs suitable for downstream composition, and preserves orchestrator agency. We introduce the concept of the \emph{Conversational Fallacy}---the mistaken assumption that LLM-based agents should communicate with each other in natural language---and argue that structured inter-agent communication is a fundamental architectural requirement for reliable multi-agent systems.
+\end{abstract}
+
+\textbf{Keywords:} multi-agent systems, inter-agent communication, RPC, orchestration, AI agents, tool use
+
+\section{Introduction}
+
+The rapid advancement of large language model (LLM) capabilities has given rise to agentic AI systems---autonomous agents equipped with tools, memory, and the ability to take actions in the world~\cite{yao2023react, wang2024survey}. A natural extension of single-agent systems is multi-agent orchestration, where a primary agent delegates subtasks to specialized subordinate agents. This pattern mirrors microservice architectures in traditional software engineering, where the communication protocol between services is as important as the services themselves.
+
+Despite growing interest in multi-agent frameworks such as AutoGen~\cite{wu2023autogen}, CrewAI, and LangGraph, relatively little attention has been paid to the \emph{communication layer} between agents. Most implementations default to natural language as the inter-agent medium---agents ``talk'' to each other in prose, treating every interaction as a conversation.
+
+This paper challenges that default by presenting empirical evidence from a production multi-agent system (OpenClaw with AgenticMail) that structured RPC-style communication dramatically outperforms conversational spawning across multiple dimensions. We identify three critical axes of comparison:
+
+\begin{enumerate}[itemsep=2pt,topsep=4pt]
+    \item \textbf{Latency and throughput}---How quickly can the orchestrator receive actionable results?
+    \item \textbf{Output structure and composability}---Can results be programmatically consumed by downstream processes?
+    \item \textbf{Orchestrator agency}---Does the communication pattern preserve or diminish the primary agent's control over presentation and decision-making?
+\end{enumerate}
+
+\section{Background and Related Work}
+
+\subsection{Multi-Agent Architectures}
+
+Multi-agent systems in AI have a long history~\cite{wooldridge2009}, but the LLM era has introduced a new paradigm where agents are language models augmented with tool access. Recent frameworks take varying approaches to inter-agent communication:
+
+\textbf{AutoGen}~\cite{wu2023autogen} uses conversational message passing, where agents exchange natural language messages in a group chat pattern. \textbf{CrewAI} defines agents with roles and goals, communicating through task delegation with natural language descriptions and results. \textbf{LangGraph} models agent interactions as state machines with typed state, offering more structure but still relying on text-based message passing at the agent level.
+
+None of these frameworks make a strong distinction between structured data exchange and conversational exchange between agents.
+
+\subsection{RPC in Distributed Systems}
+
+Remote Procedure Call (RPC) is a well-established paradigm in distributed computing~\cite{birrell1984}. Modern implementations like gRPC use Protocol Buffers for structured, typed message exchange with strict schemas. The benefits of structured RPC over unstructured communication---type safety, reduced parsing errors, better tooling, and predictable performance---are well-documented. The application of RPC principles to LLM-based multi-agent systems remains largely unexplored in the literature.
+
+\section{Methodology}
+
+\subsection{Experimental Setup}
+
+We conducted comparative tests within the OpenClaw agent framework (v2026.3), an open-source personal AI assistant platform supporting multi-agent orchestration. The system runs on consumer hardware (Apple Mac mini, ARM64, macOS~25.2.0, Node.js~v25.5.0) with Claude as the underlying language model.
+
+Two inter-agent communication methods were tested:
+
+\textbf{Method~A: Structured RPC (\texttt{call\_agent}).}
+The AgenticMail \texttt{call\_agent} function implements a synchronous RPC pattern. The orchestrating agent submits a task with a structured payload to a named subordinate agent. The subordinate executes the task and returns a structured JSON result object.
+
+\begin{lstlisting}
+Orchestrator -> call_agent(target, task, mode="light")
+             <- { status: "completed",
+                  result: { ...structured JSON... } }
+\end{lstlisting}
+
+\textbf{Method~B: Text-Based Spawning (\texttt{sessions\_spawn}).}
+The \texttt{sessions\_spawn} function creates an isolated sub-agent session with a natural language prompt. The orchestrator must yield its turn, wait for a push notification indicating completion, and then retrieve the sub-agent's text output.
+
+\begin{lstlisting}
+Orchestrator -> sessions_spawn(task: "...")
+             -> sessions_yield()
+             <- [push event] "sub-agent completed"
+             <- "Here's the weather: 69F, clear..."
+\end{lstlisting}
+
+\subsection{Test Task}
+
+Both methods were given an identical task: retrieve the current weather for Charlotte, NC, and return temperature, conditions, humidity, wind speed/direction, and cloud cover. This task was chosen for its determinism (both methods query the same underlying API), moderate complexity, and easily verifiable output.
+
+\subsection{Evaluation Criteria}
+
+Results were evaluated across three dimensions, summarized in Table~\ref{tab:criteria}.
+
+\begin{table}[H]
+\centering
+\caption{Evaluation dimensions and metrics.}
+\label{tab:criteria}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Dimension} & \textbf{Metric} \\
+\midrule
+Latency & Wall-clock time: invocation to result \\
+Structure & Machine-parseability without NLP \\
+Agency & Orchestrator control over presentation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Results}
+
+\subsection{Latency}
+
+\begin{table}[H]
+\centering
+\caption{Latency comparison between methods.}
+\label{tab:latency}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Method} & \textbf{Latency} & \textbf{Overhead} \\
+\midrule
+\texttt{call\_agent} (RPC) & $\sim$1\,s & Single tool call \\
+\texttt{sessions\_spawn} & $\sim$53\,s & Full session lifecycle \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The structured RPC method completed approximately \textbf{53$\times$ faster} than text-based spawning. The latency difference is attributable to:
+
+\begin{enumerate}[itemsep=2pt,topsep=4pt]
+    \item \textbf{Session overhead:} \texttt{sessions\_spawn} creates an entirely new agent session with full context loading, system prompt injection, and tool initialization.
+    \item \textbf{Inference overhead:} The spawned agent generates a natural language response via full autoregressive token generation.
+    \item \textbf{Coordination overhead:} The orchestrator must yield, wait for a push event, and resume---introducing asynchronous coordination latency.
+    \item \textbf{Mode optimization:} \texttt{call\_agent} with \texttt{mode="light"} skips email infrastructure, context loading, and heavyweight initialization.
+\end{enumerate}
+
+\subsection{Output Structure}
+
+\textbf{RPC Output (\texttt{call\_agent}):}
+\begin{lstlisting}
+{
+  "location": "Charlotte, NC",
+  "timestamp": "2026-03-26T21:45 EDT",
+  "temperature": "69.0F",
+  "feels_like": "65.9F",
+  "conditions": "Clear skies",
+  "humidity": "59%",
+  "wind": {
+    "speed": "10.3 mph",
+    "direction": "SSW (200)",
+    "gusts": "21.0 mph"
+  },
+  "cloud_cover": "0%"
+}
+\end{lstlisting}
+
+\textbf{Text Output (\texttt{sessions\_spawn}):}
+\begin{lstlisting}
+Here's the current weather in Charlotte, NC
+as of Thursday, March 26, 2026 at 9:45 PM EDT:
+- Temperature: 69F
+- Feels Like: 65.9F
+- Conditions: Clear skies
+- Wind: 10.3 mph from the SSW, gusts to 21 mph
+- Humidity: 59%
+Pleasant spring evening -- clear, mild, breezy.
+\end{lstlisting}
+
+Both methods returned semantically identical information. However, the RPC output is immediately indexable, comparable, and composable. The text output requires natural language parsing to extract individual values---a process that is both error-prone and non-deterministic across invocations.
+
+\subsection{Orchestrator Agency}
+
+With \textbf{structured RPC}, the orchestrator receives raw data and retains all presentational decisions. If the user asks ``Should I wear a jacket tonight?'', the orchestrator can programmatically inspect the temperature field (69\textdegree F), wind speed (10.3\,mph with 21\,mph gusts), and humidity (59\%) to synthesize a contextual recommendation.
+
+With \textbf{text-based spawning}, the subordinate agent has already made presentational decisions. The phrase ``Pleasant spring evening---clear, mild, and a bit breezy'' embeds the subordinate's editorial judgment. The orchestrator is reduced to \emph{forwarding another agent's narrative} rather than forming its own.
+
+This loss of agency compounds in multi-step workflows. An orchestrator checking weather, calendar, and traffic to advise on departure time receives three structured results with RPC and reasons holistically, versus three prose paragraphs with spawning that must be reconciled across inconsistent narrative voices.
+
+\section{Discussion}
+
+\subsection{The Conversational Fallacy}
+
+There is an implicit assumption in many multi-agent frameworks that because LLMs communicate in natural language, inter-agent communication should also be natural language. We term this the \textbf{Conversational Fallacy}. This assumption conflates two distinct communication contexts:
+
+\begin{enumerate}[itemsep=2pt,topsep=4pt]
+    \item \textbf{Agent-to-Human communication}, where natural language is appropriate because the recipient thinks in natural language.
+    \item \textbf{Agent-to-Agent communication}, where the recipient can process structured data more reliably and efficiently than prose.
+\end{enumerate}
+
+The Conversational Fallacy leads to systems where agents waste inference cycles generating prose that other agents must then parse---a computationally expensive round-trip through natural language that serves neither party. This is analogous to two microservices communicating by rendering HTML pages for each other to scrape.
+
+\subsection{Architectural Principles}
+
+Our findings suggest several principles for multi-agent systems:
+
+\textbf{Principle~1: Separate data exchange from presentation.} Inter-agent communication should transmit structured data. Natural language generation should occur only at the agent-human boundary.
+
+\textbf{Principle~2: Minimize session overhead for lightweight tasks.} Not every delegation requires a full agent session. The \texttt{mode="light"} pattern demonstrates that many tasks can execute with minimal context.
+
+\textbf{Principle~3: Preserve orchestrator agency.} The orchestrating agent should receive data, not conclusions, allowing it to reason across multiple sources and maintain a coherent voice.
+
+\textbf{Principle~4: Reserve spawning for genuinely autonomous tasks.} Text-based spawning remains valuable for tasks requiring extended autonomy, multi-turn reasoning, or full agent context. The key insight is that spawning should not be the default pattern.
+
+\subsection{Limitations}
+
+This study has several limitations. The comparison was conducted within a single framework (OpenClaw/AgenticMail); results may vary across platforms. The test task is relatively simple; complex tasks involving multi-turn reasoning may benefit from the richer context of spawned sessions. We did not measure token consumption, an important cost dimension. Future work should examine these dimensions and test across a broader range of tasks and frameworks.
+
+\section{Conclusion}
+
+We have presented empirical evidence that structured RPC-style inter-agent communication outperforms text-based sub-agent spawning across latency (\textbf{53$\times$ faster}), output composability (machine-parseable JSON vs.\ free-form prose), and orchestrator agency (data-driven reasoning vs.\ narrative forwarding).
+
+We introduced the concept of the \emph{Conversational Fallacy}---the mistaken assumption that LLM-based agents should communicate with each other in the same natural language they use with humans---and argued that this fallacy leads to architecturally suboptimal multi-agent systems.
+
+As multi-agent AI systems mature from research prototypes to production infrastructure, the communication layer between agents deserves the same rigorous design attention that RPC protocols receive in traditional distributed systems. The question is not whether agents \emph{can} communicate in natural language---they obviously can---but whether they \emph{should}.
+
+\begin{thebibliography}{9}
+
+\bibitem{birrell1984}
+A.~D. Birrell and B.~J. Nelson, ``Implementing remote procedure calls,'' \emph{ACM Trans.\ Comput.\ Syst.}, vol.~2, no.~1, pp.~39--59, 1984.
+
+\bibitem{wang2024survey}
+L.~Wang, C.~Ma, X.~Feng, \emph{et al.}, ``A survey on large language model based autonomous agents,'' \emph{Frontiers of Computer Science}, vol.~18, no.~6, p.~186345, 2024.
+
+\bibitem{wooldridge2009}
+M.~Wooldridge, \emph{An Introduction to MultiAgent Systems}, 2nd~ed. John Wiley \& Sons, 2009.
+
+\bibitem{wu2023autogen}
+Q.~Wu, G.~Bansal, J.~Zhang, \emph{et al.}, ``AutoGen: Enabling next-gen LLM applications via multi-agent conversation,'' \emph{arXiv preprint arXiv:2308.08155}, 2023.
+
+\bibitem{yao2023react}
+S.~Yao, J.~Zhao, D.~Yu, \emph{et al.}, ``ReAct: Synergizing reasoning and acting in language models,'' in \emph{Proc.\ ICLR}, 2023.
+
+\end{thebibliography}
+
+\end{document}
