@@ -54,7 +54,7 @@
 \maketitle
 
 \begin{abstract}
-As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles of specialized agents, the communication layer between agents becomes a critical design decision. This paper presents a comparative analysis of two production inter-agent communication paradigms: (1)~\textbf{AgenticMail Call Agent} (\texttt{call\_agent}), a structured synchronous delegation pattern with configurable execution modes (\texttt{light}, \texttt{heavy}, \texttt{default}), and (2)~\textbf{OpenClaw Sessions Spawn} (\texttt{sessions\_spawn}), a free-text sub-agent spawning pattern with full session isolation. Through extensive empirical testing across \textbf{16 sub-agent tasks spanning 10 industries}---including multi-agent parallel collaboration scenarios---we evaluate both paradigms on latency, output quality, domain versatility, and collaboration capability. We find that AgenticMail Call Agent achieves dramatically lower latency ($\sim$1\,s vs.\ 24--107\,s) and produces machine-parseable outputs, while OpenClaw Sessions Spawn excels at complex reasoning, creative collaboration, and domain-specialist tasks. We argue that the optimal architecture is a \textbf{hybrid}: AgenticMail Call Agent for data retrieval, OpenClaw Sessions Spawn for autonomous specialist work. Full test results are provided as reference files in the companion \texttt{results/} directory.
+As multi-agent AI systems evolve from single-model architectures to orchestrated ensembles of specialized agents, the communication layer between agents becomes a critical design decision. This paper presents a comparative analysis of two production inter-agent communication paradigms: (1)~\textbf{AgenticMail Call Agent} (\texttt{call\_agent}), a structured synchronous delegation pattern with configurable execution modes (\texttt{light}, \texttt{heavy}, \texttt{default}), and (2)~\textbf{OpenClaw Sessions Spawn} (\texttt{sessions\_spawn}), a free-text sub-agent spawning pattern with full session isolation. Through extensive empirical testing across \textbf{16 sub-agent tasks spanning 10 industries}---including multi-agent parallel collaboration scenarios---we evaluate both paradigms on latency, output quality, domain versatility, and collaboration capability. We find that AgenticMail Call Agent achieves dramatically lower latency ($\sim$1\,s vs.\ 24--107\,s) and produces machine-parseable outputs, while OpenClaw Sessions Spawn excels at complex reasoning, creative collaboration, and domain-specialist tasks. We argue that the optimal architecture is a \textbf{hybrid}: AgenticMail Call Agent for data retrieval, OpenClaw Sessions Spawn for autonomous specialist work. Full test results are provided as reference files in the companion \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results}{\texttt{results/}} directory.
 \end{abstract}
 
 \textbf{Keywords:} multi-agent systems, AgenticMail, OpenClaw, inter-agent communication, orchestration, AI agents, tool use, collaboration
@@ -138,30 +138,30 @@ All tests were conducted on consumer hardware (Apple Mac mini, ARM64, macOS~25.2
 
 \textbf{Wave~1---Single-Agent Domain Specialists} (6 parallel):
 \begin{enumerate}[itemsep=1pt,topsep=2pt]
-    \item \emph{Finance:} AAPL stock analysis with live web data \hfill\texttt{\footnotesize results/02}
-    \item \emph{Healthcare:} Drug interaction analysis (3 drugs) \hfill\texttt{\footnotesize results/06}
-    \item \emph{Legal:} SaaS ToS contract risk analysis \hfill\texttt{\footnotesize results/03}
-    \item \emph{Software Eng.:} Security code review with fix \hfill\texttt{\footnotesize results/01}
-    \item \emph{Marketing:} Gen~Z product launch (\$50K budget) \hfill\texttt{\footnotesize results/16}
-    \item \emph{Education:} 4-week ML curriculum design \hfill\texttt{\footnotesize results/05}
+    \item \emph{Finance:} AAPL stock analysis with live web data \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/02-finance-aapl.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/02*.md}{\texttt{results/02}}}
+    \item \emph{Healthcare:} Drug interaction analysis (3 drugs) \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/06-healthcare-drugs.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/06*.md}{\texttt{results/06}}}
+    \item \emph{Legal:} SaaS ToS contract risk analysis \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03-legal-saas.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03*.md}{\texttt{results/03}}}
+    \item \emph{Software Eng.:} Security code review with fix \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/01-code-review.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/01*.md}{\texttt{results/01}}}
+    \item \emph{Marketing:} Gen~Z product launch (\$50K budget) \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/16-marketing-campaign.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/16*.md}{\texttt{results/16}}}
+    \item \emph{Education:} 4-week ML curriculum design \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/05-education-ml.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/05*.md}{\texttt{results/05}}}
 \end{enumerate}
 
 \textbf{Wave~2---Specialists + Collaboration Seeds} (5 parallel):
 \begin{enumerate}[itemsep=1pt,topsep=2pt,start=7]
-    \item \emph{Supply Chain:} Shenzhen$\to$Charlotte route optimization \hfill\texttt{\footnotesize results/08}
-    \item \emph{Data Science:} Forecasting model comparison \hfill\texttt{\footnotesize results/04}
-    \item \emph{Research:} RAG literature review with citations \hfill\texttt{\footnotesize results/09}
-    \item \emph{Creative:} Sci-fi story Part~A (sequential collab) \hfill\texttt{\footnotesize results/07}
-    \item \emph{M\&A Finance:} Financial due diligence \hfill\texttt{\footnotesize results/10}
+    \item \emph{Supply Chain:} Shenzhen$\to$Charlotte route optimization \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/08-supply-chain.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/08*.md}{\texttt{results/08}}}
+    \item \emph{Data Science:} Forecasting model comparison \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/04-data-science.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/04*.md}{\texttt{results/04}}}
+    \item \emph{Research:} RAG literature review with citations \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/09-research-rag.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/09*.md}{\texttt{results/09}}}
+    \item \emph{Creative:} Sci-fi story Part~A (sequential collab) \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07-story-part-a.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07*.md}{\texttt{results/07}}}
+    \item \emph{M\&A Finance:} Financial due diligence \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10*.md}{\texttt{results/10}}}
 \end{enumerate}
 
 \textbf{Wave~3---Multi-Agent Collaboration} (5 parallel):
 \begin{enumerate}[itemsep=1pt,topsep=2pt,start=12]
-    \item \emph{Creative:} Sci-fi story Part~B (continues \#10) \hfill\texttt{\footnotesize results/11}
-    \item \emph{M\&A Legal:} Legal due diligence \hfill\texttt{\footnotesize results/13}
-    \item \emph{M\&A Ops:} Operational due diligence \hfill\texttt{\footnotesize results/15}
-    \item \emph{Biostatistics:} Clinical trial SAP \hfill\texttt{\footnotesize results/12}
-    \item \emph{Regulatory:} Clinical trial regulatory strategy \hfill\texttt{\footnotesize results/14}
+    \item \emph{Creative:} Sci-fi story Part~B (continues \#10) \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11-story-part-b.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11*.md}{\texttt{results/11}}}
+    \item \emph{M\&A Legal:} Legal due diligence \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13*.md}{\texttt{results/13}}}
+    \item \emph{M\&A Ops:} Operational due diligence \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15*.md}{\texttt{results/15}}}
+    \item \emph{Biostatistics:} Clinical trial SAP \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12*.md}{\texttt{results/12}}}
+    \item \emph{Regulatory:} Clinical trial regulatory strategy \hfill\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\footnotesize\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14*.md}{\texttt{results/14}}}
 \end{enumerate}
 
 Each result file referenced above (e.g., \texttt{results/01-code-review.md}) contains the complete sub-agent output with metadata headers including runtime, token count, model, and method used.
@@ -196,12 +196,12 @@ Direct curl & Weather & $\sim$0.7\,s & Raw JSON \\
 \toprule
 \textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
 \midrule
-Software Eng. & 24\,s & 1,300 & \texttt{01} \\
-Finance & 36\,s & 1,200 & \texttt{02} \\
-Legal & 53\,s & 2,400 & \texttt{03} \\
-Data Science & 62\,s & 2,600 & \texttt{04} \\
-Education & 70\,s & 3,300 & \texttt{05} \\
-Healthcare & 72\,s & 3,000 & \texttt{06} \\
+Software Eng. & 24\,s & 1,300 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/01-code-review.md}{\texttt{01}} \\
+Finance & 36\,s & 1,200 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/02-finance-aapl.md}{\texttt{02}} \\
+Legal & 53\,s & 2,400 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03-legal-saas.md}{\texttt{03}} \\
+Data Science & 62\,s & 2,600 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/04-data-science.md}{\texttt{04}} \\
+Education & 70\,s & 3,300 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/05-education-ml.md}{\texttt{05}} \\
+Healthcare & 72\,s & 3,000 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/06-healthcare-drugs.md}{\texttt{06}} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -214,10 +214,10 @@ Healthcare & 72\,s & 3,000 & \texttt{06} \\
 \toprule
 \textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
 \midrule
-Creative (A) & 29\,s & 725 & \texttt{07} \\
-Supply Chain & 62\,s & 2,200 & \texttt{08} \\
-Research & 69\,s & 2,500 & \texttt{09} \\
-M\&A Finance & 78\,s & 3,400 & \texttt{10} \\
+Creative (A) & 29\,s & 725 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07-story-part-a.md}{\texttt{07}} \\
+Supply Chain & 62\,s & 2,200 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/08-supply-chain.md}{\texttt{08}} \\
+Research & 69\,s & 2,500 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/09-research-rag.md}{\texttt{09}} \\
+M\&A Finance & 78\,s & 3,400 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -230,11 +230,11 @@ M\&A Finance & 78\,s & 3,400 & \texttt{10} \\
 \toprule
 \textbf{Domain} & \textbf{Time} & \textbf{Tokens} & \textbf{Ref} \\
 \midrule
-Creative (B) & 29\,s & 870 & \texttt{11} \\
-Clinical Stats & 88\,s & 3,800 & \texttt{12} \\
-M\&A Legal & 90\,s & 3,800 & \texttt{13} \\
-Clinical Reg. & 97\,s & 4,200 & \texttt{14} \\
-M\&A Ops & 107\,s & 4,800 & \texttt{15} \\
+Creative (B) & 29\,s & 870 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11-story-part-b.md}{\texttt{11}} \\
+Clinical Stats & 88\,s & 3,800 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\texttt{12}} \\
+M\&A Legal & 90\,s & 3,800 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}} \\
+Clinical Reg. & 97\,s & 4,200 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\texttt{14}} \\
+M\&A Ops & 107\,s & 4,800 & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -263,27 +263,27 @@ Spawn latency correlates strongly with output length ($r \approx 0.87$). Agentic
 
 \begin{table}[H]
 \centering
-\caption{OpenClaw Sessions Spawn quality (1--5). See \texttt{results/} for full outputs.}
+\caption{OpenClaw Sessions Spawn quality (1--5). See \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results}{\texttt{results/}} for full outputs.}
 \label{tab:quality}
 \begin{tabular}{@{}lcccl@{}}
 \toprule
 \textbf{Domain} & \textbf{Dep.} & \textbf{Acc.} & \textbf{Avg.} & \textbf{Ref} \\
 \midrule
-Code Review & 5 & 5 & \textbf{5.0} & \texttt{01} \\
-Legal (SaaS) & 5 & 5 & \textbf{5.0} & \texttt{03} \\
-Education & 5 & 5 & \textbf{5.0} & \texttt{05} \\
-Data Science & 5 & 5 & \textbf{5.0} & \texttt{04} \\
-M\&A Finance & 5 & 5 & \textbf{5.0} & \texttt{10} \\
-M\&A Legal & 5 & 5 & \textbf{5.0} & \texttt{13} \\
-M\&A Ops & 5 & 5 & \textbf{5.0} & \texttt{15} \\
-Clinical Stats & 5 & 5 & \textbf{5.0} & \texttt{12} \\
-Clinical Reg. & 5 & 5 & \textbf{5.0} & \texttt{14} \\
+Code Review & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/01-code-review.md}{\texttt{01}} \\
+Legal (SaaS) & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03-legal-saas.md}{\texttt{03}} \\
+Education & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/05-education-ml.md}{\texttt{05}} \\
+Data Science & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/04-data-science.md}{\texttt{04}} \\
+M\&A Finance & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}} \\
+M\&A Legal & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}} \\
+M\&A Ops & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}} \\
+Clinical Stats & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\texttt{12}} \\
+Clinical Reg. & 5 & 5 & \textbf{5.0} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\texttt{14}} \\
 Creative & 5 & -- & \textbf{5.0} & \texttt{07,11} \\
-Healthcare & 5 & 4 & \textbf{4.75} & \texttt{06} \\
-Marketing & 5 & 4 & \textbf{4.75} & \texttt{16} \\
-Finance (AAPL) & 5 & 4 & \textbf{4.5} & \texttt{02} \\
-Supply Chain & 4 & 4 & \textbf{4.5} & \texttt{08} \\
-Research (RAG) & 5 & 4 & \textbf{4.5} & \texttt{09} \\
+Healthcare & 5 & 4 & \textbf{4.75} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/06-healthcare-drugs.md}{\texttt{06}} \\
+Marketing & 5 & 4 & \textbf{4.75} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/16-marketing-campaign.md}{\texttt{16}} \\
+Finance (AAPL) & 5 & 4 & \textbf{4.5} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/02-finance-aapl.md}{\texttt{02}} \\
+Supply Chain & 4 & 4 & \textbf{4.5} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/08-supply-chain.md}{\texttt{08}} \\
+Research (RAG) & 5 & 4 & \textbf{4.5} & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/09-research-rag.md}{\texttt{09}} \\
 \midrule
 \multicolumn{3}{@{}l}{\textbf{Overall Average}} & \textbf{4.87} & \\
 \bottomrule
@@ -310,13 +310,13 @@ Composability & 5 & 3 \\
 \end{tabular}
 \end{table}
 
-AgenticMail Call Agent returns raw data; OpenClaw Sessions Spawn returns \emph{analyzed} data with expert judgment. The legal agent (\texttt{results/03}) did not just identify risks---it provided exact protective contract language. The M\&A agents (\texttt{results/10,13,15}) provided specific red-flag thresholds and negotiation strategies. This depth of reasoning is impossible from a structured call.
+AgenticMail Call Agent returns raw data; OpenClaw Sessions Spawn returns \emph{analyzed} data with expert judgment. The legal agent (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03*.md}{\texttt{results/03}}) did not just identify risks---it provided exact protective contract language. The M\&A agents (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}}) provided specific red-flag thresholds and negotiation strategies. This depth of reasoning is impossible from a structured call.
 
 \subsection{Multi-Agent Collaboration}
 
 \subsubsection{Sequential Handoff: Collaborative Story}
 
-Agent~A (\texttt{results/07}) wrote Part~1 (430 words, 29\,s). Agent~B (\texttt{results/11}) received Part~1 and wrote Part~2 (480 words, 29\,s) that maintained perfect tonal consistency, resolved the plot arc, mirrored the opening line, and introduced zero contradictions.
+Agent~A (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07*.md}{\texttt{results/07}}) wrote Part~1 (430 words, 29\,s). Agent~B (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11*.md}{\texttt{results/11}}) received Part~1 and wrote Part~2 (480 words, 29\,s) that maintained perfect tonal consistency, resolved the plot arc, mirrored the opening line, and introduced zero contradictions.
 
 \textbf{Collaboration quality: 5/5.}
 
@@ -332,9 +332,9 @@ Three OpenClaw agents independently analyzed a \$400M SaaS acquisition:
 \toprule
 \textbf{Agent} & \textbf{Time} & \textbf{Key Finding} & \textbf{Ref} \\
 \midrule
-Financial & 78\,s & 8x if NRR $>$110\% & \texttt{10} \\
-Legal & 90\,s & OSS contamination & \texttt{13} \\
-Operational & 107\,s & Key-person risk & \texttt{15} \\
+Financial & 78\,s & 8x if NRR $>$110\% & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}} \\
+Legal & 90\,s & OSS contamination & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}} \\
+Operational & 107\,s & Key-person risk & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -351,8 +351,8 @@ All three independently valued the deal at ``upper end of fair.'' Financial flag
 \toprule
 \textbf{Agent} & \textbf{Time} & \textbf{Key Output} & \textbf{Ref} \\
 \midrule
-Statistical & 88\,s & Full SAP, power calc. & \texttt{12} \\
-Regulatory & 97\,s & 505(b)(1), CVOT & \texttt{14} \\
+Statistical & 88\,s & Full SAP, power calc. & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\texttt{12}} \\
+Regulatory & 97\,s & 505(b)(1), CVOT & \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\texttt{14}} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -394,7 +394,7 @@ Wave~3 & 5 & 411\,s & 107\,s & 3.8$\times$ \\
 \subsection{Use OpenClaw Sessions Spawn When:}
 
 \begin{itemize}[itemsep=2pt,topsep=4pt]
-    \item The task requires \textbf{multi-step reasoning or domain expertise} (see all 16 results in \texttt{results/})
+    \item The task requires \textbf{multi-step reasoning or domain expertise} (see all 16 results in \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results}{\texttt{results/}})
     \item You need \textbf{creative output} (writing, design, brainstorming)
     \item The output \textbf{is the deliverable} (reports, reviews, analysis, curriculum)
     \item You want \textbf{multiple specialists} working in parallel on complementary aspects
@@ -450,15 +450,15 @@ This study demonstrates that AgenticMail Call Agent and OpenClaw Sessions Spawn 
 \textbf{OpenClaw Sessions Spawn} (\texttt{sessions\_spawn}) excels at autonomous specialist work. Across 16 tasks in 10 industries (average quality 4.87/5), it produced expert-level analysis that no structured call could replicate:
 
 \begin{itemize}[itemsep=2pt,topsep=4pt]
-    \item The legal agent (\texttt{results/03}) wrote protective contract language
-    \item The clinical trial agents (\texttt{results/12,14}) designed a complete Phase~III protocol
-    \item The M\&A agents (\texttt{results/10,13,15}) produced a combinable due diligence package with zero contradictions
-    \item The creative agents (\texttt{results/07,11}) wrote a seamless two-part literary story
+    \item The legal agent (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/03*.md}{\texttt{results/03}}) wrote protective contract language
+    \item The clinical trial agents (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/12-clinical-stats.md}{\texttt{12}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/14-clinical-regulatory.md}{\texttt{14}}) designed a complete Phase~III protocol
+    \item The M\&A agents (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/10-ma-finance.md}{\texttt{10}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/13-ma-legal.md}{\texttt{13}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/15-ma-operations.md}{\texttt{15}}) produced a combinable due diligence package with zero contradictions
+    \item The creative agents (\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/07-story-part-a.md}{\texttt{07}},\href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results/11-story-part-b.md}{\texttt{11}}) wrote a seamless two-part literary story
 \end{itemize}
 
 For users choosing between the two: \textbf{use Call Agent for data, use Sessions Spawn for reasoning.} For architects building multi-agent systems: \textbf{implement both.}
 
-All 16 test results are available in the companion \texttt{results/} directory with full metadata, enabling independent evaluation of output quality.
+All 16 test results are available in the companion \href{https://github.com/agenticmail/agenticmail/blob/main/research/agent-rpc-vs-spawn/results}{\texttt{results/}} directory with full metadata, enabling independent evaluation of output quality.
 
 \begin{thebibliography}{9}
 
