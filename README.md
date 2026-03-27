@@ -2,6 +2,14 @@
 
 **The first platform to give AI agents real email addresses and phone numbers.** Send and receive email, SMS, and verification codes — all programmatically.
 
+---
+
+### 📄 Research Paper
+
+**[Structured RPC vs. Text-Based Sub-Agent Orchestration](./research/agent-rpc-vs-spawn/paper.pdf)** — A comparative analysis of inter-agent communication paradigms. Demonstrates why AgenticMail's `call_agent` achieves 53× faster response times than conventional sub-agent spawning, and introduces the concept of the *Conversational Fallacy* in multi-agent AI systems. [[PDF]](./research/agent-rpc-vs-spawn/paper.pdf) [[Source]](./research/agent-rpc-vs-spawn/)
+
+---
+
 AgenticMail is a self-hosted communication platform purpose-built for AI agents. It runs a local [Stalwart](https://stalw.art) mail server via Docker, integrates Google Voice for SMS/phone access, exposes a REST API with 75+ endpoints, and works with any MCP-compatible AI client and [OpenClaw](https://github.com/openclaw/openclaw) via plugin. Each agent gets its own email address, phone number, inbox, and API key.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
