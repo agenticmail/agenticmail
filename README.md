@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/agenticmail-agenticmail-badge.png)](https://mseep.ai/app/agenticmail-agenticmail)
+
 # 🎀 AgenticMail
 
 **The first platform to give AI agents real email addresses and phone numbers.** Send and receive email, SMS, and verification codes — all programmatically.
