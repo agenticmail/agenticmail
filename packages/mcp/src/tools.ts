@@ -852,7 +852,7 @@ export const toolDefinitions = [
         includeData: { type: 'boolean', description: 'For clone_table' },
         format: { type: 'string', description: 'For export: json|csv' },
         sql: { type: 'string', description: 'For sql/explain: raw SQL' },
-        params: { type: 'array', description: 'For sql/explain: query params' },
+        params: { type: 'array', items: { type: 'string' }, description: 'For sql/explain: query params' },
         includeShared: { type: 'boolean', description: 'For list_tables' },
         includeArchived: { type: 'boolean', description: 'For list_tables' },
       },

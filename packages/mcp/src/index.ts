@@ -7,8 +7,50 @@ import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { setTelemetryVersion } from '@agenticmail/core';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { z, type ZodTypeAny } from 'zod';
 
 setTelemetryVersion('0.5.50');
+
+type JsonSchema = {
+  type?: string;
+  description?: string;
+  enum?: string[];
+  properties?: Record<string, JsonSchema | undefined>;
+  required?: string[];
+  items?: JsonSchema;
+};
+
+function jsonSchemaToZod(schema: JsonSchema | undefined, topLevel = false): Record<string, ZodTypeAny> | ZodTypeAny {
+  if (!schema || typeof schema !== 'object') return topLevel ? {} : z.any();
+
+  let result: ZodTypeAny;
+  if (schema.type === 'string') {
+    result = schema.enum?.length ? z.enum(schema.enum as [string, ...string[]]) : z.string();
+  } else if (schema.type === 'number' || schema.type === 'integer') {
+    result = z.number();
+  } else if (schema.type === 'boolean') {
+    result = z.boolean();
+  } else if (schema.type === 'array') {
+    // OpenAI-compatible validators reject arrays that serialize without an explicit items schema.
+    // z.any() round-trips to a naked array schema, so fallback to string for empty/absent items.
+    const hasItems = !!schema.items && typeof schema.items === 'object' && Object.keys(schema.items).length > 0;
+    result = z.array(hasItems ? jsonSchemaToZod(schema.items, false) as ZodTypeAny : z.string());
+  } else if (schema.type === 'object') {
+    const shape: Record<string, ZodTypeAny> = {};
+    const required = new Set(schema.required ?? []);
+    for (const [key, prop] of Object.entries(schema.properties ?? {})) {
+      let child = jsonSchemaToZod(prop, false) as ZodTypeAny;
+      if (!required.has(key)) child = child.optional();
+      shape[key] = child;
+    }
+    if (topLevel) return shape;
+    result = z.object(shape);
+  } else {
+    result = z.any();
+  }
+
+  return schema.description ? result.describe(schema.description) : result;
+}
 
 function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -22,8 +64,8 @@ function createMcpServer(): McpServer {
     server.tool(
       tool.name,
       tool.description,
-      tool.inputSchema as any,
-      async ({ arguments: args }: { arguments: Record<string, unknown> }) => {
+      jsonSchemaToZod(tool.inputSchema, true) as any,
+      async (args: Record<string, unknown>) => {
         try {
           const result = await handleToolCall(tool.name, args as Record<string, unknown>);
           return { content: [{ type: 'text' as const, text: result }] };

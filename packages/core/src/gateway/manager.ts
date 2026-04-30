@@ -889,6 +889,8 @@ export class GatewayManager {
     const mailOpts: any = {
       from,
       to: recipients.join(', '),
+      cc: mail.cc ? (Array.isArray(mail.cc) ? mail.cc.join(', ') : mail.cc) : undefined,
+      bcc: mail.bcc ? (Array.isArray(mail.bcc) ? mail.bcc.join(', ') : mail.bcc) : undefined,
       subject: mail.subject,
       text: mail.text || undefined,
       html: mail.html || undefined,

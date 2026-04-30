@@ -6,11 +6,13 @@ export async function parseEmail(raw: Buffer | string): Promise<ParsedEmail> {
 
   // Use X-Original-From header if present (inbound relay emails store the real sender there)
   const xOriginalFrom = parsed.headers?.get('x-original-from');
+  const xAgenticMailRelay = parsed.headers?.get('x-agenticmail-relay');
   const originalFromAddr = typeof xOriginalFrom === 'string' ? xOriginalFrom.trim() : undefined;
+  const isAgenticMailInboundRelay = xAgenticMailRelay === 'inbound';
 
   let fromAddrs = parsed.from?.value ?? [];
-  if (originalFromAddr && fromAddrs.length > 0 && fromAddrs[0].address?.endsWith('@localhost')) {
-    // Replace the @localhost address with the original external sender
+  if (originalFromAddr && fromAddrs.length > 0 && (isAgenticMailInboundRelay || fromAddrs[0].address?.endsWith('@localhost'))) {
+    // Replace the local relay address with the original external sender.
     fromAddrs = [{ name: fromAddrs[0].name || '', address: originalFromAddr }];
   }
 

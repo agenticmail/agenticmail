@@ -20,6 +20,24 @@ Hello, this is a test.`;
     expect(result.messageId).toBe('<test@example.com>');
   });
 
+  it('restores X-Original-From for inbound relay messages in domain mode', async () => {
+    const raw = `From: Ope <armand@agents.orbitalreach.space>
+To: armand@agents.orbitalreach.space
+Reply-To: ope.olatunji@outlook.com
+Subject: Re: Bug report
+Message-ID: <reply@example.com>
+X-AgenticMail-Relay: inbound
+X-Original-From: ope.olatunji@outlook.com
+Content-Type: text/plain
+
+Looks good.`;
+
+    const result = await parseEmail(raw);
+    expect(result.from[0].address).toBe('ope.olatunji@outlook.com');
+    expect(result.from[0].name).toBe('Ope');
+    expect(result.replyTo?.[0].address).toBe('ope.olatunji@outlook.com');
+  });
+
   it('parses an email with reply headers', async () => {
     const raw = `From: bob@example.com
 To: alice@example.com
