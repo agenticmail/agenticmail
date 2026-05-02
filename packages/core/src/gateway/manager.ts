@@ -262,7 +262,7 @@ export class GatewayManager {
         html: mail.html || undefined,
         replyTo: mail.from,
         inReplyTo: mail.inReplyTo,
-        references: mail.references?.join(' '),
+        references: Array.isArray(mail.references) ? mail.references.join(' ') : mail.references,
         headers: {
           'X-AgenticMail-Relay': 'inbound',
           'X-Original-From': mail.from,
@@ -894,7 +894,7 @@ export class GatewayManager {
       html: mail.html || undefined,
       replyTo: mail.replyTo || from,
       inReplyTo: mail.inReplyTo || undefined,
-      references: mail.references?.join(' ') || undefined,
+      references: Array.isArray(mail.references) ? mail.references.join(' ') : (mail.references || undefined),
       headers: {
         'X-Mailer': 'AgenticMail/1.0',
       },

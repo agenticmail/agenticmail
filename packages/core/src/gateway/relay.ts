@@ -135,7 +135,7 @@ export class RelayGateway {
       html: mail.html,
       replyTo: relayFrom,
       inReplyTo: mail.inReplyTo,
-      references: mail.references?.join(' '),
+      references: Array.isArray(mail.references) ? mail.references.join(' ') : mail.references,
       headers: mail.headers,
       attachments: mail.attachments?.map((a) => ({
         filename: a.filename,
