@@ -332,11 +332,28 @@ The `openclaw.plugin.json` file registers the plugin with OpenClaw:
   "configSchema": {
     "apiUrl": { "type": "string", "default": "http://127.0.0.1:3100" },
     "apiKey": { "type": "string", "required": true },
-    "masterKey": { "type": "string" }
+    "masterKey": { "type": "string" },
+    "inboxInjectionMode": {
+      "type": "string",
+      "enum": ["off", "count", "summary", "required"],
+      "default": "summary"
+    },
+    "inboxInjectionMaxItems": { "type": "integer", "default": 5 },
+    "inboxInjectionIncludePreview": { "type": "boolean", "default": false }
   },
   "requires": { "bins": ["docker"] }
 }
 ```
+
+### Inbox Injection
+
+Unread inbox context is configurable:
+
+- `inboxInjectionMode: "off"` disables prompt injection
+- `inboxInjectionMode: "count"` injects only the unread count
+- `inboxInjectionMode: "summary"` injects sender, subject, and UID metadata
+- `inboxInjectionMode: "required"` preserves proactive read-first behavior
+- `inboxInjectionIncludePreview: true` adds a short message body preview
 
 ---
 
@@ -348,7 +365,9 @@ The plugin registers three OpenClaw lifecycle hooks:
 - Detects sub-agent sessions and provisions email accounts
 - Resolves parent agent email for auto-CC
 - Sends introduction email in coordination thread
-- Injects identity context, security rules, and unread mail summary into system prompt
+
+### before_prompt_build
+- Injects identity context, security rules, and unread mail context into system prompt
 
 ### before_tool_call
 - Injects sub-agent API keys for `agenticmail_*` tools

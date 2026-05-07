@@ -24,6 +24,24 @@
       "masterKey": {
         "type": "string",
         "description": "Master API key for admin operations (optional)"
+      },
+      "inboxInjectionMode": {
+        "type": "string",
+        "description": "Unread inbox context injection mode: off disables it, count shows only unread count, summary shows metadata summaries, required forces agents to read unread mail first",
+        "enum": ["off", "count", "summary", "required"],
+        "default": "summary"
+      },
+      "inboxInjectionMaxItems": {
+        "type": "integer",
+        "description": "Maximum unread messages to summarize in prompt context",
+        "minimum": 1,
+        "maximum": 25,
+        "default": 5
+      },
+      "inboxInjectionIncludePreview": {
+        "type": "boolean",
+        "description": "Include a short body preview in unread message summaries",
+        "default": false
       }
     },
     "required": ["apiKey"]

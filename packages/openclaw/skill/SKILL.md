@@ -241,4 +241,4 @@ Set in your OpenClaw config under `plugins.entries`:
 - **SMS / Phone** — Google Voice integration for verification codes and text messaging
 - **Database storage** — 28-action DBMS (DDL, DML, indexing, aggregation, import/export, raw SQL)
 - **Rate limiting** — Built-in protection against agent email storms
-- **Inbox awareness** — Agents are notified of unread mail at conversation start
+- **Configurable inbox awareness** — Agents can receive unread count, summaries, or required read-first prompts

@@ -2,6 +2,12 @@ import { registerTools, recordInboundAgentMessage, registerAgentIdentity, unregi
 import { initFollowUpSystem, cancelAllFollowUps } from './src/pending-followup.js';
 import { mailChannelPlugin } from './src/channel.js';
 import { createMailMonitorService } from './src/monitor.js';
+import {
+  formatUnreadInboxContext,
+  resolveInboxInjectionConfig,
+  sanitizeInboxPreview,
+  type UnreadMailSummary,
+} from './src/inbox-injection.js';
 import { setTelemetryVersion } from '@agenticmail/core';
 
 /** Minimum timeout (seconds) for sub-agents that have email capability */
@@ -185,6 +191,7 @@ function deriveAgentName(sessionKey: string): string {
 function activate(api: any): void {
   const config = api?.getConfig?.() ?? {};
   const pluginConfig = api?.pluginConfig ?? config;
+  const inboxInjectionConfig = resolveInboxInjectionConfig(pluginConfig);
 
   // Resolve OpenClaw agent identity for email From header
   let ownerName: string | undefined;
@@ -882,7 +889,7 @@ function activate(api: any): void {
 
     // --- Inbox awareness check ---
     // Skip for sub-agents in standard mode (task-focused, not checking mail)
-    if (!(isSubAgent && taskMode === 'standard') && agentApiKey) {
+    if (!(isSubAgent && taskMode === 'standard') && agentApiKey && inboxInjectionConfig.mode !== 'off') {
       try {
         const headers: Record<string, string> = { 'Authorization': `Bearer ${agentApiKey}` };
 
@@ -898,55 +905,49 @@ function activate(api: any): void {
           const uids: number[] = data?.uids ?? [];
 
           if (uids.length > 0) {
-            let myName = '';
-            try {
-              const meRes = await fetch(`${baseUrl}/accounts/me`, {
-                headers,
-                signal: AbortSignal.timeout(3_000),
-              });
-              if (meRes.ok) {
-                const me: any = await meRes.json();
-                myName = me?.name ?? '';
-              }
-            } catch { /* ignore */ }
+            const summaries: UnreadMailSummary[] = [];
 
-            const summaries: string[] = [];
-            for (const uid of uids.slice(0, 5)) {
+            if (inboxInjectionConfig.mode !== 'count') {
+              let myName = '';
               try {
-                const msgRes = await fetch(`${baseUrl}/mail/messages/${uid}`, {
+                const meRes = await fetch(`${baseUrl}/accounts/me`, {
                   headers,
-                  signal: AbortSignal.timeout(5_000),
+                  signal: AbortSignal.timeout(3_000),
                 });
-                if (!msgRes.ok) continue;
-                const msg: any = await msgRes.json();
-                const from = msg.from?.[0]?.address ?? 'unknown';
-                const subject = msg.subject ?? '(no subject)';
-                const isAgentMsg = from.endsWith('@localhost');
-                const tag = isAgentMsg ? '[agent]' : '[external]';
-                const preview = (msg.text ?? '').slice(0, 200).replace(/\n/g, ' ').trim();
-                summaries.push(`  - ${tag} UID ${uid}: from ${from} — "${subject}"${preview ? '\n    ' + preview : ''}`);
-
-                if (isAgentMsg && myName) {
-                  const senderName = from.split('@')[0] ?? '';
-                  if (senderName) recordInboundAgentMessage(senderName, myName);
+                if (meRes.ok) {
+                  const me: any = await meRes.json();
+                  myName = me?.name ?? '';
                 }
-              } catch { /* skip */ }
+              } catch { /* ignore */ }
+
+              for (const uid of uids.slice(0, inboxInjectionConfig.maxItems)) {
+                try {
+                  const msgRes = await fetch(`${baseUrl}/mail/messages/${uid}`, {
+                    headers,
+                    signal: AbortSignal.timeout(5_000),
+                  });
+                  if (!msgRes.ok) continue;
+                  const msg: any = await msgRes.json();
+                  const from = msg.from?.[0]?.address ?? 'unknown';
+                  const subject = msg.subject ?? '(no subject)';
+                  const isAgentMsg = from.endsWith('@localhost');
+                  summaries.push({
+                    uid,
+                    from,
+                    subject,
+                    tag: isAgentMsg ? 'agent' : 'external',
+                    preview: inboxInjectionConfig.includePreview ? sanitizeInboxPreview(msg.text) : undefined,
+                  });
+
+                  if (isAgentMsg && myName) {
+                    const senderName = from.split('@')[0] ?? '';
+                    if (senderName) recordInboundAgentMessage(senderName, myName);
+                  }
+                } catch { /* skip */ }
+              }
             }
 
-            if (summaries.length > 0) {
-              const more = uids.length > 5 ? `\n  (${uids.length - 5} more unread messages not shown)` : '';
-              prependLines.push(
-                '<unread-emails>',
-                `You have ${uids.length} unread email(s) in your inbox:`,
-                ...summaries,
-                more,
-                '',
-                'ACTION REQUIRED: You MUST read each unread email with agenticmail_read and briefly tell the user what it says.',
-                'Do this BEFORE responding to anything else. After reporting emails, continue with your original task.',
-                'Do NOT skip or defer reading emails — the user expects you to handle their inbox proactively.',
-                '</unread-emails>',
-              );
-            }
+            prependLines.push(...formatUnreadInboxContext(uids.length, summaries, inboxInjectionConfig));
           }
         }
       } catch {
