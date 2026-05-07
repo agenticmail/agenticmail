@@ -133,11 +133,24 @@ export function createEventRoutes(accountManager: AccountManager, config: Agenti
             try {
               const raw = await receiver.fetchMessage(event.uid);
               const parsed = await parseEmail(raw);
+              // Hardening: only pass the fields the route classifier
+              // actually reads. Avoids accidentally leaking the full
+              // agent.metadata blob (which can carry founder-set
+              // arbitrary keys) into the SSE event payload via any
+              // future classifier-side change that echoes its
+              // input back.
+              const policyMetadata = agent.metadata && typeof agent.metadata === 'object'
+                ? {
+                    emailRoutePolicy: (agent.metadata as Record<string, unknown>).emailRoutePolicy,
+                    routePolicy: (agent.metadata as Record<string, unknown>).routePolicy,
+                    mailboxPolicy: (agent.metadata as Record<string, unknown>).mailboxPolicy,
+                  }
+                : undefined;
               const accountRouteContext = {
                 name: agent.name,
                 email: agent.email,
                 role: agent.role,
-                metadata: agent.metadata,
+                metadata: policyMetadata,
               };
 
               // --- Spam filter (runs BEFORE rules, skipped for internal emails) ---
