@@ -56,3 +56,24 @@ jobs:
           SMTP_PORT: 587
           IMAP_HOST: localhost
           IMAP_PORT: 143
+
+      # Upload the built dist/ trees of every workspace as a single
+      # workflow artifact. Useful for inspecting what a specific
+      # commit produced without npm-installing the published version
+      # (e.g. when reviewing a release PR's exact bytes, or
+      # downloading a pre-publish build to test against locally).
+      # Only runs on push to main so PR runs stay quick + don't
+      # leave a trail of artifacts.
+      - name: Upload build artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agenticmail-dist-${{ github.sha }}
+          path: |
+            agenticmail/dist/**
+            packages/api/dist/**
+            packages/core/dist/**
+            packages/mcp/dist/**
+            packages/openclaw/dist/**
+          if-no-files-found: error
+          retention-days: 30
