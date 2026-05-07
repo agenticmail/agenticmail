@@ -1,5 +1,7 @@
 # 🎀 AgenticMail
 
+[![CI](https://github.com/agenticmail/agenticmail/actions/workflows/ci.yml/badge.svg)](https://github.com/agenticmail/agenticmail/actions/workflows/ci.yml)
+
 **The first platform to give AI agents real email addresses and phone numbers.** Send and receive email, SMS, and verification codes — all programmatically.
 
 ---
