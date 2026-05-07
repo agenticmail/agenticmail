@@ -2088,7 +2088,7 @@ async function cmdOpenClaw() {
               if (gvEmail.trim() && gvEmail.toLowerCase().includes('@gmail.com')) {
                 log('');
                 log(`  ${c.dim('Get an app password at:')} ${c.cyan('https://myaccount.google.com/apppasswords')}`);
-                const gvPass = await ask(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
+                const gvPass = await askSecret(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
                 if (gvPass.trim()) {
                   forwardingEmail = gvEmail.trim();
                   forwardingPassword = gvPass.trim();
@@ -2122,7 +2122,7 @@ async function cmdOpenClaw() {
                   } else {
                     log('');
                     log(`  ${c.dim('Get an app password at:')} ${c.cyan('https://myaccount.google.com/apppasswords')}`);
-                    const gvPass = await ask(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
+                    const gvPass = await askSecret(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
                     if (gvPass.trim()) {
                       forwardingEmail = gvEmail.trim();
                       forwardingPassword = gvPass.trim();
@@ -2150,7 +2150,7 @@ async function cmdOpenClaw() {
             if (gvEmail.trim() && gvEmail.toLowerCase().includes('@gmail.com')) {
               log('');
               log(`  ${c.dim('Get an app password at:')} ${c.cyan('https://myaccount.google.com/apppasswords')}`);
-              const gvPass = await ask(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
+              const gvPass = await askSecret(`  ${c.green(c.bold('App password for'))} ${c.bold(gvEmail.trim())}: `);
               if (gvPass.trim()) {
                 forwardingEmail = gvEmail.trim();
                 forwardingPassword = gvPass.trim();
