@@ -35,6 +35,7 @@ export type {
 
 // Spam Filter & Sanitizer
 export { scoreEmail, isInternalEmail, type SpamResult, type SpamRuleMatch, type SpamCategory, SPAM_THRESHOLD, WARNING_THRESHOLD } from './mail/spam-filter.js';
+export { classifyEmailRoute, type EmailRouteClassification, type EmailRouteClass, type EmailRouteAction, type EmailRouteInput } from './mail/route-classifier.js';
 export { sanitizeEmail, type SanitizeResult, type SanitizeDetection } from './mail/sanitizer.js';
 
 // Outbound Guard

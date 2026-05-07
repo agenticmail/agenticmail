@@ -6,8 +6,7 @@ import {
   parseEmail,
   scoreEmail,
   isInternalEmail,
-  SPAM_THRESHOLD,
-  WARNING_THRESHOLD,
+  classifyEmailRoute,
   type AccountManager,
   type AgenticMailConfig,
 } from '@agenticmail/core';
@@ -134,6 +133,12 @@ export function createEventRoutes(accountManager: AccountManager, config: Agenti
             try {
               const raw = await receiver.fetchMessage(event.uid);
               const parsed = await parseEmail(raw);
+              const accountRouteContext = {
+                name: agent.name,
+                email: agent.email,
+                role: agent.role,
+                metadata: agent.metadata,
+              };
 
               // --- Spam filter (runs BEFORE rules, skipped for internal emails) ---
               // Relay-delivered emails have X-AgenticMail-Relay header — they are
@@ -141,6 +146,8 @@ export function createEventRoutes(accountManager: AccountManager, config: Agenti
               const isRelay = !!parsed.headers.get('x-agenticmail-relay');
               const internal = !isRelay && isInternalEmail(parsed);
               if (internal) {
+                (event as any).route = classifyEmailRoute({ email: parsed, account: accountRouteContext });
+
                 // Internal agent-to-agent email — skip spam filter entirely
                 const ruleResult = evaluateRules(db, agent.id, parsed);
                 if (ruleResult) {
@@ -155,6 +162,8 @@ export function createEventRoutes(accountManager: AccountManager, config: Agenti
               }
 
               const spamResult = scoreEmail(parsed);
+              (event as any).route = classifyEmailRoute({ email: parsed, spam: spamResult, account: accountRouteContext });
+
               // Log to spam_log
               try {
                 db.prepare(

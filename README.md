@@ -487,7 +487,7 @@ Two key types:
 | `DELETE` | `/accounts/:id` | Master | Delete agent (with email archival) |
 | `GET` | `/accounts/directory` | Both | Agent discovery directory |
 | **Events** | | | |
-| `GET` | `/events` | Agent | SSE stream — new email, flags, expunge events |
+| `GET` | `/events` | Agent | SSE stream — new email with route metadata, flags, expunge events |
 | **Gateway** | | | |
 | `GET` | `/gateway/status` | Both | Current gateway mode and health |
 | `POST` | `/gateway/relay` | Master | Configure relay mode |

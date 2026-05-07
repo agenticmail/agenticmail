@@ -28,7 +28,7 @@ Every other AgenticMail package depends on this one.
 
 ## What This Package Does
 
-AgenticMail Core provides 15 major components organized into modules:
+AgenticMail Core provides 16 major components organized into modules:
 
 ### Agent Management
 - **AccountManager** — Creates, lists, finds, and deletes AI agent accounts. Each agent gets their own email address, login credentials, and a unique API key. Agent names must be email-safe (letters, numbers, dots, hyphens, underscores only).
@@ -58,6 +58,7 @@ AgenticMail Core provides 15 major components organized into modules:
 - **scanOutboundEmail** — Scans every outgoing email before it's sent, looking for sensitive data that an AI agent shouldn't be leaking. Detects API keys (AWS, OpenAI, GitHub, Stripe, and many more), passwords, private keys (SSH, PGP, RSA), personally identifiable information (Social Security numbers, credit card numbers, bank account numbers, passport numbers, dates of birth, driver's licenses), database connection strings, JWT tokens, cryptocurrency wallet addresses, webhook URLs, environment variable blocks, and more. Also checks attachment filenames for risky file types. If any high-severity match is found, the email is blocked. Emails between local agents (`@localhost` recipients) skip scanning entirely.
 - **sanitizeEmail** — Cleans up incoming email HTML to remove hidden content that could be used for prompt injection or phishing. Strips invisible Unicode characters (tag characters, zero-width joiners, bidirectional controls, soft hyphens), removes hidden HTML elements (display:none, visibility:hidden, font-size:0, white-on-white text, off-screen positioned elements, hidden iframes), removes script tags, strips data: and javascript: URIs, and removes suspicious HTML comments that contain words like "ignore", "system", "instruction", or "prompt". Returns both the cleaned content and a list of everything it found and removed.
 - **scoreEmail** — Scores incoming email for spam and threat indicators using 47 pattern-matching rules across 9 categories. Returns a numeric score (0-100), whether it's classified as spam (score 40+) or a warning (score 20-39), the top threat category, and a list of every rule that matched with its score contribution.
+- **classifyEmailRoute** — Assigns incoming mail a route class such as `ignore_spam`, `ignore_newsletter`, `archive_automated`, `project_update`, `deal_escalation`, or `agent_instruction`. The classification includes the suggested action, confidence, reason, and whether a human gate is required before downstream action.
 - **isInternalEmail** — Detects whether an email is from another local agent (agent-to-agent communication on `@localhost`). Importantly, it recognizes relay emails — if the "from" address is `@localhost` but the reply-to address is external, it's a forwarded relay email and should be treated as external, not internal.
 - **buildInboundSecurityAdvisory** — Analyzes incoming email attachments and spam matches to build a structured security advisory with risk levels (critical, high, medium) for attachments, double-extension detection (like `invoice.pdf.exe`), and link warnings.
 

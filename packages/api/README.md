@@ -104,9 +104,11 @@ When a new email lands in an agent's inbox, the system does several things in re
 
 2. **Spam scoring** — external emails are scored. If the score exceeds the spam threshold, the email is automatically moved to the Spam folder and the notification event includes spam details. If it's a warning (elevated but not spam), the event includes the warning info but the email stays in the inbox.
 
-3. **Rule evaluation** — after spam filtering, the system checks the agent's custom email rules. Rules are checked in priority order and the first match wins. A rule can auto-mark the email as read, delete it, or move it to a specific folder.
+3. **Route classification** — the event is tagged with a route class such as `ignore_spam`, `ignore_newsletter`, `archive_automated`, `project_update`, `deal_escalation`, or `agent_instruction`. The route also includes the suggested action and whether a human gate is required.
 
-4. **Notification sent** — the event is pushed to all of the agent's connected SSE streams.
+4. **Rule evaluation** — after spam filtering, the system checks the agent's custom email rules. Rules are checked in priority order and the first match wins. A rule can auto-mark the email as read, delete it, or move it to a specific folder.
+
+5. **Notification sent** — the event is pushed to all of the agent's connected SSE streams.
 
 ### Connection limits
 
