@@ -9,6 +9,10 @@ if (!API_KEY && !MASTER_KEY) {
   console.error('[agenticmail-mcp] Warning: Neither AGENTICMAIL_API_KEY nor AGENTICMAIL_MASTER_KEY is set');
 }
 
+type ApiJsonObject = Record<string, any>;
+type ApiJsonArray = any[];
+type ApiResponse = ApiJsonObject | ApiJsonArray | null;
+
 /** Build a check function that returns true if a pending email is still awaiting approval. */
 function makePendingCheck(pendingId: string): () => Promise<boolean> {
   return async () => {
@@ -33,7 +37,7 @@ function withReminders(text: string): string {
   return text + '\n\n' + reminders.map(r => r.message).join('\n\n');
 }
 
-async function apiRequest(method: string, path: string, body?: unknown, useMasterKey = false, timeoutMs = 30_000): Promise<any> {
+async function apiRequest<T extends ApiResponse = ApiJsonObject>(method: string, path: string, body?: unknown, useMasterKey = false, timeoutMs = 30_000): Promise<T> {
   const key = useMasterKey && MASTER_KEY ? MASTER_KEY : API_KEY;
   if (!key) {
     throw new Error(useMasterKey
@@ -60,12 +64,12 @@ async function apiRequest(method: string, path: string, body?: unknown, useMaste
   const contentType = response.headers.get('content-type');
   if (contentType?.includes('application/json')) {
     try {
-      return await response.json();
+      return await response.json() as T;
     } catch {
       throw new Error(`API returned invalid JSON from ${path}`);
     }
   }
-  return null;
+  return null as T;
 }
 
 export const toolDefinitions = [
