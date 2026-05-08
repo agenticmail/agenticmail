@@ -1,1 +1,6 @@
-github: [ope-olatunji]
+# Surfaces the "Sponsor" button on every page in this repo.
+# Order matters — the first entry is the default highlighted
+# option. The org listing covers OSS work across the
+# @agenticmail/* namespace; the maintainer's personal sponsor
+# profile stays available as a secondary option.
+github: [agenticmail, ope-olatunji]
