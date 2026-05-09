@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, createHash, scryptSync } from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { debug } from '../debug.js';
-import { RelayGateway, type InboundEmail } from './relay.js';
+import { RelayGateway, formatPollError, type InboundEmail } from './relay.js';
 import { CloudflareClient } from './cloudflare.js';
 import { DomainPurchaser } from './domain-purchase.js';
 import { DNSConfigurator } from './dns-setup.js';
@@ -1094,22 +1094,23 @@ export class GatewayManager {
 
   /**
    * Resume gateway from saved config (e.g., after server restart).
+   *
+   * Issue #31 — On a Docker container restart the API can come up
+   * before Stalwart / Gmail IMAP / DNS is reachable, so the very first
+   * setup() can fail with a transient network error. Previously that
+   * single failure was logged and never retried, leaving polling
+   * permanently dead until someone noticed and manually revived the
+   * relay. We now schedule background retries with exponential backoff
+   * (5s, 10s, 20s, 40s, 60s cap, indefinite) so the relay
+   * self-recovers as soon as the dependency is reachable again.
    */
   async resume(): Promise<void> {
     if (this.config.mode === 'relay' && this.config.relay) {
       try {
-        await this.relay.setup(this.config.relay);
-        // Restore lastSeenUid from DB so we don't re-scan after restart
-        const savedUid = this.loadLastSeenUid();
-        if (savedUid > 0) {
-          this.relay.setLastSeenUid(savedUid);
-          console.log(`[GatewayManager] Restored lastSeenUid=${savedUid} from database`);
-        }
-        // Periodically save lastSeenUid during polling
-        this.relay.onUidAdvance = (uid: number) => this.saveLastSeenUid(uid);
-        await this.relay.startPolling();
+        await this._resumeRelayOnce();
       } catch (err) {
-        console.error('[GatewayManager] Failed to resume relay:', err);
+        console.error('[GatewayManager] Initial relay resume failed; scheduling retries:', formatPollError(err));
+        this._scheduleRelayResumeRetry();
       }
     }
 
@@ -1139,6 +1140,48 @@ export class GatewayManager {
         console.error('[GatewayManager] Failed to resume domain mode:', err);
       }
     }
+  }
+
+  // ─── Issue #31 helpers — resume retry with backoff ───
+  private _resumeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private _resumeRetryAttempt = 0;
+
+  private async _resumeRelayOnce(): Promise<void> {
+    if (!this.config.relay) throw new Error('No relay config to resume');
+    await this.relay.setup(this.config.relay);
+    const savedUid = this.loadLastSeenUid();
+    if (savedUid > 0) {
+      this.relay.setLastSeenUid(savedUid);
+      console.log(`[GatewayManager] Restored lastSeenUid=${savedUid} from database`);
+    }
+    this.relay.onUidAdvance = (uid: number) => this.saveLastSeenUid(uid);
+    await this.relay.startPolling();
+    if (this._resumeRetryAttempt > 0) {
+      console.log(`[GatewayManager] Relay polling resumed after ${this._resumeRetryAttempt} retry attempt${this._resumeRetryAttempt !== 1 ? 's' : ''}`);
+    }
+    this._resumeRetryAttempt = 0;
+  }
+
+  private _scheduleRelayResumeRetry(): void {
+    if (this._resumeRetryTimer) return; // retry already pending
+    this._resumeRetryAttempt++;
+    // 5s, 10s, 20s, 40s, then 60s cap. Jitter ±20% so a fleet of
+    // restarting nodes don't all reconnect in lockstep.
+    const base = Math.min(5_000 * Math.pow(2, this._resumeRetryAttempt - 1), 60_000);
+    const jitter = base * (0.8 + Math.random() * 0.4);
+    const delay = Math.round(jitter);
+    console.log(`[GatewayManager] Will retry relay resume in ${(delay / 1000).toFixed(1)}s (attempt ${this._resumeRetryAttempt + 1})`);
+    this._resumeRetryTimer = setTimeout(async () => {
+      this._resumeRetryTimer = null;
+      // Bail if config was cleared / mode flipped while we slept.
+      if (this.config.mode !== 'relay' || !this.config.relay) return;
+      try {
+        await this._resumeRelayOnce();
+      } catch (err) {
+        console.error(`[GatewayManager] Relay resume retry ${this._resumeRetryAttempt} failed:`, formatPollError(err));
+        this._scheduleRelayResumeRetry();
+      }
+    }, delay);
   }
 
   // --- Persistence ---

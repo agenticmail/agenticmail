@@ -174,6 +174,50 @@ export async function closeCaches(): Promise<void> {
 // flow through IMAP IDLE (which #16 fixed and which works correctly
 // for inbound from outside the local Stalwart instance).
 // ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+// Issue #29 — SSE 'new' event emitted uid:0 for internal mail.
+//
+// The #24 fix pushed a doorbell-style event the instant POST /mail/send
+// returned 200, but at that moment the recipient's IMAP store hasn't
+// finished indexing the message — we don't know the UID yet, so we used
+// 0 as a sentinel. Consumers that try to FETCH using that UID either
+// fail or hit the wrong message. Instead of emitting a sentinel we now
+// briefly poll the recipient's INBOX for the Message-ID we just sent
+// (200ms, 400, 600, 800 — capped at ~2s total) and emit the event with
+// the real UID. Falls back to 0 only if the lookup actually fails — but
+// we surface a `lookup: 'failed'` flag in that case so consumers can
+// distinguish "lookup didn't finish" from "this is the real UID 0".
+// ─────────────────────────────────────────────────────────────────────────
+export async function findUidByMessageId(
+  receiver: MailReceiver,
+  messageId: string,
+  maxAttempts = 5,
+): Promise<number> {
+  const client = receiver.getImapClient();
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        const results = await client.search(
+          { header: ['Message-ID', messageId] },
+          { uid: true },
+        );
+        if (Array.isArray(results) && results.length > 0) {
+          // Most recent match wins (in case the same Message-ID was
+          // delivered twice for any reason).
+          return results[results.length - 1];
+        }
+      } finally {
+        lock.release();
+      }
+    } catch { /* retry */ }
+    if (i < maxAttempts - 1) {
+      await new Promise(r => setTimeout(r, 200 * (i + 1)));
+    }
+  }
+  return 0;
+}
+
 async function notifyLocalRecipientsOfNewMail(
   accountManager: AccountManager,
   toField: string | string[] | undefined,
@@ -182,6 +226,7 @@ async function notifyLocalRecipientsOfNewMail(
   fromAgent: Agent,
   subject: string,
   messageId: string | undefined,
+  config: AgenticMailConfig,
 ): Promise<void> {
   const collected: string[] = [];
   const push = (v: string | string[] | undefined): void => {
@@ -221,12 +266,35 @@ async function notifyLocalRecipientsOfNewMail(
     if (!recipient || notified.has(recipient.id)) continue;
     notified.add(recipient.id);
 
+    // Look up the real IMAP UID for this Message-ID before emitting.
+    // We open (or reuse) the recipient's MailReceiver — same primitive
+    // every other route uses — and search INBOX by Message-ID with a
+    // small retry budget (Stalwart sometimes doesn't have the message
+    // visible to IMAP for a few hundred ms after SMTP submission).
+    let uid = 0;
+    let lookup: 'resolved' | 'failed' | 'no-message-id' = 'no-message-id';
+    if (messageId) {
+      try {
+        const recipientPassword = getAgentPassword(recipient);
+        const receiver = await getReceiver(
+          recipient.stalwartPrincipal,
+          recipientPassword,
+          config,
+        );
+        uid = await findUidByMessageId(receiver, messageId);
+        lookup = uid > 0 ? 'resolved' : 'failed';
+      } catch {
+        lookup = 'failed';
+      }
+    }
+
     pushEventToAgent(recipient.id, {
       type: 'new',
-      // uid is unknown without an IMAP fetch; use 0 as a sentinel —
-      // this matches the watcher's autoFetch=false path. SSE consumers
-      // that want full message detail can call /mail/inbox.
-      uid: 0,
+      uid,
+      // Tell consumers whether the UID is real or a sentinel — preserves
+      // backwards compat (uid is still always a number) while giving
+      // clients a reliable signal to fall back to /mail/inbox.
+      uidLookup: lookup,
       internal: true,
       from: { name: fromAgent.name, address: fromAgent.email },
       subject,
@@ -411,7 +479,7 @@ export function createMailRoutes(accountManager: AccountManager, config: Agentic
       // We know the recipient at send time, so notify SSE directly.
       // Fire-and-forget — must never block or fail the send.
       notifyLocalRecipientsOfNewMail(
-        accountManager, to, cc, bcc, agent, subject, result.messageId,
+        accountManager, to, cc, bcc, agent, subject, result.messageId, config,
       ).catch((err) => {
         console.warn(`[mail] Internal SSE notify failed: ${(err as Error).message}`);
       });
@@ -1107,7 +1175,7 @@ export function createMailRoutes(accountManager: AccountManager, config: Agentic
         saveSentCopy(agent.stalwartPrincipal, password, config, result.raw);
         // Issue #24 — same direct-SSE bypass as POST /mail/send (see comment there).
         notifyLocalRecipientsOfNewMail(
-          accountManager, mailOpts.to, mailOpts.cc, mailOpts.bcc, agent, mailOpts.subject, result.messageId,
+          accountManager, mailOpts.to, mailOpts.cc, mailOpts.bcc, agent, mailOpts.subject, result.messageId, config,
         ).catch((err) => {
           console.warn(`[mail] Internal SSE notify (approve) failed: ${(err as Error).message}`);
         });

@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.61] - 2026-05-09
+
+### Fixed
+
+- **SSE `new` event emits `uid: 0` for internal mail** (#29, thanks
+  @kn8-codes). The #24 fix pushed a doorbell-style event the moment
+  `POST /mail/send` returned 200, but at that instant the recipient's
+  IMAP store hasn't finished indexing the message — the UID was
+  unknown and we used 0 as a sentinel. Consumers that tried to
+  `FETCH` by that UID either failed or hit the wrong message.
+  `notifyLocalRecipientsOfNewMail` now opens (or reuses) the
+  recipient's `MailReceiver` and searches `INBOX` by Message-ID with
+  a small retry budget (200 ms, 400, 600, 800 — capped at ~2 s)
+  before emitting. Real UID is included on the SSE event; falls back
+  to 0 only on actual lookup failure, accompanied by a new
+  `uidLookup: 'resolved' | 'failed' | 'no-message-id'` field so
+  consumers can distinguish "real UID 0" from "lookup didn't
+  finish". Verified with five focused test cases against a stubbed
+  ImapFlow (immediate hit, delayed indexing, never-found, transient
+  error recovery, multiple-match preference).
+- **`RelayGateway` poll failures swallow the real error** (#30,
+  thanks @kn8-codes). Logs printed only `err.message` which on
+  IMAP/TLS/subprocess failures collapses to the bare string
+  `"Command failed"`, leaving operators unable to tell whether
+  they're looking at bad credentials, a TLS handshake failure, a
+  DNS miss, a connection reset, a timeout, or a subprocess crash.
+  Added `formatPollError` that renders the structured fields most
+  error sources actually carry — `code`, `errno`, `syscall`,
+  `hostname`, `port`, IMAP `responseText`, SMTP `command`,
+  subprocess `exitCode` / `signal` / `stderr` / `stdout`. When the
+  underlying error genuinely carries no detail, the formatter says
+  so explicitly instead of repeating the opaque headline. Verified
+  with seven test cases (IMAP auth, TLS reset, DNS, subprocess
+  with stderr, no-detail, raw string throw, null).
+- **`RelayGateway` polling stays dead after Docker container
+  restart** (#31, thanks @kn8-codes). The API container can come
+  up before Stalwart / Gmail IMAP / DNS is reachable, so the very
+  first `relay.setup()` after restart can throw a transient
+  network error. Previously that single failure was logged and
+  never retried, leaving polling permanently dead until manual
+  intervention. `GatewayManager.resume` now schedules background
+  retries with exponential backoff (5 s, 10 s, 20 s, 40 s, 60 s
+  cap, indefinite, ±20 % jitter) so the relay self-recovers as
+  soon as the dependency is reachable. Counters reset on success
+  and a one-line success log makes the recovery visible. Verified
+  by stubbing `relay.setup()` to fail twice then succeed and
+  confirming `pollStarted` + retry-state cleanup.
+
+### Process note
+
+All three fixes were exercised against running source via `tsx`
+(not just "build clean") before publish, per the standing
+fix-verification rule. Test scripts (`verify-relay-fixes.mjs`,
+`verify-uid-fix.mjs`) were ad-hoc smoke checks and removed before
+commit; the ImapFlow stub pattern they use is the template for
+future regression cases.
+
 ## [0.5.60] - 2026-05-08
 
 ### Fixed

@@ -33,6 +33,64 @@ export interface InboundEmail {
 }
 
 /**
+ * Issue #30 — Render the structured fields most error sources actually
+ * carry (code, errno, syscall, hostname, response, responseText, stderr,
+ * exit code) so the operator can tell whether they're looking at bad
+ * creds, a DNS miss, a TLS handshake failure, a timeout, a connection
+ * reset, or a subprocess crash. Falls back gracefully when fields are
+ * missing.
+ */
+export function formatPollError(err: unknown): string {
+  if (!err) return 'unknown error (no error object)';
+  if (typeof err !== 'object') return String(err);
+
+  const e = err as Record<string, any>;
+  const parts: string[] = [];
+
+  // Headline message — most errors carry one.
+  const head = (e.message ?? String(err)).toString().trim();
+  if (head) parts.push(head);
+
+  // Error code (ECONNRESET, ETIMEDOUT, ENOTFOUND, EAUTH, AUTHENTICATIONFAILED, ...).
+  if (e.code && e.code !== head) parts.push(`code=${e.code}`);
+  if (typeof e.errno === 'number') parts.push(`errno=${e.errno}`);
+  if (e.syscall) parts.push(`syscall=${e.syscall}`);
+  if (e.hostname) parts.push(`host=${e.hostname}`);
+  if (typeof e.port === 'number') parts.push(`port=${e.port}`);
+
+  // ImapFlow / SMTP server replies — the actionable bit when auth fails.
+  if (e.responseText && e.responseText !== head) {
+    parts.push(`response=${truncate(String(e.responseText), 240)}`);
+  } else if (e.response && e.response !== head) {
+    parts.push(`response=${truncate(String(e.response), 240)}`);
+  }
+  if (e.command) parts.push(`command=${e.command}`);
+
+  // Subprocess errors: child_process.exec rejection carries stderr/stdout/exit code.
+  if (typeof e.exitCode === 'number') parts.push(`exit=${e.exitCode}`);
+  else if (e.code && /^\d+$/.test(String(e.code))) parts.push(`exit=${e.code}`);
+  if (e.signal) parts.push(`signal=${e.signal}`);
+  const stderr = (e.stderr ?? '').toString().trim();
+  if (stderr) parts.push(`stderr=${truncate(stderr, 240)}`);
+  const stdout = (e.stdout ?? '').toString().trim();
+  if (stdout && !stderr) parts.push(`stdout=${truncate(stdout, 240)}`);
+
+  // If we still only have the bare "Command failed" headline and nothing
+  // else, surface that visibly so the operator knows there's no detail
+  // to chase rather than silently returning the same opaque string.
+  if (parts.length === 1 && /^command failed$/i.test(head)) {
+    return `${head} (no further detail available — wrapping error did not carry stderr/code/response)`;
+  }
+
+  return parts.join(' | ');
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + '…';
+}
+
+/**
  * RelayGateway handles sending/receiving email through an existing
  * Gmail/Outlook account using sub-addressing (user+agent@gmail.com).
  */
@@ -242,7 +300,14 @@ export class RelayGateway {
       this.consecutiveFailures = 0;
     } catch (err) {
       this.consecutiveFailures++;
-      const msg = err instanceof Error ? err.message : String(err);
+      // Issue #30 — `err.message` alone collapses every IMAP/TLS/network
+      // failure to "Command failed", which is useless for triage.
+      // Render the structured fields most error sources actually carry
+      // (code, errno, response, responseText, stderr, hostname, port,
+      // syscall) so the log line tells you whether you're looking at
+      // bad creds, a DNS miss, a TLS failure, a timeout, or a
+      // subprocess crash.
+      const msg = formatPollError(err);
       console.error(`[RelayGateway] Poll failed (attempt ${this.consecutiveFailures}): ${msg}`);
       if (this.consecutiveFailures >= 5 && this.consecutiveFailures % 5 === 0) {
         console.error(`[RelayGateway] ${this.consecutiveFailures} consecutive failures — check IMAP credentials and connectivity (${this.config?.imapHost}:${this.config?.imapPort})`);
