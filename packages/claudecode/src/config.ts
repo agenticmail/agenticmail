@@ -18,6 +18,7 @@ export interface ResolveConfigOptions {
   apiUrl?: string;
   masterKey?: string;
   claudeConfigPath?: string;
+  claudeSettingsPath?: string;
   agentsDir?: string;
   mcpServerName?: string;
   bridgeAgentName?: string;
@@ -88,6 +89,7 @@ export function resolveConfig(opts: ResolveConfigOptions = {}): ClaudeCodeIntegr
     apiUrl: opts.apiUrl ?? defaultApiUrl,
     masterKey,
     claudeConfigPath: opts.claudeConfigPath ?? join(homedir(), '.claude.json'),
+    claudeSettingsPath: opts.claudeSettingsPath ?? join(homedir(), '.claude', 'settings.json'),
     agentsDir: opts.agentsDir ?? join(homedir(), '.claude', 'agents'),
     mcpServerName: opts.mcpServerName ?? 'agenticmail',
     bridgeAgentName: opts.bridgeAgentName ?? 'claudecode',

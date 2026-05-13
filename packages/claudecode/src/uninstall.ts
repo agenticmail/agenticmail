@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { deleteAccount, getAccountByName } from './api.js';
 import { resolveConfig, type ResolveConfigOptions } from './config.js';
 import { removeMcpServer } from './claude-config.js';
+import { removeUserPromptSubmitHook } from './claude-hooks-config.js';
 import { MANAGED_BY_MARKER } from './subagent-template.js';
 import { stopDispatcher } from './pm2.js';
 import type { UninstallResult } from './types.js';
@@ -56,6 +57,11 @@ export async function uninstall(opts: UninstallOptions = {}): Promise<UninstallR
 
   const mcpBlockRemoved = removeMcpServer(cfg.claudeConfigPath, cfg.mcpServerName);
   const removedSubagents = removeOwnedSubagents(cfg.agentsDir, cfg.subagentPrefix);
+  // Pull the mail-hook out of settings.json too — fires on both
+  // UserPromptSubmit (user turns) and PreToolUse (autonomous work).
+  let hookRemoved = false;
+  try { hookRemoved = removeUserPromptSubmitHook(cfg.claudeSettingsPath); }
+  catch { /* best-effort */ }
 
   // Stop the dispatcher daemon if it's running. We do this BEFORE deleting
   // the bridge agent so the dispatcher doesn't see a transient
@@ -77,7 +83,7 @@ export async function uninstall(opts: UninstallOptions = {}): Promise<UninstallR
   }
 
   return {
-    changed: mcpBlockRemoved || removedSubagents.length > 0 || bridgeAgentDeleted || dispatcherStopped,
+    changed: mcpBlockRemoved || removedSubagents.length > 0 || bridgeAgentDeleted || dispatcherStopped || hookRemoved,
     removedSubagents,
     mcpBlockRemoved,
     bridgeAgentDeleted,

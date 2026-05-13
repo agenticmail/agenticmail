@@ -30,6 +30,7 @@ import { join } from 'node:path';
 import { ensureAccount, listAccounts, checkApiHealth } from './api.js';
 import { resolveConfig, type ResolveConfigOptions } from './config.js';
 import { upsertMcpServer, type ClaudeMcpServerEntry } from './claude-config.js';
+import { upsertUserPromptSubmitHook } from './claude-hooks-config.js';
 import { MANAGED_BY_MARKER, renderSubagentMarkdown } from './subagent-template.js';
 import { startDispatcher } from './pm2.js';
 import { fileURLToPath } from 'node:url';
@@ -229,6 +230,22 @@ export async function install(opts: ResolveConfigOptions = {}): Promise<InstallR
   const liveNames = new Set(exposable.map(a => sanitizeSubagentName(a.name)));
   const pruned = pruneStaleSubagentFiles(cfg.agentsDir, cfg, liveNames);
 
+  // 7a. Register the UserPromptSubmit hook so Claude Code wakes up on
+  //     every user prompt and pulls fresh mail from the bridge inbox
+  //     into the next prompt's context. This is what closes the
+  //     "host can't be notified" gap — without the hook, Claude only
+  //     sees agent replies when it (or the user) proactively asks.
+  //
+  //     The hook is the `agenticmail-mail-hook` bin from this same
+  //     package, so it resolves via $PATH after the global npm install.
+  //     We deliberately don't use an absolute path: lets the user
+  //     reinstall / upgrade the package without re-running install
+  //     to fix a stale path.
+  let hookChanged = false;
+  try {
+    hookChanged = upsertUserPromptSubmitHook(cfg.claudeSettingsPath, 'agenticmail-mail-hook');
+  } catch { /* best-effort — a broken settings.json shouldn't kill the install */ }
+
   // 7. Start the dispatcher under PM2 (best-effort). The dispatcher is
   //    what turns "send mail to fola@localhost" or "POST /tasks/rpc to
   //    Fola" into "spawn a Claude-powered Fola worker that handles it".
@@ -241,7 +258,7 @@ export async function install(opts: ResolveConfigOptions = {}): Promise<InstallR
     claudeConfigPath: cfg.claudeConfigPath,
     agentsDir: cfg.agentsDir,
     bridgeAgent: bridge,
-    changed: mcpChanged || updated.length > 0 || pruned.length > 0 || dispatcherStatus.started,
+    changed: mcpChanged || updated.length > 0 || pruned.length > 0 || dispatcherStatus.started || hookChanged,
     dispatcher: dispatcherStatus,
   };
 }

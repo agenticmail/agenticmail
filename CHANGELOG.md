@@ -5,6 +5,95 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.22] - 2026-05-13
+
+### Added — `UserPromptSubmit` + `PreToolUse` mail hook (the real wake-up)
+
+Claude Code is a synchronous REPL — there's no out-of-band channel
+that lets AgenticMail push notifications to a running session. Until
+this release, when a sub-agent replied to a thread (or asked the
+host a mid-task question), the reply landed in the bridge inbox and
+just sat there. The host (Claude in the terminal) only saw it when
+the user said "any updates?" or Claude proactively polled.
+
+**This release closes the gap with Claude Code hooks.** A new bin
+`agenticmail-mail-hook` (ships with `@agenticmail/claudecode`) gets
+registered on TWO Claude Code hook events when `agenticmail
+claudecode` runs:
+
+- **`UserPromptSubmit`** — fires on every user prompt. Catches the
+  time-between-turns case where the user is interacting.
+- **`PreToolUse`** — fires before every tool call. Catches the
+  *autonomous* case where Claude Code is working for hours without
+  any user typing (long agentic builds, remote-control via API,
+  scheduled runs). Without this, autonomous sessions would never
+  see sub-agent replies.
+
+When the hook fires, it:
+
+1. Reads `~/.agenticmail/config.json` for the master key + API URL.
+   Bails silently if AgenticMail isn't set up.
+2. Pulls the bridge agent's inbox over a 2-second-timeout HTTP call.
+3. Filters to mail received since the last hook run (cursor-based
+   dedup at `~/.agenticmail/claudecode-hook-cursor.json`).
+4. If anything new, emits a terse `additionalContext` block that
+   Claude Code prepends to the next prompt — one line per email,
+   UID + from + subject + 120-char preview.
+
+Claude sees the context, decides what to do (surface to the user,
+read full body, reply on the thread), and acts. No user "check on
+the team" needed.
+
+**Rate-limited intelligently:**
+
+- `UserPromptSubmit` always checks — the user is waiting.
+- `PreToolUse` is throttled to one API check per 30 seconds. A burst
+  of tool calls (Read → Grep → Read → Edit → Bash …) shares one
+  check; we don't hammer the inbox endpoint.
+
+**Bail-silent on failure:**
+
+- AgenticMail not running, master key missing, network blip, parsing
+  error — all silent `process.exit(0)`. The hook NEVER blocks a user
+  prompt or tool call. Worst case, Claude proceeds without the mail
+  context and sees it on the next successful check.
+
+**Idempotent install:**
+
+- `agenticmail claudecode` (and `agenticmail bootstrap`) wires the
+  hook into `~/.claude/settings.json` automatically. Re-running is
+  safe — same command, no change. The uninstaller removes only our
+  rules; any other hooks the user installed under the same events
+  are preserved.
+
+The hook respects all the existing AgenticMail primitives — it just
+makes Claude aware of mail without waiting for the user. From there,
+the `wake` allowlist, thread-close markers, `check_activity`, and
+everything else still apply.
+
+### Tests
+
+11 new tests in `claude-hooks-config.test.ts` covering:
+- Creating settings.json from scratch with both events registered
+- Idempotency (re-upsert is a no-op)
+- Command-path updates
+- Preserving user-owned hooks alongside ours
+- Preserving unrelated settings keys
+- Refusing to overwrite a corrupted settings.json
+- Removing only our rules
+- Marker-substring identification (full path OR bin name)
+
+104 claudecode tests now pass (was 93).
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/claudecode` | 0.1.11 | 0.1.12 |
+| `@agenticmail/cli` | 0.8.21 | 0.8.22 |
+
+Plugin manifest mirrored to 0.8.22.
+
 ## [0.8.21] - 2026-05-13
 
 ### Fixed — `agenticmail web` now actually works on global install

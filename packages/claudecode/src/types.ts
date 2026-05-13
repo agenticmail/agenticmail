@@ -23,6 +23,13 @@ export interface ClaudeCodeIntegrationConfig {
   masterKey: string;
   /** Path to Claude Code's user-level config (typically ~/.claude.json). */
   claudeConfigPath: string;
+  /**
+   * Path to Claude Code's user-level settings (typically
+   * ~/.claude/settings.json) where hooks are registered. Different
+   * file from `claudeConfigPath` — Claude Code splits OAuth/MCP state
+   * from preference/hook state, and so do we.
+   */
+  claudeSettingsPath: string;
   /** Directory where per-agent Claude Code subagent .md files live (typically ~/.claude/agents). */
   agentsDir: string;
   /** Key under mcpServers in Claude Code's config. */
