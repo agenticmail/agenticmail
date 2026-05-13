@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.11] - 2026-05-13
+
+### Changed — documentation surfaces now route human oversight to `agenticmail shell`
+
+A small but high-leverage docs update. Three surfaces (`README.md`,
+`agenticmail/README.md`, `AGENTS.md`, plus the `@agenticmail/claudecode`
+package README from the previous commit) now route the user to the
+interactive shell when the question is "what have my agents been
+doing?".
+
+The decision rule baked into AGENTS.md:
+
+> **shell for visual monitoring by a human, MCP for programmatic work
+> driven by you**
+
+| User said… | Right answer |
+|---|---|
+| "show me what my agents have been doing" | `agenticmail shell` |
+| "let me see Fola's inbox" | `agenticmail shell` |
+| "check on the team" | `agenticmail shell` |
+| "have Fola reply to my last email from accounting" | MCP |
+| "coordinate Vesper and Orion on this build" | MCP |
+
+This is purely a docs change. No code, no behaviour, no API surface
+moved. The shell command itself has worked since the very first
+release. This release just makes sure every AI assistant reading
+these docs lands the user in the right place.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/cli` | 0.8.10 | 0.8.11 |
+
+(All other packages unchanged.)
+
 ## [0.8.10] - 2026-05-13
 
 ### Added — reliability circuit breakers
