@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.15] - 2026-05-13
+
+### Fixed — interactive shell crashed on startup with `c.pinkBg is not a function`
+
+Regression introduced in 0.8.12 when the shell welcome banner was
+upgraded to use the brand pink-background mark (`🎀 AgenticMail`) to
+match the rest of the CLI surfaces. The `pinkBg` helper lives in
+`cli.ts`'s color table; `shell.ts` has its own smaller `c` table and
+was missing `pinkBg`, plus `blue` and `magenta` (which an SMS
+direction-arrow path also uses). First invocation of `agenticmail
+shell` (and a few code paths inside the REPL) tripped a `TypeError`.
+
+Fix: backfill `pinkBg`, `blue`, and `magenta` into shell.ts's `c`
+table using the same ANSI sequences cli.ts has.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/cli` | 0.8.14 | 0.8.15 |
+
+Plugin manifest mirrored to 0.8.15. Other packages unchanged.
+
 ## [0.8.14] - 2026-05-13
 
 Three independent improvements bundled into one release because they

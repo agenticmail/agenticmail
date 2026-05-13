@@ -19,8 +19,14 @@ const c = {
   red: (s: string) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
   cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  blue: (s: string) => `\x1b[34m${s}\x1b[0m`,
+  magenta: (s: string) => `\x1b[35m${s}\x1b[0m`,
   dim: (s: string) => `\x1b[90m${s}\x1b[0m`,
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  // Brand pink — xterm-256 hot-pink background (205) with white text (97).
+  // Mirrors the pinkBg helper in cli.ts; the shell uses it for the "🎀
+  // AgenticMail is running" welcome banner and any future brand marks.
+  pinkBg: (s: string) => `\x1b[48;5;205m\x1b[97m${s}\x1b[0m`,
 };
 
 // Rotating dot colors for email list items
