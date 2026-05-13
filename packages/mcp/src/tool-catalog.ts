@@ -59,6 +59,12 @@ export const TOOL_SETS = {
     // back. Essential enough that paying its tokens at every spawn beats
     // making the agent discover it via request_tools.
     'wait_for_email',
+    // check_activity is the dispatcher visibility primitive: see which
+    // agents the dispatcher has woken right now (or in the last 2 min)
+    // and how long they have been running. The host uses it to answer
+    // "did the agent I just emailed actually start working?" without
+    // having to wait for a reply or send an acknowledgment.
+    'check_activity',
     'check_tasks',
   ],
 

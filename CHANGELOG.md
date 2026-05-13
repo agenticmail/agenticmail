@@ -5,6 +5,102 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.14] - 2026-05-13
+
+Three independent improvements bundled into one release because they
+all landed during a single review session.
+
+### Added — dispatcher activity visibility (`check_activity`)
+
+The visibility gap the user reported: when Claude Code sends mail and
+waits for an agent to wake, there is no signal between "mail sent" and
+"reply received". If the wait is long, Claude cannot tell whether the
+agent has started, is queued behind other workers, or is stuck.
+
+Fix is a live registry of active and recently-finished workers, owned
+by the API (the central state hub) and pushed to by the dispatcher
+(the source of truth).
+
+- **New file `packages/api/src/routes/dispatcher-activity.ts`** —
+  in-memory `Map<workerId, WorkerInfo>` with TTLs (30 min active,
+  2 min recent), HARD_CAP of 256 each, fan-out to `/system/events`
+  on every transition. Endpoints:
+    - `POST /dispatcher/worker-started` (master-auth)
+    - `POST /dispatcher/worker-finished` (master-auth)
+    - `GET /dispatcher/activity` (master-auth)
+- **Dispatcher** now posts a `started` event on every `spawnWorker`
+  entry and a `finished` event in the `finally` block, with the
+  agent, kind (`new-mail` / `task`), trigger (mail UID + subject +
+  from, or task id), and on finish the result `ok` flag + a 240-char
+  preview of the worker's final assistant text. Fire-and-forget;
+  observer failures never block worker spawn.
+- **New MCP tool `check_activity`** (catalogued in `essential`). Calls
+  `GET /dispatcher/activity` via master key. Returns active workers
+  (currently running, with duration) plus recently-finished ones
+  (last 2 min, with the result preview). Supports `agent` filter and
+  `includeRecent` toggle. Now the host can answer "did Vesper
+  actually start working?" in one MCP call instead of waiting for a
+  reply that may never come.
+
+### Added — email detail card with local-time dates (`/read` UI)
+
+The interactive shell's email view was flat: a single horizontal rule,
+labels at the same brightness as values, dates printed in raw locale
+form (`5/13/2026, 4:22:46 PM`). User asked for proper sectioning and
+human-friendly time formatting.
+
+- **New file `agenticmail/src/ui/email-card.ts`** — renders an email
+  as a multi-section card. Three pink rule lines wrap the subject,
+  envelope (From/To/Cc/Bcc/Date/UID/InReplyTo), and body. Optional
+  footer for attachments and security flags. Width-aware. ANSI
+  pink-on-everything-else for brand consistency.
+- **New file `agenticmail/src/ui/time-format.ts`** — calendar-aware
+  relative formatter (`just now` / `5 minutes ago` / `yesterday` /
+  `Tuesday` / `Mar 15` / `Mar 15, 2025`), absolute local-tz formatter
+  (`Tue, May 13, 4:22 PM`), combined `formatEmailDate` (relative +
+  absolute), and `formatDuration` for elapsed times. All inject `now`
+  so tests are deterministic. All return `?` on unparseable input.
+- **Shell integration**: `renderEmailMessage` delegates to the card
+  module. Inbox list view uses `formatEmailDate` so timestamps are
+  consistent across surfaces. SMS verification-code receipt also uses
+  the formatter.
+- **33 new tests** in `agenticmail/src/ui/__tests__/` covering every
+  branch of the relative formatter (including clock-skew slop and
+  invalid input) and the card's section structure / width / HTML
+  fallback / attachments / security flags.
+
+### Added — inbox refresh keybind (`r` / Ctrl+R / F5)
+
+Asked for a way to refresh the inbox navigator without leaving and
+re-entering. Single-letter keybind matches the existing navigator
+convention (`v` toggles previews, `Enter` reads, `Esc` exits).
+Ctrl+R and F5 also work for browser-muscle-memory users.
+
+- **Cmd+R deliberately not used** — Mac terminals don't pass Cmd
+  combos through to the app (Terminal.app and iTerm2 intercept them
+  for tabs / window management). Same reason we don't bind Cmd+F.
+
+Refresh preserves the current page, clamps selection if the page
+shrank (e.g. messages were deleted while looking), and falls back to
+the last existing page if the current page disappeared entirely.
+Nav bar hint updated to show `[r] refresh`.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/api`        | 0.7.3  | 0.7.4  |
+| `@agenticmail/mcp`        | 0.7.4  | 0.7.5  |
+| `@agenticmail/claudecode` | 0.1.9  | 0.1.10 |
+| `@agenticmail/cli`        | 0.8.13 | 0.8.14 |
+
+Plugin manifest mirrored to 0.8.14. `core` and `openclaw` unchanged.
+
+### Tests
+
+Workspace total now 492 passing tests (was 459): 339 core + 80
+claudecode + 33 mcp + 7 openclaw + 33 cli (new).
+
 ## [0.8.13] - 2026-05-13
 
 ### Added — LLM-tolerant input coercion in the MCP server

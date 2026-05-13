@@ -9,6 +9,8 @@ import { createInterface, emitKeypressEvents } from 'node:readline';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { SetupConfig } from '@agenticmail/core';
+import { renderEmailCard, type EmailMessage } from './ui/email-card.js';
+import { formatEmailDate } from './ui/time-format.js';
 
 // --- Colors ---
 
@@ -450,40 +452,17 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
     return null;
   }
 
-  /** Render a full email message to the console */
+  /**
+   * Render a full email message to the console.
+   *
+   * Delegates to the dedicated email-card renderer in `ui/email-card.ts`
+   * which produces a multi-section card with pink rule lines, local-time
+   * dates ("5 minutes ago — Tue, May 13, 4:22 PM"), a security/spam
+   * footer when relevant, and an attachments list. See that module for
+   * the layout rationale.
+   */
   function renderEmailMessage(msg: any): void {
-    log('');
-    log(hr());
-    log('');
-    log(`  ${c.bold(msg.subject || '(no subject)')}`);
-    log('');
-    const fromStr = (msg.from || []).map((a: any) => a.name ? `${a.name} <${a.address}>` : a.address).join(', ') || '?';
-    const toStr = (msg.to || []).map((a: any) => a.name ? `${a.name} <${a.address}>` : a.address).join(', ') || '?';
-    log(`  ${c.dim('From:')}    ${c.cyan(fromStr)}`);
-    log(`  ${c.dim('To:')}      ${toStr}`);
-    if (msg.date) log(`  ${c.dim('Date:')}    ${new Date(msg.date).toLocaleString()}`);
-    if (msg.cc && msg.cc.length > 0) {
-      const ccStr = msg.cc.map((a: any) => a.address).join(', ');
-      log(`  ${c.dim('CC:')}      ${ccStr}`);
-    }
-    log('');
-    log(hr());
-    log('');
-    const body = msg.text || msg.html?.replace(/<[^>]*>/g, '') || '';
-    if (body) {
-      for (const line of body.split('\n')) { log(`  ${line}`); }
-    } else {
-      info('(no body content)');
-    }
-    if (msg.attachments && msg.attachments.length > 0) {
-      log('');
-      log(`  ${c.dim('Attachments:')}`);
-      for (const att of msg.attachments) {
-        const size = att.size ? ` ${c.dim(`(${Math.round(att.size / 1024)}KB)`)}` : '';
-        log(`    ${c.yellow('📎')} ${att.filename}${size}`);
-      }
-    }
-    log('');
+    process.stdout.write(renderEmailCard(msg as EmailMessage, { width: tw() }));
   }
 
   async function showInboxPreview(apiKey: string, agentName: string): Promise<void> {
@@ -502,7 +481,10 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
         const msg = messages[i];
         const fromAddr = msg.from?.[0] || {};
         const from = fromAddr.name ? `${fromAddr.name} <${fromAddr.address}>` : (fromAddr.address || msg.from || '?');
-        const date = msg.date ? new Date(msg.date).toLocaleString() : '';
+        // Local-tz, relative-anchored date ("5 minutes ago — Tue, May 13, 4:22 PM")
+        // via the shared time formatter. Keeps inbox list consistent with the
+        // detail card.
+        const date = msg.date ? formatEmailDate(msg.date) : '';
         const dot = dotColors[i % dotColors.length]('●');
         log(`  ${dot} ${c.dim('#' + String(msg.uid).padEnd(5))} ${c.bold((msg.subject || '(no subject)').slice(0, 48))}`);
         log(`  ${' '.repeat(8)} ${c.dim(from)}  ${c.dim(date)}`);
@@ -1100,6 +1082,7 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
           nav.push(`${c.bold('[↑↓]')} select`);
           nav.push(`${c.bold('[Enter]')} read`);
           nav.push(`${c.bold('[v]')} ${inboxPreviews ? 'hide' : 'show'} previews`);
+          nav.push(`${c.bold('[r]')} refresh`);
           nav.push(`${c.bold('[Esc]')} back`);
           log(`  ${c.dim(pageLabel)}  ${c.dim('─')}  ${nav.join('  ')}`);
           log('');
@@ -1190,6 +1173,44 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
                   const pageData = await fetchPage(page * PAGE_SIZE);
                   process.stdout.write('\x1b[2J\x1b[H');
                   renderPage(pageData.messages || [], total, page);
+                } else if (
+                  _s === 'r' || _s === 'R' || // bare letter — primary keybind, matches navigator convention
+                  (key.ctrl && key.name === 'r') || // Ctrl+R for browser-muscle-memory users
+                  key.name === 'f5' // F5 — the universal "refresh" key
+                ) {
+                  // Refresh — re-fetch the current page from the API and
+                  // re-render in place. Total + totalPages stay as-is
+                  // because we don't know the new total until the next
+                  // page-0 fetch lands; the API returns it on every page
+                  // fetch though, so we just trust whatever comes back.
+                  // Selection is preserved if it still points at a valid
+                  // row after the refresh, otherwise clamps to the end.
+                  process.stdout.write('\x1b[2J\x1b[H');
+                  log(`  ${c.dim('Refreshing inbox…')}`);
+                  try {
+                    const pageData = await fetchPage(page * PAGE_SIZE);
+                    const fresh = pageData.messages || [];
+                    if (selected >= fresh.length) selected = Math.max(0, fresh.length - 1);
+                    const newTotal = pageData.total ?? fresh.length;
+                    const newTotalPages = Math.max(1, Math.ceil(newTotal / PAGE_SIZE));
+                    // If a fresh fetch shows fewer pages and we are past
+                    // the end (e.g. messages were deleted while we were
+                    // looking), drop back to the last existing page.
+                    if (page >= newTotalPages) {
+                      page = newTotalPages - 1;
+                      selected = 0;
+                      const fallback = await fetchPage(page * PAGE_SIZE);
+                      process.stdout.write('\x1b[2J\x1b[H');
+                      renderPage(fallback.messages || [], newTotal, page);
+                    } else {
+                      process.stdout.write('\x1b[2J\x1b[H');
+                      renderPage(fresh, newTotal, page);
+                    }
+                  } catch (err) {
+                    process.stdout.write('\x1b[2J\x1b[H');
+                    renderPage(currentMessages, total, page);
+                    fail(`Refresh failed: ${errMsg(err)}`);
+                  }
                 }
               } catch (err) {
                 fail(`Error: ${errMsg(err)}`);
@@ -3437,7 +3458,7 @@ export async function interactiveShell(options: ShellOptions): Promise<void> {
                 ok(`Verification code found: ${c.bold(c.green(data.code))}`);
                 log(`  ${c.dim('From:')} ${data.from}`);
                 log(`  ${c.dim('Message:')} ${data.body}`);
-                log(`  ${c.dim('Received:')} ${new Date(data.receivedAt).toLocaleString()}`);
+                log(`  ${c.dim('Received:')} ${formatEmailDate(data.receivedAt)}`);
               } else {
                 info('No verification codes found in the last 30 minutes.');
                 info('Make sure Google Voice SMS forwarding is enabled and use /inbox to check for forwarded SMS emails.');

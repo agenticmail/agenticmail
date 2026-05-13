@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/claudecode",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Claude Code integration for AgenticMail — surfaces every AgenticMail agent as a native Claude Code subagent so any Claude Code session can delegate to them with the Agent tool",
   "type": "module",
   "main": "dist/index.js",

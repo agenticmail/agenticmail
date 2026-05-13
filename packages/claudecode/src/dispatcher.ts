@@ -633,7 +633,12 @@ export class Dispatcher {
         return;
       }
 
-      await this.spawnWorker(account, newMailPrompt(account, event), { kind: 'new-mail', uid: event.uid });
+      await this.spawnWorker(account, newMailPrompt(account, event), {
+        kind: 'new-mail',
+        uid: event.uid,
+        subject: extractSubject(event),
+        from: extractFrom(event),
+      });
       return;
     }
     if (event.type === 'task' && typeof event.taskId === 'string') {
@@ -647,7 +652,12 @@ export class Dispatcher {
         // Open the suppression window for the matching notification mail.
         ch.suppressTaskMailUntilMs = Date.now() + TASK_MAIL_SUPPRESS_WINDOW_MS;
       }
-      await this.spawnWorker(account, taskPrompt(account, event), { kind: 'task', taskId: event.taskId });
+      await this.spawnWorker(account, taskPrompt(account, event), {
+        kind: 'task',
+        taskId: event.taskId,
+        subject: typeof event.task === 'string' ? event.task.slice(0, 120) : undefined,
+        from: typeof event.from === 'string' ? event.from : undefined,
+      });
       return;
     }
     // Other event types (expunge, flags, connected, error, reconnecting,
@@ -894,8 +904,22 @@ export class Dispatcher {
   }
 
   /** Acquire a concurrency slot, run a worker, release the slot. */
-  private async spawnWorker(account: AgenticMailAccount, prompt: string, ctx: { kind: string; uid?: number; taskId?: string }): Promise<void> {
+  private async spawnWorker(account: AgenticMailAccount, prompt: string, ctx: { kind: string; uid?: number; taskId?: string; subject?: string; from?: string }): Promise<void> {
     await this.acquireSlot();
+    // Generate a stable id BEFORE the try so the finally block can
+    // post a matching finished event even if persona load throws.
+    const workerId = `${account.id}:${ctx.kind}:${ctx.uid ?? ctx.taskId ?? ''}:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    let workerResult: { ok: true; text: string } | { ok: false; error: string } | null = null;
+    // Push "started" — host can now see this agent is working via
+    // `check_activity` or wait_for_email on /system/events. We fire
+    // and forget; never let observer failures block worker spawn.
+    this.postActivity('/dispatcher/worker-started', {
+      workerId,
+      agentName: account.name,
+      agentEmail: account.email,
+      kind: ctx.kind,
+      trigger: { uid: ctx.uid, taskId: ctx.taskId, subject: ctx.subject, from: ctx.from },
+    });
     try {
       const { body } = loadPersonaForAgent({
         agent: account,
@@ -905,7 +929,7 @@ export class Dispatcher {
       });
       this.log('info', `[dispatcher] waking "${account.name}" — ${ctx.kind}${ctx.taskId ? ' ' + ctx.taskId : ctx.uid ? ' uid=' + ctx.uid : ''}`);
       const mcpEnv = await this.buildMcpEnv();
-      await runWorker(
+      workerResult = await runWorker(
         this.query,
         body,
         prompt,
@@ -918,7 +942,48 @@ export class Dispatcher {
       );
     } finally {
       this.releaseSlot();
+      // Always post "finished", even on persona-load / slot errors,
+      // so the registry doesn't keep the worker pinned indefinitely.
+      const ok = workerResult?.ok === true;
+      const preview = workerResult?.ok
+        ? workerResult.text
+        : (workerResult ? workerResult.error : 'worker did not start');
+      this.postActivity('/dispatcher/worker-finished', {
+        workerId,
+        agentName: account.name,
+        ok,
+        resultPreview: typeof preview === 'string' ? preview.slice(0, 240) : undefined,
+      });
     }
+  }
+
+  /**
+   * Fire-and-forget POST to the API's worker-activity endpoints.
+   *
+   * Failures are swallowed deliberately — the dispatcher must never
+   * block worker spawn or interrupt teardown because the API is briefly
+   * unreachable. The activity registry is best-effort observability, not
+   * load-bearing state.
+   */
+  private postActivity(path: string, body: Record<string, unknown>): void {
+    const url = `${this.cfg.apiUrl.replace(/\/$/, '')}/api/agenticmail${path}`;
+    try {
+      const result = this.fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.cfg.masterKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+      // Defensive against test fetch mocks (vi.fn() returns undefined by
+      // default) and any future fetch shim that does not return a Promise.
+      // Real fetch always returns a Promise; this guard costs one truthy
+      // check at runtime and prevents an "undefined.catch" crash in tests.
+      if (result && typeof (result as Promise<unknown>).catch === 'function') {
+        void (result as Promise<unknown>).catch(() => { /* best-effort */ });
+      }
+    } catch { /* best-effort — never let observer failures touch spawn flow */ }
   }
 
   /** Build the env block we pass to the worker's MCP server child process. */

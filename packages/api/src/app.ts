@@ -24,6 +24,7 @@ import { createTaskRoutes } from './routes/tasks.js';
 import { createSmsRoutes } from './routes/sms.js';
 import { createStorageRoutes } from './routes/storage.js';
 import { createSystemEventRoutes } from './routes/system-events.js';
+import { createDispatcherActivityRoutes } from './routes/dispatcher-activity.js';
 
 /**
  * Pre-resolve the Claude Code integration routes at module-load time.
@@ -188,6 +189,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createSmsRoutes(db, accountManager, config, gatewayManager));
   app.use('/api/agenticmail', createStorageRoutes(db as any, accountManager, config));
   app.use('/api/agenticmail', createSystemEventRoutes());
+  app.use('/api/agenticmail', createDispatcherActivityRoutes());
 
   // 404 handler for unmatched API routes
   app.use('/api/agenticmail', (_req, res) => {

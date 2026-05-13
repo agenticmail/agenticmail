@@ -798,6 +798,17 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'check_activity',
+    description: 'Check which agents are currently being woken by the dispatcher (right now or in the last 2 minutes). Use this when you sent mail to a teammate and want to know if they have actually started working, or to audit the live multi-agent state. Returns active workers with the agent name, what triggered the wake (mail UID + subject, or task id), how long they have been running, and a preview of the most recent finished work. Requires master key — the host session has it; subagents normally do not.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        agent: { type: 'string', description: 'Filter to a specific agent by name (case-insensitive). Omit to see every active and recently-finished worker.' },
+        includeRecent: { type: 'boolean', description: 'Include workers that finished in the last ~2 minutes (default: true). Set false to see only currently-running workers.' },
+      },
+    },
+  },
+  {
     name: 'check_tasks',
     description: 'Check for pending tasks assigned to you (or a specific agent) or tasks you assigned to others',
     inputSchema: {
@@ -2224,6 +2235,40 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         return `Agent ${args.agentId} persistent flag set to ${args.persistent !== false}`;
       }
       throw new Error('Invalid action. Use: list_inactive, cleanup, or set_persistent');
+    }
+
+    case 'check_activity': {
+      // Endpoint requires master key. We hit it via apiRequest's master
+      // path (the 4th arg = `useMasterKey` opt-in), same as cleanup_agents.
+      const r = await apiRequest('GET', '/dispatcher/activity', undefined, true);
+      const filterAgent = typeof args.agent === 'string' ? args.agent.toLowerCase() : '';
+      const includeRecent = args.includeRecent !== false;
+      const matchesFilter = (w: any) => !filterAgent || (w.agentName ?? '').toLowerCase().includes(filterAgent);
+      const activeList: any[] = Array.isArray(r?.active) ? r.active.filter(matchesFilter) : [];
+      const recentList: any[] = includeRecent && Array.isArray(r?.recent) ? r.recent.filter(matchesFilter) : [];
+      if (activeList.length === 0 && recentList.length === 0) {
+        if (filterAgent) return `No dispatcher activity for "${args.agent}" right now or in the last 2 minutes. Either the agent has not been woken on this thread yet, the dispatcher is not running, or mail to them is still in flight.`;
+        return 'No dispatcher activity right now or in the last 2 minutes. If you just sent mail and expected an agent to wake, give it a moment — the dispatcher subscribes to /system/events for sub-second wake. If nothing happens for 30s, check that the dispatcher process is running (`pm2 list`) and that the recipient is a real local agent (`list_agents`).';
+      }
+      const fmt = (w: any, prefix: string) => {
+        const dur = w.durationMs ? `${(w.durationMs / 1000).toFixed(1)}s` : '?';
+        const trig = w.trigger?.subject ? ` — ${String(w.trigger.subject).slice(0, 60)}` : w.trigger?.taskId ? ` — task ${String(w.trigger.taskId).slice(0, 8)}` : '';
+        const from = w.trigger?.from ? ` (from ${w.trigger.from})` : '';
+        const preview = w.resultPreview ? `\n      → ${String(w.resultPreview).slice(0, 140).replace(/\s+/g, ' ').trim()}` : '';
+        const status = w.endedAtMs ? (w.ok === false ? 'failed' : 'finished') : 'running';
+        return `  ${prefix} ${w.agentName} [${w.kind}] ${status} ${dur}${trig}${from}${preview}`;
+      };
+      const lines: string[] = [];
+      if (activeList.length > 0) {
+        lines.push(`Active workers (${activeList.length}):`);
+        for (const w of activeList) lines.push(fmt(w, '●'));
+      }
+      if (recentList.length > 0) {
+        if (lines.length > 0) lines.push('');
+        lines.push(`Recently finished (last 2 min, ${recentList.length}):`);
+        for (const w of recentList) lines.push(fmt(w, '○'));
+      }
+      return lines.join('\n');
     }
 
     case 'check_tasks': {
