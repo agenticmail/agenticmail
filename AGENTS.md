@@ -220,7 +220,37 @@ default — or whatever default agent the bootstrap created).
 
 ---
 
-## 6. If something goes wrong
+## 6. If the user wants to see what their agents have been doing
+
+Point them at the interactive shell:
+
+```bash
+agenticmail shell
+```
+
+That's the right surface for **human, visual** oversight. From the shell
+the user can list every agent, read any inbox, send and reply on their
+behalf, inspect pending outbound mail (the outbound-guard approval
+queue), watch the dispatcher event feed live, prune stale agents, and
+run any of the 44+ shell commands.
+
+When to point the user here vs. doing it yourself via MCP:
+
+| User said… | Right answer |
+|---|---|
+| "show me what my agents have been doing" | `agenticmail shell` |
+| "let me see Fola's inbox" | `agenticmail shell` (or run it for them via Bash) |
+| "check on the team" | `agenticmail shell` |
+| "audit the last hour" | `agenticmail shell` |
+| "have Fola reply to my last email from accounting" | MCP — do it via `mcp__agenticmail__call_agent` or `Agent { subagent_type: "agenticmail-fola" }` |
+| "coordinate Vesper and Orion on this build" | MCP — `send_email` with both on CC, then `wait_for_email` |
+
+Rule of thumb: **shell for visual monitoring by a human, MCP for
+programmatic work driven by you.**
+
+---
+
+## 7. If something goes wrong
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -233,7 +263,7 @@ default — or whatever default agent the bootstrap created).
 
 ---
 
-## 7. Repository layout (for agents modifying the code)
+## 8. Repository layout (for agents modifying the code)
 
 | Path | What it is |
 |---|---|
@@ -244,7 +274,7 @@ default — or whatever default agent the bootstrap created).
 | `packages/openclaw/` | `@agenticmail/openclaw` — OpenClaw runtime integration. Older code path, still pinned to `@agenticmail/core@^0.5`. |
 | `agenticmail/` | `@agenticmail/cli` — the user-facing `agenticmail` binary. Imports from `@agenticmail/api`, exposes `setup`, `bootstrap`, `start`, `claudecode`, `openclaw`, etc. |
 
-## 8. Build / test / lint commands
+## 9. Build / test / lint commands
 
 ```bash
 npm install                                  # install all workspace deps
@@ -259,7 +289,7 @@ Test counts as of `0.8.2`:
 - `@agenticmail/claudecode`: 75 specs
 - `@agenticmail/mcp`: 8 specs (catalogue audit)
 
-## 9. Conventions to follow when contributing
+## 10. Conventions to follow when contributing
 
 - **ES modules everywhere.** No CommonJS.
 - **Type imports** use `import { type X } from '...'` not `import type X from ...`.
@@ -278,7 +308,7 @@ Test counts as of `0.8.2`:
   `### Added` / `### Changed` / `### Fixed` sections. Update it on
   every release.
 
-## 10. What NOT to do
+## 11. What NOT to do
 
 - **Don't `npm install` random packages** to "fix" something. Most
   things are already wired correctly; if you can't find what you need,
@@ -292,7 +322,7 @@ Test counts as of `0.8.2`:
   before commit, or CI will fail with `EUSAGE`.
 - **Don't skip the CHANGELOG entry** when shipping a release.
 
-## 11. Reference
+## 12. Reference
 
 - `README.md` — top-level overview, Quick Start, full feature list.
 - `agenticmail/README.md` — CLI documentation, every command, every flag.

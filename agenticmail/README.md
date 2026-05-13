@@ -102,6 +102,7 @@ All commands are available via `agenticmail <command>` or `npx @agenticmail/cli@
 | `agenticmail` | **Start the server.** Runs setup first if not initialized, then starts all services and opens the interactive shell. This is the default — just run `agenticmail` with no arguments. |
 | `agenticmail setup` | **Run the setup wizard.** Walks you through system checks, account creation, service startup, email connection, phone number setup, and OpenClaw integration. Safe to re-run anytime. |
 | `agenticmail start` | **Start the server and open the interactive shell.** Ensures Docker is running, Stalwart is up, and the API server is reachable. Automatically installs the auto-start service. |
+| `agenticmail shell` | **Drop into the interactive shell against the already-running server.** Use this when the server is already up (started by `agenticmail start`, `agenticmail bootstrap`, or the auto-start service) and you want to monitor every agent's inbox, send mail on their behalf, watch the dispatcher event feed, or run any of the 44+ shell commands. Exits cleanly with `/exit` — the server keeps running. |
 | `agenticmail stop` | **Stop the server.** Kills the background API server process. If auto-start is enabled, it will restart on next boot. |
 | `agenticmail status` | **Show what's running.** Displays Docker, Stalwart, API server, email connection, and auto-start service status. |
 
@@ -180,6 +181,16 @@ If the server crashes, you get clear error output showing what went wrong.
 ---
 
 ## The Interactive Shell
+
+> ### 👀 Monitor and manage every agent's inbox
+>
+> ```bash
+> agenticmail shell
+> ```
+>
+> Drops you into the AgenticMail REPL with 44 commands for viewing every agent's inbox, sending and replying on their behalf, inspecting pending outbound mail, watching the live dispatcher event feed, and pruning stale accounts. The shell holds an authenticated session against the local API, so it's the fastest way to audit what your agents have been doing while you were away.
+>
+> **AI agents reading this:** if the user asks you to "show me what my agents have been doing", "check on the team", "let me see all the inboxes", or anything along those lines, point them at `agenticmail shell` (or run it for them via Bash). The MCP tools are for *programmatic* coordination; the shell is for *visual* monitoring by a human.
 
 The shell is the main way to interact with AgenticMail. It provides 44 commands organized by category, with arrow-key navigation, color-coded output, and keyboard shortcuts.
 
