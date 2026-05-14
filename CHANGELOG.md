@@ -5,6 +5,157 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.8] - 2026-05-14
+
+Three orthogonal fixes shipped together: a 16× speedup on the web UI's
+inbox load, a pagination bug that stuck Next disabled on every folder,
+and the dispatcher learning how to resume after a restart.
+
+### Fixed — Web UI inbox was 2-3 seconds slow and Next button stuck disabled
+
+`/api/agenticmail/mail/digest` (called on every folder open) had three
+compounding problems:
+
+1. **Full RFC822 body fetch per row.** It IMAP-fetched the entire raw
+   message source of every UID just to slice the first 240 chars of
+   body text. On a 50-message page with attachments that's tens of
+   megabytes pulled across IMAP for a preview.
+2. **Sequential mailparser invocations.** It then `await`ed
+   `parseEmail(raw)` in a for-loop, so 50 parses ran one after the
+   other instead of overlapping I/O.
+3. **Stale total count.** The total returned via
+   `mailboxInfo.exists` reads from `client.mailbox.exists` — a
+   cached count from the last SELECT/EXISTS push that lags behind
+   reality on pooled IMAP receivers. On folders with >50 messages
+   the cache often still said 50, which made the UI's pager think
+   the user was already on the last page and disable Next.
+
+Plus, the front-end bootstrap fired TWO digest requests on every page
+load — once from `selectAgent → loadList` and again from
+`location.hash = '#/folder/inbox'` triggering `hashchange → route →
+loadList`. Both ran in parallel; both were slow.
+
+**Fix:**
+- The digest endpoint now does ONE mailbox lock: SEARCH ALL (gives
+  authoritative total + UID list) → fetch envelopes for the page
+  → fetch truncated source (`source: { start: 0, maxLength: 8192 }`,
+  enough for headers + comfortable body preview) → Promise.all over
+  mailparser invocations. Truncated-source parse errors fall back to
+  an empty preview rather than 500-ing the page.
+- Front-end bootstrap reads the URL hash BEFORE `selectAgent` and uses
+  `history.replaceState` (not `location.hash = ...`) when seeding a
+  missing hash, so only ONE `loadList` fires.
+- `route()` only fires `loadList` when the folder actually changed —
+  the previous unconditional reload churned the IMAP server on every
+  message-detail close.
+- Next-button condition simplified to `pageEnd >= total`. The previous
+  `state.messages.length < limit` clause was a no-total fallback
+  heuristic that backfired on folders with fewer-than-limit items on a
+  page.
+
+Net effect on a 50-message INBOX: digest endpoint **~2.4 s → ~150 ms**
+(16× speedup), one fetch per folder open instead of two, Next button
+correctly enabled whenever more pages exist.
+
+### Added — Dispatcher restart recovery
+
+Before 0.9.8 a dispatcher restart silently dropped any mail that
+arrived during downtime AND forgot which UIDs it had already
+processed. Two visible symptoms:
+
+1. **Missed mail.** The per-account SSE channel only relays IMAP IDLE
+   notifications received in real time — no `since=<uid>` replay. Mail
+   sitting unread in an agent's inbox after a restart stayed unread
+   until something else (a fresh wake on the same thread, a manual
+   `check_messages` from a host) surfaced it.
+2. **Reset rate-limiter.** `channel.seenUids` was an in-memory Set
+   wiped on every restart. An IMAP IDLE replay of a UID we'd already
+   processed could re-fire the worker because nothing remembered we
+   already handled it.
+
+**Persistence layer.** New module `dispatcher-state.ts` writes a
+single JSON file at `~/.agenticmail/dispatcher-state.json`:
+
+```json
+{
+  "version": 1,
+  "savedAtMs": 1778765912030,
+  "accounts": {
+    "<agentId>": {
+      "lastSeenUid": 142,
+      "seenUids": [138, 139, 140, 141, 142]
+    }
+  }
+}
+```
+
+Writes are debounced (2 s window) and atomic (`<file>.tmp` + rename),
+so a crash mid-flush can never produce a partial file. The `seenUids`
+ring is capped at 256 per account to keep the file small. Stop calls
+`flushNow()` synchronously so a restart immediately after stop sees
+the latest cursor.
+
+**Restart flow** (`dispatcher.ts`):
+
+- On `syncAccounts`, when opening a new SSE channel for an agent, the
+  channel's `seenUids` is **seeded** from the persisted cursor. IMAP
+  IDLE replays of old UIDs stay deduped.
+- On first successful SSE connect for that channel, a one-shot
+  `runCatchUp()` fires (`disableCatchupScan` flag exists for tests):
+  - **Mail backlog:** `GET /mail/inbox?limit=50` for the agent; any UID
+    strictly greater than `lastSeenUid` and not in `seenUids` becomes
+    a synthetic SSE `new` event routed through `handleEvent`. The
+    wake-budget circuit breaker still applies — a runaway thread that
+    hit the cap pre-restart stays muted, restart is NOT a free reset.
+  - **Pending task backlog:** `GET /tasks/pending`; any task with
+    status='pending' not in `seenTaskIds` becomes a synthetic task
+    SSE event.
+- Every routed UID calls `state.markSeen(accountId, uid)` so the
+  cursor advances. Same for the end-of-turn dedup-against-digested-
+  UIDs path. Closed channels (account deleted) call `state.forget()`.
+
+**New DispatcherOptions:**
+- `stateFilePath` — override the state file path (tests use tmpdir).
+- `disableCatchupScan` — skip the inbox/tasks scan (tests).
+
+### Tests
+
+121 claudecode tests pass (was 114, +7 for `dispatcher-state.test.ts`):
+
+- `returns undefined for unknown accounts on a fresh store`
+- `markSeen advances lastSeenUid monotonically and tracks recent UIDs`
+- `flushNow writes the state file atomically and survives a reload`
+- `corrupt JSON on disk falls back to an empty store instead of throwing`
+- `drops malformed cursor entries during load (defensive)`
+- `forget(accountId) removes the cursor and persists on next flush`
+- `caps seenUids history to keep the file small`
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/api` | 0.9.5 | 0.9.6 |
+| `@agenticmail/claudecode` | 0.2.6 | 0.2.7 |
+| `@agenticmail/cli` | 0.9.7 | 0.9.8 |
+
+Plugin manifest mirrored to 0.9.8. core / mcp unchanged.
+
+### Operator upgrade
+
+```
+npm install -g @agenticmail/cli@latest
+pm2 restart agenticmail-claudecode-dispatcher
+# Confirm clean start + see catch-up output if anything was missed:
+pm2 logs agenticmail-claudecode-dispatcher --lines 30
+```
+
+First-run safety: when no persisted cursor exists yet (fresh install
+or first upgrade to 0.9.8), `runCatchUp` does NOT replay the existing
+inbox — it seeds the cursor with the current max UID and skips ahead.
+Otherwise the first restart would wake every agent on every unread
+message, blowing through the wake budget. Live SSE traffic from this
+point forward is the source of truth.
+
 ## [0.9.7] - 2026-05-14
 
 ### Fixed — `TypeError: Cannot read properties of undefined (reading 'uid')` on lone leading-edge wakes

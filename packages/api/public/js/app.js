@@ -95,6 +95,19 @@ async function bootstrap() {
     const initial = (lastId && state.agents.find(a => a.id === lastId))
       ?? state.agents.find(isBridgeAgent)
       ?? state.agents[0];
+    // Seed the URL hash BEFORE selectAgent so selectAgent's loadList
+    // call lands on the right folder. We use history.replaceState
+    // (NOT `location.hash = ...`) so this does NOT fire a hashchange
+    // event — that would trigger a second route() → loadList() in
+    // parallel with selectAgent's, doubling the work on every
+    // bootstrap. Read the hash first so a deep-link refresh
+    // (e.g. /#/folder/sent) still wins.
+    const folderMatch = location.hash.match(/^#\/folder\/([a-z]+)$/);
+    if (folderMatch) {
+      state.selectedFolder = folderMatch[1];
+    } else if (!location.hash) {
+      history.replaceState(null, '', `${location.pathname}${location.search}#/folder/inbox`);
+    }
     if (initial) await selectAgent(initial);
     renderProfile();
     populateComposeFrom();
@@ -105,10 +118,14 @@ async function bootstrap() {
     // rendering. Idempotent — safe to call after bootstrap reruns.
     subscribeToActivity();
     maybeRequestNotificationPermission();
-    // Initial route: if the URL already has a hash (e.g. a refresh
-    // on /#/folder/sent), respect it; otherwise default to inbox.
-    if (!location.hash) location.hash = '#/folder/inbox';
-    else route();
+    // If the URL points at a message (not a folder), open it now —
+    // the folder list selectAgent already loaded stays in the
+    // background. Folder hashes need no extra work; selectAgent's
+    // loadList already handled them above.
+    const hash = location.hash;
+    const msgMatch = hash.match(/^#\/m\/(\d+)$/);
+    const draftMatch = hash.match(/^#\/d\/([a-zA-Z0-9-]+)$/);
+    if (msgMatch || draftMatch) route();
   } catch (err) {
     toast(`Failed to load agents: ${err.message}`, true);
   }
@@ -176,14 +193,18 @@ function route() {
   }
   const folderMatch = hash.match(/^#\/folder\/([a-z]+)$/);
   const folder = folderMatch ? folderMatch[1] : 'inbox';
-  if (state.selectedFolder !== folder) {
-    state.selectedFolder = folder;
-    // Reset pagination on every folder switch — a fresh folder
-    // starts at page 1. Preserved across silent SSE refreshes so
-    // a new arrival doesn't yank the user back from page 3.
-    state.pagination = { offset: 0, limit: 50, total: 0 };
-    renderSidebar(onFolderSelect);
-  }
+  // Only do work if the folder actually changed. Re-firing loadList
+  // for the SAME folder on every hashchange (e.g. closing a message
+  // detail back to the list) makes the UI feel sluggish — the list
+  // is already rendered, and a second digest fetch just churns
+  // through 50 messages on the IMAP server for no visible change.
+  if (state.selectedFolder === folder) return;
+  state.selectedFolder = folder;
+  // Reset pagination on every folder switch — a fresh folder
+  // starts at page 1. Preserved across silent SSE refreshes so
+  // a new arrival doesn't yank the user back from page 3.
+  state.pagination = { offset: 0, limit: 50, total: 0 };
+  renderSidebar(onFolderSelect);
   if (state.selectedAgent) loadList(state.selectedAgent, folder);
 }
 window.addEventListener('hashchange', route);

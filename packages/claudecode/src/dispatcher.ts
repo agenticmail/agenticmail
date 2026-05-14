@@ -40,8 +40,9 @@
 
 import type { AgenticMailAccount } from './types.js';
 import { resolveConfig, type ResolveConfigOptions } from './config.js';
-import { listAccounts } from './api.js';
+import { listAccounts, listInboxForAgent, listPendingTasksForAgent } from './api.js';
 import { loadPersonaForAgent } from './persona-loader.js';
+import { DispatcherState } from './dispatcher-state.js';
 import { mkdirSync, createWriteStream, rmSync, type WriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -185,6 +186,17 @@ export interface DispatcherOptions extends ResolveConfigOptions {
   /** Override the AgentMemoryStore disk root. Same rationale as
    *  threadCacheDir — only tests should set this. */
   agentMemoryDir?: string;
+  /** Override the dispatcher state file (per-account cursors used
+   *  for restart recovery). Tests use a tmpdir; production runs
+   *  against ~/.agenticmail/dispatcher-state.json. */
+  stateFilePath?: string;
+  /**
+   * Disable catch-up scan + pending-task scan on channel open.
+   * Default false. Tests that don't want the dispatcher hitting the
+   * inbox/tasks endpoints on first connect set this true. Has no
+   * effect on the persisted seenUids restore — that's always on.
+   */
+  disableCatchupScan?: boolean;
 }
 
 /** Minimal Claude Agent SDK query signature we use. */
@@ -872,6 +884,22 @@ export class Dispatcher {
   private agentMemory: AgentMemoryStore;
 
   /**
+   * Persistent dispatcher state — per-account `{ lastSeenUid, seenUids[] }`
+   * that survives a restart. On `start()` we use it to seed each
+   * channel's `seenUids` (so IMAP IDLE replays of old UIDs stay
+   * deduped) and to drive the catch-up scan (anything strictly
+   * newer than `lastSeenUid` got missed during downtime — route it
+   * through handleEvent like a synthetic SSE 'new' event).
+   *
+   * Writes are debounced inside the state module; we just call
+   * `markSeen(accountId, uid)` everywhere we decide on a UID.
+   */
+  private state: DispatcherState;
+  /** Tracks which accounts have already gone through catch-up + pending-task scan
+   *  so reconnects don't replay the same backlog. */
+  private caughtUp = new Set<string>();
+
+  /**
    * Coalesced wake queue. Keyed by `${accountId}::${threadId}`,
    * each entry holds the pending events + the timer that will
    * fire the spawn. A new event arriving while the entry exists
@@ -917,11 +945,15 @@ export class Dispatcher {
     this.threadCache = new ThreadCache({ cacheDir: opts.threadCacheDir });
     this.agentMemory = new AgentMemoryStore({ memoryDir: opts.agentMemoryDir });
     this.wakeCoalesceMs = opts.wakeCoalesceMs ?? DEFAULT_WAKE_COALESCE_MS;
+    this.state = new DispatcherState({ path: opts.stateFilePath });
+    this.disableCatchupScan = !!opts.disableCatchupScan;
 
     if (!this.cfg.masterKey) {
       throw new Error('Dispatcher requires AgenticMail master key. Run `agenticmail setup` first.');
     }
   }
+
+  private disableCatchupScan: boolean = false;
 
   /**
    * Charge one wake against the (agent, thread) budget. Returns true
@@ -1036,6 +1068,15 @@ export class Dispatcher {
     // restart the cache + memory have already absorbed the events.
     for (const entry of this.wakeCoalesce.values()) clearTimeout(entry.timer);
     this.wakeCoalesce.clear();
+    // Flush any pending cursor updates synchronously so a restart
+    // immediately after stop sees the latest lastSeenUid. The
+    // debounced timer might not have fired yet.
+    try {
+      this.state.stop();
+      this.state.flushNow();
+    } catch (err) {
+      this.log('warn', `[dispatcher] could not flush state on stop: ${(err as Error).message}`);
+    }
     this.log('info', '[dispatcher] stopped');
   }
 
@@ -1087,9 +1128,14 @@ export class Dispatcher {
           && isTaskNotificationSubject(subject)) {
         this.log('info', `[dispatcher] suppressed task-notification mail wake for "${account.name}" (uid=${event.uid}, subject="${subject}") — task event already dispatched`);
         rememberBounded(ch.seenUids, event.uid);
+        this.state.markSeen(account.id, event.uid);
         return;
       }
       if (ch) rememberBounded(ch.seenUids, event.uid);
+      // Persist the cursor on every routed UID so a restart sees a
+      // monotonic lastSeenUid + the recent-UID window for IDLE
+      // dedup. Writes are debounced inside DispatcherState.
+      this.state.markSeen(account.id, event.uid);
 
       // Hard stop: thread closed by the host. Adding `[FINAL]` / `[DONE]`
       // / `[CLOSED]` / `[WRAP]` to a subject tells the dispatcher "we're
@@ -1221,12 +1267,15 @@ export class Dispatcher {
     // Filter out the bridge — it's host-owned, not dispatcher-owned.
     accounts = accounts.filter(a => this.shouldWatch(a));
     const liveIds = new Set(accounts.map(a => a.id));
-    // Close channels for accounts that disappeared.
+    // Close channels for accounts that disappeared. Also drop their
+    // persisted cursor so we don't carry dead-agent state forever.
     for (const [id, ch] of this.channels) {
       if (!liveIds.has(id)) {
         ch.stopping = true;
         ch.controller?.abort();
         this.channels.delete(id);
+        this.state.forget(id);
+        this.caughtUp.delete(id);
         this.log('info', `[dispatcher] account "${ch.account.name}" removed — closed SSE channel`);
       }
     }
@@ -1237,17 +1286,22 @@ export class Dispatcher {
         this.channels.get(account.id)!.account = account;
         continue;
       }
+      // Restore persisted seenUids so IMAP IDLE re-deliveries of UIDs
+      // we already processed pre-restart stay deduped. The Set is
+      // bounded by SEEN_CAP anyway, so even a large restore is safe.
+      const persistedCursor = this.state.getCursor(account.id);
+      const seenUids = new Set<number>(persistedCursor?.seenUids ?? []);
       const ch: ChannelState = {
         account,
         controller: null,
         stopping: false,
         backoffMs: this.reconnectBaseMs,
-        seenUids: new Set(),
+        seenUids,
         seenTaskIds: new Set(),
         suppressTaskMailUntilMs: 0,
       };
       this.channels.set(account.id, ch);
-      this.log('info', `[dispatcher] opening SSE for "${account.name}" (${account.email})`);
+      this.log('info', `[dispatcher] opening SSE for "${account.name}" (${account.email})` + (persistedCursor ? ` (restored ${seenUids.size} seen UIDs, lastSeenUid=${persistedCursor.lastSeenUid})` : ''));
       void this.runChannel(ch);
     }
   }
@@ -1382,6 +1436,105 @@ export class Dispatcher {
     }
   }
 
+  /**
+   * One-shot backlog scan after a (re)connect: route unprocessed mail
+   * + pending tasks that arrived while the dispatcher was unreachable.
+   *
+   * Mail path: pull the newest 50 envelopes from `/mail/inbox`. For
+   * each UID strictly greater than the persisted `lastSeenUid` (and
+   * not already in the channel's `seenUids`), synthesise an SSE
+   * `new` event and hand it to `handleEvent`. The wake-budget
+   * circuit breaker still applies, so a runaway thread that hit
+   * the cap pre-restart STAYS muted — restart isn't a free reset.
+   *
+   * Tasks path: fetch `/tasks/pending`. Anything not in the
+   * channel's `seenTaskIds` becomes a synthetic task SSE event.
+   *
+   * Failures here are NEVER fatal — they're "best effort". The
+   * dispatcher continues processing live SSE traffic regardless.
+   */
+  private async runCatchUp(ch: ChannelState): Promise<void> {
+    const account = ch.account;
+    // ── Mail backlog ─────────────────────────────────────────────
+    try {
+      const envelopes = await listInboxForAgent(this.cfg.apiUrl, account.apiKey, { limit: 50 });
+      const cursor = this.state.getCursor(account.id);
+      // FIRST-RUN SAFETY: if we have no persisted cursor yet (fresh
+      // install / first upgrade to 0.9.8 / state file deleted), do NOT
+      // replay everything in the inbox as "missed mail" — that would
+      // burn through the wake budget and spam every agent. Seed the
+      // cursor with the current max UID instead, so we only wake on
+      // mail that arrives AFTER this point. Live SSE traffic is the
+      // source of truth from here forward.
+      if (!cursor) {
+        if (envelopes.length > 0) {
+          let maxUid = 0;
+          for (const e of envelopes) {
+            if (Number.isFinite(e.uid) && e.uid > 0) {
+              ch.seenUids.add(e.uid);
+              if (e.uid > maxUid) maxUid = e.uid;
+            }
+          }
+          if (maxUid > 0) this.state.markSeen(account.id, maxUid);
+          this.log('info', `[dispatcher] catch-up for "${account.name}": first run, seeded cursor at uid=${maxUid} (skipping ${envelopes.length} pre-existing messages)`);
+        }
+      } else {
+        const lastSeenUid = cursor.lastSeenUid;
+        // Replay in ascending UID order so the wake-budget / coalesce
+        // queue sees the same temporal shape it would have if the
+        // events had streamed in live.
+        const sorted = envelopes
+          .filter(e => Number.isFinite(e.uid) && e.uid > lastSeenUid && !ch.seenUids.has(e.uid))
+          .sort((a, b) => a.uid - b.uid);
+        if (sorted.length > 0) {
+          this.log('info', `[dispatcher] catch-up for "${account.name}": replaying ${sorted.length} unprocessed UIDs (lastSeenUid=${lastSeenUid})`);
+          for (const env of sorted) {
+            const event: SSEEvent = {
+              type: 'new',
+              uid: env.uid,
+              subject: env.subject,
+              // Format `from` to match what extractFrom expects
+              // (top-level string OR nested under message). Use the
+              // first sender's address — that's what the live SSE
+              // path delivers.
+              from: env.from?.[0]?.address,
+              message: {
+                subject: env.subject,
+                from: env.from,
+                to: env.to,
+              },
+            };
+            // handleEvent itself dedupes via seenUids (which we just
+            // restored) so duplicate replays are no-ops.
+            await this.handleEvent(account, event);
+          }
+        }
+      }
+    } catch (err) {
+      this.log('warn', `[dispatcher] catch-up mail scan failed for "${account.name}": ${(err as Error).message}`);
+    }
+    // ── Pending task backlog ──────────────────────────────────────
+    try {
+      const tasks = await listPendingTasksForAgent(this.cfg.apiUrl, account.apiKey);
+      const fresh = tasks.filter(t => t.id && !ch.seenTaskIds.has(t.id));
+      if (fresh.length > 0) {
+        this.log('info', `[dispatcher] catch-up for "${account.name}": replaying ${fresh.length} pending tasks`);
+        for (const t of fresh) {
+          const event: SSEEvent = {
+            type: 'task',
+            taskId: t.id,
+            taskType: t.task_type ?? t.type,
+            task: t.description ?? t.task ?? '',
+            assignee: account.name,
+          };
+          await this.handleEvent(account, event);
+        }
+      }
+    } catch (err) {
+      this.log('warn', `[dispatcher] catch-up task scan failed for "${account.name}": ${(err as Error).message}`);
+    }
+  }
+
   /** Single SSE attach. Returns when the stream closes for any reason. */
   private async streamOne(ch: ChannelState): Promise<void> {
     const url = `${this.cfg.apiUrl.replace(/\/$/, '')}/api/agenticmail/events`;
@@ -1397,6 +1550,19 @@ export class Dispatcher {
     }
     // Reset backoff once we have a healthy stream.
     ch.backoffMs = this.reconnectBaseMs;
+
+    // Restart-recovery: on FIRST successful connect for this channel
+    // since dispatcher start, scan for backlog. The SSE stream only
+    // delivers IDLE-relayed events from this point forward, so
+    // anything that arrived during the dispatcher's downtime has to
+    // be discovered explicitly. We fire-and-forget so a slow inbox
+    // doesn't delay event routing.
+    if (!this.caughtUp.has(ch.account.id) && !this.disableCatchupScan) {
+      this.caughtUp.add(ch.account.id);
+      void this.runCatchUp(ch).catch(err =>
+        this.log('warn', `[dispatcher] catch-up scan failed for "${ch.account.name}": ${(err as Error).message}`)
+      );
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -1789,7 +1955,12 @@ export class Dispatcher {
           }
         }
         const ch = this.channels.get(account.id);
-        if (ch) for (const uid of digestedUids) rememberBounded(ch.seenUids, uid);
+        if (ch) {
+          for (const uid of digestedUids) {
+            rememberBounded(ch.seenUids, uid);
+            this.state.markSeen(account.id, uid);
+          }
+        }
       }
       // Release the per-agent serial lock so any remaining queued
       // wakes for this agent (true new mail that did NOT get

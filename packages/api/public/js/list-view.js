@@ -359,7 +359,15 @@ export function renderList() {
   const prevBtn = document.getElementById('pager-prev');
   const nextBtn = document.getElementById('pager-next');
   if (prevBtn) prevBtn.disabled = offset <= 0;
-  if (nextBtn) nextBtn.disabled = pageEnd >= total || state.messages.length < limit;
+  // Drive Next purely from the server-reported total. The previous
+  // `state.messages.length < limit` clause was meant as a "we hit the
+  // end" heuristic for the no-total fallback case, but it backfired
+  // on every folder that legitimately had fewer-than-`limit` items on
+  // a page (e.g. trailing partial page after deletions, or a folder
+  // whose IMAP STATUS returned a stale low count) — Next stayed
+  // permanently disabled. The new digest endpoint always returns an
+  // authoritative SEARCH-derived total, so a single check is enough.
+  if (nextBtn) nextBtn.disabled = pageEnd >= total;
 
   if (filtered.length === 0) {
     root.innerHTML = q
