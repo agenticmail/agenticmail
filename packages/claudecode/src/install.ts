@@ -275,10 +275,7 @@ export async function install(opts: ResolveConfigOptions = {}): Promise<InstallR
  * imported from a workspace, or extracted from a tarball.
  */
 function resolveDispatcherBinPath(): string {
-  const thisFile = fileURLToPath(import.meta.url);
-  // thisFile = ".../@agenticmail/claudecode/dist/install.js"
-  const dir = thisFile.slice(0, thisFile.lastIndexOf('/'));
-  return `${dir}/dispatcher-bin.js`;
+  return resolveSiblingBin('dispatcher-bin.js');
 }
 
 /**
@@ -296,10 +293,49 @@ function resolveDispatcherBinPath(): string {
  * "User Name" homedirs) would otherwise split the command.
  */
 function resolveMailHookCommand(): string {
+  return `node "${resolveSiblingBin('mail-hook.js')}"`;
+}
+
+/**
+ * Find a compiled sibling JS file next to this module.
+ *
+ * Two valid layouts:
+ *
+ *   - **Published npm package** — `install.js` sits next to
+ *     `mail-hook.js` and `dispatcher-bin.js` inside `dist/`. The
+ *     sibling lookup hits on the first try.
+ *
+ *   - **Dev checkout / npm link** — this file is actually
+ *     `src/install.ts` (tsx-loaded). The sibling `src/mail-hook.js`
+ *     doesn't exist — only the `.ts` does — but the compiled
+ *     output lives at `../dist/mail-hook.js`. We probe that
+ *     fallback location.
+ *
+ * The original 0.8.25 resolver always returned the sibling path,
+ * which produced `Cannot find module .../src/mail-hook.js` errors
+ * when registered into a dev checkout's settings.json. Probing the
+ * filesystem fixes both layouts with one rule.
+ */
+function resolveSiblingBin(filename: string): string {
   const thisFile = fileURLToPath(import.meta.url);
   const dir = thisFile.slice(0, thisFile.lastIndexOf('/'));
-  const hookPath = `${dir}/mail-hook.js`;
-  return `node "${hookPath}"`;
+
+  // 1. Same directory (published build layout).
+  const sibling = `${dir}/${filename}`;
+  if (existsSync(sibling)) return sibling;
+
+  // 2. Adjacent dist/ (dev checkout with src/ + dist/ side by side).
+  const distSibling = `${dir.replace(/\/src$/, '')}/dist/${filename}`;
+  if (existsSync(distSibling)) return distSibling;
+
+  // 3. One level up + dist/ (defensive — covers tsx loaders that
+  //    don't preserve `src/` in the resolved URL).
+  const parentDist = `${dir}/../dist/${filename}`;
+  if (existsSync(parentDist)) return parentDist;
+
+  // 4. Couldn't find it. Return the published-layout path and let
+  //    the caller's downstream error message surface the issue.
+  return sibling;
 }
 
 async function startDispatcherForInstall(cfg: ClaudeCodeIntegrationConfig): Promise<{ started: boolean; reason?: string }> {

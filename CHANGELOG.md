@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.28] - 2026-05-13
+
+### Fixed — Stop hook `Cannot find module .../src/mail-hook.js` in dev checkouts
+
+The 0.8.25 absolute-path resolver always picked `${dir}/mail-hook.js`
+where `dir` was derived from `import.meta.url`. That's correct in
+published builds (`dist/install.js` → `dist/mail-hook.js`) but
+wrong in dev checkouts where the resolver runs from
+`src/install.ts` — there's no compiled `src/mail-hook.js`, only
+the TypeScript source. Result: `MODULE_NOT_FOUND` on every Stop
+hook fire from a workspace install.
+
+Now probes three locations in order:
+
+1. Same directory as the caller (published-build layout).
+2. `<dir-without-src>/dist/<file>` (dev checkout with `src/` + `dist/` side-by-side).
+3. `<dir>/../dist/<file>` (defensive fallback for tsx-style loaders).
+
+Returns the first hit. Both `agenticmail-mail-hook` and the
+dispatcher bin path now share the same resolver. Existing
+0.8.25-0.8.27 installs auto-heal on the next `agenticmail
+claudecode` run because the upserter rewrites the hook command
+with the freshly-resolved path.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/claudecode` | 0.1.15 | 0.1.16 |
+| `@agenticmail/cli` | 0.8.27 | 0.8.28 |
+
+Plugin manifest mirrored to 0.8.28. api / mcp / core / openclaw unchanged.
+
 ## [0.8.27] - 2026-05-13
 
 ### Fixed — Sent/Drafts/Spam/Trash returned empty in the web UI
