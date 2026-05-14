@@ -33,7 +33,13 @@
 
 ---
 
-### ✨ What's new in 0.8.27
+### ✨ What's new in 0.8.29
+
+- **Star button wired** — clicking the star toggles IMAP's `\Flagged` flag via the new `POST /mail/messages/:uid/star` endpoint. Backed by `MailReceiver.setStarred` in `@agenticmail/core`. Optimistic UI; revert on failure.
+- **Gmail-compact list UX** — single 36 px rows (was 64 px stacked), subject + preview on one truncated line separated by an em-dash, leading checkbox column, sticky list-toolbar with select-all + refresh + count. Same layout for every folder.
+- **Compose button** down to 48 px (Gmail's actual size); the giant pink pill is gone.
+
+### ✨ Earlier — 0.8.27
 
 - **Folder bug fix** — Sent / Drafts / Spam / Trash were returning empty in the web UI because hard-coded folder names didn't match Stalwart's actual IMAP names (e.g. `Sent Items` not `Sent`). Now auto-discovered per agent and matched against every common server convention (Stalwart, Gmail, Outlook, macOS Mail).
 - **Two-line preview** on every list row — web UI uses `/mail/digest?folder=…` everywhere instead of `/mail/inbox` (no preview) + `/mail/folders/:folder` (no preview).

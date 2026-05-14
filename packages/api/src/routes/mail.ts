@@ -866,6 +866,33 @@ export function createMailRoutes(accountManager: AccountManager, config: Agentic
     }
   });
 
+  /**
+   * Star / unstar a message.
+   *
+   * Body: { starred: boolean }. Maps to IMAP's `\Flagged` flag —
+   * same on-disk bit Gmail's star uses. The web UI fires this on
+   * every star click; the response is just `{ ok: true }` so the
+   * client can resolve its optimistic update.
+   */
+  router.post('/mail/messages/:uid/star', requireAgent, async (req, res, next) => {
+    try {
+      const agent = req.agent!;
+      const uid = parseInt(req.params.uid);
+      if (isNaN(uid) || uid < 1) {
+        res.status(400).json({ error: 'Invalid UID' });
+        return;
+      }
+      const starred = req.body?.starred !== false;
+      const folder = (req.body?.folder as string) || (req.query.folder as string) || 'INBOX';
+      const password = getAgentPassword(agent);
+      const receiver = await getReceiver(agent.stalwartPrincipal, password, config);
+      await receiver.setStarred(uid, starred, folder);
+      res.json({ ok: true, starred });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Move message to folder
   router.post('/mail/messages/:uid/move', requireAgent, async (req, res, next) => {
     try {

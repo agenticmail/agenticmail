@@ -272,22 +272,33 @@ a { color: var(--accent-strong); }
   .brand-name { font-size: 18px; }
   .search-container { max-width: none; }
   .search-input { height: 40px; font-size: 14px; }
-  /* List rows lose the from column on narrow screens; the subject
-     gets full width with the sender folded into the preview. */
+  /* On narrow screens, drop the checkbox + From column. Sender goes
+     in a small line above subject+preview to mimic Gmail's mobile
+     two-row stack. */
   .list-row {
-    grid-template-columns: 24px 24px 1fr 70px;
-    height: 56px;
-    padding: 0 12px;
+    grid-template-columns: 32px 1fr 64px;
+    height: auto;
+    min-height: 64px;
+    padding: 8px 12px;
+    align-items: center;
   }
-  .list-row .from { display: none; }
+  .list-row .row-check { display: none; }
+  .list-row .from {
+    grid-column: 2 / 3;
+    font-size: 13px;
+    padding-right: 0;
+  }
   .list-row .subject-cell {
-    flex-direction: column;
-    gap: 2px;
-    align-items: flex-start;
+    grid-column: 2 / 3;
+    grid-row: 2;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
-  .list-row .subject { max-width: none; font-size: 14px; }
-  .list-row .preview { font-size: 13px; }
-  .list-row .preview::before { content: ''; }
+  .list-row .star { grid-row: 1 / span 2; }
+  .list-row .date { grid-row: 1; }
   .message-header { padding: 16px 16px 8px; }
   .message-subject { font-size: 18px; }
   .message-body { padding: 8px 16px 24px; max-width: none; }
@@ -312,8 +323,11 @@ a { color: var(--accent-strong); }
   overflow-y: auto;
 }
 .compose-btn {
+  /* Gmail's Compose button is 48px tall with 16px corner radius —
+     prominent but not pill-shaped. Earlier this was 56px + ~28px
+     radius which read as a giant capsule and dominated the sidebar. */
   display: inline-flex; align-items: center; gap: 12px;
-  height: 56px; padding: 0 24px 0 16px;
+  height: 48px; padding: 0 24px 0 16px;
   margin-bottom: 16px;
   background: var(--pink); color: white;
   border-radius: 16px;
@@ -364,46 +378,49 @@ a { color: var(--accent-strong); }
   display: flex; flex-direction: column;
 }
 
-/* List header (above the list itself) */
-.list-header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 16px; height: 48px;
-  border-bottom: 1px solid transparent;
+/* List toolbar (sticky, matches Gmail's row of buttons above the list).
+   Same markup for every folder so Sent / Drafts / Spam render
+   identically to Inbox — no per-folder UX divergence. */
+.list-toolbar {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 16px; height: 48px;
+  border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 5;
   background: var(--bg);
   flex-shrink: 0;
 }
-.list-header .icon-btn { width: 36px; height: 36px; font-size: 16px; }
-.list-header .count-text {
-  margin-left: auto;
+.list-select-all {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; border-radius: 50%;
+}
+.list-select-all:hover { background: var(--bg-hover); }
+.list-toolbar .list-refresh { width: 40px; height: 40px; }
+.list-toolbar-spacer { flex: 1; }
+.list-toolbar .count-text {
   font-size: 12px; color: var(--muted);
 }
-.list-header .folder-title {
-  font: 500 18px/1 'Google Sans', sans-serif;
-  color: var(--ink); margin-left: 8px;
-}
 
-/* List rows */
+/* Gmail-style compact rows.
+   Single line per message; subject + preview share one truncated
+   cell so longer previews tail off with ellipsis instead of
+   wrapping. Same row shape for every folder. */
 .list-rows {
   flex: 1; overflow-y: auto;
 }
 .list-row {
   display: grid;
-  grid-template-columns: 24px 24px 200px 1fr 100px;
-  /* Top-align so a two-line preview can grow downward without
-     pushing the star + date out of alignment with the subject. */
-  align-items: flex-start; gap: 0;
-  padding: 10px 16px; min-height: 64px;
+  grid-template-columns: 36px 32px 180px 1fr 90px;
+  align-items: center; gap: 0;
+  padding: 0 16px; height: 36px;
   cursor: pointer;
-  border-bottom: 1px solid var(--bg-soft);
+  border-bottom: 1px solid var(--line);
   position: relative;
 }
-@media (max-width: 1000px) { .list-row { grid-template-columns: 24px 24px 160px 1fr 80px; } }
-/* Pull star + dot + date back into the visual midline of the subject. */
-.list-row .star, .list-row .dot, .list-row .date { padding-top: 2px; }
+@media (max-width: 1100px) { .list-row { grid-template-columns: 36px 32px 140px 1fr 80px; } }
 .list-row:hover {
-  background: var(--bg-row-hover);
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.05);
+  background: var(--bg);
+  box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line), 0 1px 3px rgba(0,0,0,.08);
   z-index: 1;
 }
 .list-row.unread { background: var(--bg); }
@@ -413,52 +430,39 @@ a { color: var(--accent-strong); }
 .list-row:not(.unread) .from, .list-row:not(.unread) .subject {
   color: var(--read-text);
 }
-.list-row .star {
-  font-size: 16px; color: #dadce0; cursor: pointer;
-  width: 24px; height: 24px;
+.list-row .row-check {
+  width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 50%;
+  cursor: pointer;
 }
-.list-row .star:hover { background: var(--bg-hover); }
+.list-row .row-check input { cursor: pointer; }
+.list-row .star {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; cursor: pointer;
+  color: #dadce0;
+}
+.list-row .star:hover { background: var(--bg-hover); color: var(--muted); }
 .list-row .star.starred { color: #f4b400; }
 .list-row .from {
   font-size: 14px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding-right: 8px;
+  padding-right: 12px;
 }
 .list-row .subject-cell {
-  /* Stacked: subject on top, two-line preview underneath. */
-  display: flex; flex-direction: column; gap: 2px;
-  overflow: hidden;
-  min-width: 0;
-}
-.list-row .subject {
   font-size: 14px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+  display: block;        /* one line, ellipsis at the end */
 }
-.list-row .preview {
-  font-size: 13px; color: var(--muted); line-height: 1.35;
-  /* 2-line clamp via -webkit-box (works in every shipping browser
-     including Firefox/Safari). The break-word stops one long URL
-     from blowing out the layout. */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  word-break: break-word;
-}
+.list-row .subject { font-weight: inherit; }
+.list-row .preview-sep { color: var(--muted); }
+.list-row .preview { color: var(--muted); font-weight: 400; }
 .list-row .date {
   font-size: 12px; color: var(--muted); font-weight: 500;
   text-align: right; padding-right: 4px;
 }
 .list-row.unread .date { color: var(--unread-bold); font-weight: 700; }
-.list-row .dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--pink);
-  display: none;
-  margin: 0 auto;
-}
-.list-row.unread .dot { display: block; }
 
 mark.search-hl {
   background: #fff475; color: inherit;

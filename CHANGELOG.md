@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.29] - 2026-05-14
+
+### Added — Star button is now wired
+
+New API: `POST /mail/messages/:uid/star` with `{ starred: boolean, folder?: string }`. Maps to IMAP's `\Flagged` flag — same on-disk bit Gmail's star uses. Backed by a new `MailReceiver.setStarred(uid, starred, mailbox)` method in `@agenticmail/core`.
+
+Web UI: clicking the star icon now flips the flag with optimistic UI (instant icon swap) and reverts on failure. Starred folder is still a client-side `\Flagged` filter over the inbox so a starred message immediately shows up there.
+
+### Changed — Gmail-compact list UX, uniform across every folder
+
+Replaced the two-line stacked row layout with Gmail's single-line shape:
+
+```
+[☐] [★] sender ····· subject — preview body……………………… 7:20 PM
+```
+
+- Single 36 px row per message (was ~64 px).
+- Subject and preview share one truncated cell separated by an em-dash; longer previews tail off with ellipsis instead of wrapping.
+- New leading checkbox column for future bulk-select operations.
+- Hover state mimics Gmail: row lifts slightly with a hairline shadow.
+- Sender column tightened to 180 px on desktop (140 px below 1100 px); date column right-aligned in 90 px.
+- New list-toolbar above the rows: select-all checkbox + refresh + count, sticky to the top of the content pane. Same markup for every folder so Sent / Drafts / Spam / Trash render identically to Inbox.
+- Compose button height down from 56 px → 48 px (Gmail's actual spec).
+
+Mobile (<800 px) folds back to a 2-row stack — sender on top, subject + preview below — with star + date on the side.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/core` | 0.7.2 | 0.7.3 |
+| `@agenticmail/api` | 0.7.13 | 0.7.14 |
+| `@agenticmail/cli` | 0.8.28 | 0.8.29 |
+
+Plugin manifest mirrored to 0.8.29. mcp / claudecode / openclaw unchanged.
+
 ## [0.8.28] - 2026-05-13
 
 ### Fixed — Stop hook `Cannot find module .../src/mail-hook.js` in dev checkouts

@@ -199,6 +199,25 @@ export class MailReceiver {
     }
   }
 
+  /**
+   * Flag / unflag a message. IMAP uses `\Flagged` for what Gmail
+   * calls "starred" — same on-disk bit, different vocabulary. We
+   * expose it as `setStarred(uid, true|false)` so the web UI can
+   * call a single endpoint with a boolean.
+   */
+  async setStarred(uid: number, starred: boolean, mailbox = 'INBOX'): Promise<void> {
+    const lock = await this.client.getMailboxLock(mailbox);
+    try {
+      if (starred) {
+        await this.client.messageFlagsAdd(String(uid), ['\\Flagged'], { uid: true });
+      } else {
+        await this.client.messageFlagsRemove(String(uid), ['\\Flagged'], { uid: true });
+      }
+    } finally {
+      lock.release();
+    }
+  }
+
   /** Move a message to another folder */
   async moveMessage(uid: number, fromMailbox: string, toMailbox: string): Promise<void> {
     const lock = await this.client.getMailboxLock(fromMailbox);

@@ -4,7 +4,7 @@ import { state } from './state.js';
 import { escapeHtml, toast } from './utils.js';
 import { formatDate } from './time.js';
 import { parseSearch, matchesSearch, highlightTerm } from './search.js';
-import { apiGet } from './api.js';
+import { apiGet, apiPost } from './api.js';
 import { FOLDERS } from './sidebar.js';
 import { icon } from './icons.js';
 
@@ -81,13 +81,22 @@ export async function ensureFolderCache(agent) {
 
 export async function loadList(agent, folder) {
   const root = document.getElementById('content');
+  // Gmail-style toolbar above the list: select-all checkbox,
+  // refresh, more-options spacer, count + pagination on the right.
+  // Identical layout for every folder so Sent / Drafts / Spam /
+  // Trash all share the same UX as Inbox.
   root.innerHTML = `
-    <div class="list-header">
-      <span class="folder-title">${escapeHtml(folderTitle(folder))}</span>
+    <div class="list-toolbar">
+      <label class="list-select-all" title="Select all">
+        <input type="checkbox" id="list-select-all-input" />
+      </label>
+      <button class="icon-btn list-refresh" title="Refresh" id="list-refresh-btn">${icon('refresh', { size: 18 })}</button>
+      <div class="list-toolbar-spacer"></div>
       <span class="count-text" id="list-count"></span>
     </div>
     <div class="list-rows" id="list-rows"><div class="empty">Loading…</div></div>
   `;
+  document.getElementById('list-refresh-btn')?.addEventListener('click', () => loadList(agent, folder));
   await ensureFolderCache(agent);
 
   // Resolve the real IMAP folder. Starred reuses INBOX + a client-
@@ -159,6 +168,12 @@ export function renderList() {
     return;
   }
 
+  // Gmail-style single-line row: checkbox · star · sender · subject
+  // — preview · date. Subject and preview sit on the same line
+  // separated by an em-dash; CSS truncates the joint cell with
+  // ellipsis so longer preview lines never wrap. Identical markup
+  // for every folder so Sent / Drafts / Spam etc render the same
+  // way Inbox does.
   root.innerHTML = filtered.map(m => {
     const unread = !flagsHas(m.flags, '\\Seen');
     const starred = flagsHas(m.flags, '\\Flagged');
@@ -166,23 +181,19 @@ export function renderList() {
     const fromName = m.from?.[0]?.name || fromAddr;
     const subject = m.subject ?? '(no subject)';
     const date = formatDate(m.date);
-    const starIcon = icon(starred ? 'starFilled' : 'starOutline', { size: 18 });
-    // Compact the preview body for the row: collapse whitespace,
-    // strip quoted-reply chevrons, cap at a comfortable two-line
-    // length. CSS handles the actual line clamp.
+    const starIcon = icon(starred ? 'starFilled' : 'starOutline', { size: 16 });
     const cleanPreview = (m.preview ?? '')
       .replace(/^>+ ?/gm, '')
       .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 280);
+      .trim();
     return `
       <div class="list-row ${unread ? 'unread' : ''}" data-uid="${m.uid}">
-        <span class="star ${starred ? 'starred' : ''}" data-action="star">${starIcon}</span>
-        <span class="dot"></span>
-        <span class="from">${highlightTerm(fromName, hlTerm)}</span>
+        <label class="row-check" data-action="select"><input type="checkbox" /></label>
+        <span class="star ${starred ? 'starred' : ''}" data-action="star" data-uid="${m.uid}">${starIcon}</span>
+        <span class="from" title="${escapeHtml(fromAddr)}">${highlightTerm(fromName, hlTerm)}</span>
         <span class="subject-cell">
           <span class="subject">${highlightTerm(subject, hlTerm)}</span>
-          <span class="preview">${highlightTerm(cleanPreview, hlTerm)}</span>
+          ${cleanPreview ? `<span class="preview-sep"> — </span><span class="preview">${highlightTerm(cleanPreview, hlTerm)}</span>` : ''}
         </span>
         <span class="date">${escapeHtml(date)}</span>
       </div>
@@ -191,15 +202,66 @@ export function renderList() {
 
   root.querySelectorAll('.list-row').forEach(el => {
     el.addEventListener('click', (e) => {
-      if (e.target.closest('[data-action="star"]')) {
+      // Star click — toggle via API and optimistically update the
+      // local flags so the icon flips without a reload.
+      const starEl = e.target.closest('[data-action="star"]');
+      if (starEl) {
         e.stopPropagation();
-        toast('Starring not wired through API yet.');
+        toggleStar(Number(el.dataset.uid), starEl);
+        return;
+      }
+      // Checkbox click — swallow so we don't navigate.
+      if (e.target.closest('[data-action="select"]')) {
+        e.stopPropagation();
         return;
       }
       const uid = Number(el.dataset.uid);
       location.hash = `#/m/${uid}`;
     });
   });
+}
+
+/**
+ * Toggle the IMAP \Flagged flag on a message via the API. Updates
+ * the in-memory message object on success so renderList reflects
+ * the new state without a full reload — and reverts on failure so
+ * the icon doesn't drift from server truth.
+ */
+async function toggleStar(uid, starEl) {
+  const agent = state.selectedAgent;
+  if (!agent) return;
+  const msg = state.messages.find(m => m.uid === uid);
+  if (!msg) return;
+  const wasStarred = flagsHas(msg.flags, '\\Flagged');
+  const nextStarred = !wasStarred;
+
+  // Optimistic UI flip.
+  starEl.classList.toggle('starred', nextStarred);
+  starEl.innerHTML = icon(nextStarred ? 'starFilled' : 'starOutline', { size: 16 });
+
+  // Local flags mutation so a re-render keeps the new state.
+  const imap = state.folderNames?.[state.selectedFolder] ?? 'INBOX';
+  if (Array.isArray(msg.flags)) {
+    msg.flags = nextStarred
+      ? Array.from(new Set([...msg.flags, '\\Flagged']))
+      : msg.flags.filter(f => f !== '\\Flagged');
+  } else {
+    msg.flags = nextStarred ? ['\\Flagged'] : [];
+  }
+
+  try {
+    await apiPost(`/mail/messages/${uid}/star`, { starred: nextStarred, folder: imap }, { agentKey: agent.apiKey });
+  } catch (err) {
+    // Revert on failure.
+    starEl.classList.toggle('starred', wasStarred);
+    starEl.innerHTML = icon(wasStarred ? 'starFilled' : 'starOutline', { size: 16 });
+    if (Array.isArray(msg.flags)) {
+      msg.flags = wasStarred
+        ? Array.from(new Set([...msg.flags, '\\Flagged']))
+        : msg.flags.filter(f => f !== '\\Flagged');
+    }
+    toast(`Star failed: ${err.message}`, true);
+  }
 }
 
 export function clearSearch() {
