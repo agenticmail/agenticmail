@@ -32,9 +32,9 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # 0.7.x of @agenticmail/core uses Node's built-in `node:sqlite`
           # (stable since Node 22), so CI must run on >=22. Older versions
@@ -70,7 +70,7 @@ jobs:
       # leave a trail of artifacts.
       - name: Upload build artifacts
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: agenticmail-dist-${{ github.sha }}
           path: |
