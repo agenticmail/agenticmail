@@ -16,6 +16,15 @@ const AUTOSAVE_DEBOUNCE_MS = 2000;
 let autosaveTimer = null;
 let autosaveInFlight = false;
 
+/**
+ * In-memory attachment buffer for the current compose. Each entry
+ * is `{ filename, contentType, content (base64), encoding }` —
+ * the same shape the API's `/mail/send` accepts. We don't persist
+ * attachments to the draft store (the drafts table doesn't have
+ * a binary column); a draft round-trip loses them by design.
+ */
+let pendingAttachments = [];
+
 export function populateComposeFrom() {
   const sel = document.getElementById('compose-from');
   sel.innerHTML = state.agents
@@ -26,13 +35,16 @@ export function populateComposeFrom() {
 export function openCompose() {
   state.composeReplyContext = null;
   state.composeDraftId = null;
+  pendingAttachments = [];
   document.getElementById('compose-title').textContent = 'New message';
   if (state.selectedAgent) document.getElementById('compose-from').value = state.selectedAgent.id;
   ['compose-to', 'compose-cc', 'compose-wake', 'compose-subject', 'compose-body']
     .forEach(id => { document.getElementById(id).value = ''; });
+  renderAttachmentChips();
   setComposeStatus('');
   showModal();
   wireAutosave();
+  wireAttachmentPicker();
   setTimeout(() => document.getElementById('compose-to').focus(), 50);
 }
 
@@ -60,9 +72,12 @@ export function openReply(replyAll) {
   const quoted = (msg.text ?? '').split('\n').map(l => `> ${l}`).join('\n');
   const stub = `\n\nOn ${msg.date}, ${fromAddr} wrote:\n${quoted}`;
   document.getElementById('compose-body').value = stub;
+  pendingAttachments = [];
+  renderAttachmentChips();
   setComposeStatus('');
   showModal();
   wireAutosave();
+  wireAttachmentPicker();
   setTimeout(() => document.getElementById('compose-body').focus(), 50);
 }
 
@@ -158,6 +173,87 @@ function setComposeStatus(text) {
   if (el) el.textContent = text;
 }
 
+/**
+ * Wire the paperclip button + hidden file input. Reads files as
+ * base64 (FileReader → ArrayBuffer → btoa) and appends them to
+ * `pendingAttachments`. We cap total payload at 20 MB because
+ * Stalwart's default SMTP message-size limit is in that range —
+ * larger and the send would silently fail on the wire.
+ */
+const ATTACHMENT_TOTAL_CAP_BYTES = 20 * 1024 * 1024;
+
+function wireAttachmentPicker() {
+  const btn = document.getElementById('compose-attach-btn');
+  const input = document.getElementById('compose-file-input');
+  if (!btn || !input) return;
+  if (btn._attachBound) return;
+  btn._attachBound = true;
+  btn.addEventListener('click', () => input.click());
+  input.addEventListener('change', async () => {
+    const files = Array.from(input.files ?? []);
+    input.value = '';  // allow re-picking the same file later
+    for (const f of files) {
+      const currentBytes = pendingAttachments.reduce((s, a) => s + a.sizeBytes, 0);
+      if (currentBytes + f.size > ATTACHMENT_TOTAL_CAP_BYTES) {
+        toast(`Skipped ${f.name}: total attachments would exceed 20 MB.`, true);
+        continue;
+      }
+      try {
+        const content = await fileToBase64(f);
+        pendingAttachments.push({
+          filename: f.name,
+          contentType: f.type || 'application/octet-stream',
+          content,
+          encoding: 'base64',
+          sizeBytes: f.size,
+        });
+      } catch (err) {
+        toast(`Couldn't read ${f.name}: ${err.message}`, true);
+      }
+    }
+    renderAttachmentChips();
+  });
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      // result is `data:<mime>;base64,<payload>` — strip the prefix.
+      const r = String(reader.result ?? '');
+      const i = r.indexOf(',');
+      resolve(i >= 0 ? r.slice(i + 1) : r);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderAttachmentChips() {
+  const root = document.getElementById('compose-attachments');
+  if (!root) return;
+  if (pendingAttachments.length === 0) { root.innerHTML = ''; return; }
+  root.innerHTML = pendingAttachments.map((a, i) => `
+    <span class="attachment-chip" data-att-index="${i}">
+      <span class="chip-name" title="${escapeHtml(a.filename)}">${escapeHtml(a.filename)}</span>
+      <span class="chip-size">${formatBytes(a.sizeBytes)}</span>
+      <button class="chip-remove" data-att-remove="${i}" title="Remove">×</button>
+    </span>
+  `).join('');
+  root.querySelectorAll('[data-att-remove]').forEach(el => {
+    el.addEventListener('click', () => {
+      pendingAttachments.splice(Number(el.dataset.attRemove), 1);
+      renderAttachmentChips();
+    });
+  });
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export async function sendCompose() {
   const agentId = document.getElementById('compose-from').value;
   const agent = state.agents.find(a => a.id === agentId);
@@ -171,6 +267,17 @@ export async function sendCompose() {
   const body = { to, subject, text };
   if (cc) body.cc = cc;
   if (wakeRaw) body.wake = wakeRaw.split(',').map(s => s.trim()).filter(Boolean);
+  if (pendingAttachments.length > 0) {
+    // Strip the local-only `sizeBytes` field — the API expects
+    // only filename/contentType/content/encoding. Keeping the
+    // extra field works (it's ignored) but is noise on the wire.
+    body.attachments = pendingAttachments.map(a => ({
+      filename: a.filename,
+      contentType: a.contentType,
+      content: a.content,
+      encoding: a.encoding,
+    }));
+  }
   try {
     await apiPost('/mail/send', body, { agentKey: agent.apiKey });
     // Clean up the autosaved draft (if any) — the message is in
@@ -179,6 +286,7 @@ export async function sendCompose() {
       try { await apiDelete(`/drafts/${state.composeDraftId}`, { agentKey: agent.apiKey }); } catch { /* ignore */ }
       state.composeDraftId = null;
     }
+    pendingAttachments = [];
     closeCompose();
     toast('Sent.');
     if (state.selectedAgent?.id === agent.id) await loadList(agent, state.selectedFolder);

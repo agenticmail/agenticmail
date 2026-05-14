@@ -5,6 +5,86 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.32] - 2026-05-14
+
+### Added — In-line thread chrome in the message body view
+
+When a message body contains the canonical reply preface
+
+```
+On 2026-05-13T22:50:24.000Z, claudecode@localhost wrote:
+> original body line 1
+> original body line 2
+```
+
+the renderer now detects the pattern, extracts `(date, sender,
+quoted body)`, and renders each quoted section as a styled
+"thread-quote" card with: sender avatar, name, friendly relative
+date (`5 minutes ago — Wed, May 13, 10:50 PM` via the same
+`formatDateFull` helper the message header uses), and the quoted
+body itself recursively threaded so reply-to-reply chains nest
+cleanly. Pink → purple → amber border colours mark depth, same
+convention the inline blockquote stripes use.
+
+Non-matching prose (the user's own text, non-reply quotes) flows
+through `renderMarkdown` unchanged.
+
+### Fixed — Delete sent `uid=undefined`
+
+`/mail/messages/:uid` (the read endpoint) returns the parsed email
+without a `uid` field on it, so `state.currentMessage.uid` was
+undefined. Delete + Spam fired with `uid=undefined` and returned
+400 from the API. Both actions now read `state.selectedUid`
+instead — that's the URL-derived uid the message view was opened
+with, and it's always set.
+
+### Added — Attachment downloads in the message view
+
+Existing API route `GET /mail/messages/:uid/attachments/:index`
+is now wired into the UI. Attachment chips in the open message
+are clickable buttons; click triggers a download via a new
+`downloadAttachment(uid, index, filename, opts)` helper in
+`js/api.js`. Browsers don't send custom headers on `<a href>`
+clicks (returns 401), so the helper does `fetch` with the
+Authorization header, converts to blob, builds an object URL,
+synthesises a click on a hidden anchor, then revokes the URL.
+
+The chips also show a proper size formatter (B / KB / MB) and
+get a `downloading` class while the fetch is in flight.
+
+### Added — Attaching files to outbound mail
+
+Compose modal now has a paperclip button next to Send that opens
+a multi-file picker. Files are read with FileReader, base64-
+encoded, and stored in an in-memory `pendingAttachments` buffer.
+On Send, the buffer is included as `attachments: [{ filename,
+contentType, content, encoding: 'base64' }]` in the POST body
+to `/mail/send` — the shape the API already accepts.
+
+Soft cap of 20 MB total payload (Stalwart's default SMTP message-
+size limit is in that range). Per-attachment chips show name +
+size with an `×` to remove. Drafts don't persist attachments
+(the drafts table has no binary column); a draft round-trip
+loses them by design.
+
+### Changed — Confirm dialogs use a proper modal
+
+Browser-native `window.confirm()` was popping OS-styled alerts
+for "Delete this message?" and "Report as spam?". Both now go
+through a new `confirmModal({ title, body, confirm, danger })`
+helper in `js/modal.js` that renders a centered card with brand
+styling, focus management (Esc cancels, Enter confirms when the
+button has focus), and a destructive-red variant for delete.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/api` | 0.7.16 | 0.7.17 |
+| `@agenticmail/cli` | 0.8.31 | 0.8.32 |
+
+Plugin manifest mirrored to 0.8.32. core / mcp / claudecode unchanged.
+
 ## [0.8.31] - 2026-05-14
 
 Big release: the two long-queued features (compact-and-continue + typed task contracts) plus a sweep of web-UI fixes the user hit while running 0.8.30.

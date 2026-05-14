@@ -86,10 +86,13 @@
       <div class="compose-row"><label>Wake</label><input id="compose-wake" placeholder="(optional) names to wake — e.g. alice, bob" /></div>
       <div class="compose-row"><label>Subject</label><input id="compose-subject" /></div>
       <textarea id="compose-body" placeholder="Markdown supported: **bold**, *italic*, `code`, ```fenced```, ## headings, lists, tables…"></textarea>
+      <div id="compose-attachments" class="compose-attachments"></div>
+      <input id="compose-file-input" type="file" multiple style="display:none" />
       <p class="compose-hint">Tip: pass <code class="mono">wake</code> to limit which CC'd agents get a Claude turn. Add <code class="mono">[FINAL]</code> to the subject to close the thread.</p>
     </div>
     <div class="compose-foot">
       <button class="btn-send" id="compose-send">Send</button>
+      <button class="btn-attach icon-btn" id="compose-attach-btn" title="Attach files" data-icon="attachment"></button>
       <span class="compose-status" id="compose-status"></span>
       <button class="btn-discard" id="compose-cancel">Discard</button>
     </div>
