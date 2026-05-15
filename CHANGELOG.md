@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.18] - 2026-05-15
+
+### Fixed — `@agenticmail/codex install` 400'd on every real install (role bug)
+
+`install.ts` called `ensureAccount(..., 'bridge')` to provision the codex bridge account. The AgenticMail API enforces `role ∈ {secretary, assistant, researcher, writer, custom}` — `'bridge'` isn't in that set, so every fresh install returned:
+
+```
+✗ AgenticMail API 400: {"error":"Invalid role. Must be one of: secretary, assistant, researcher, writer, custom"}
+```
+
+A user installing today via Codex (Codex's agent ran `agenticmail-codex install`) hit this and worked around it by creating the bridge account manually via raw `POST /accounts` with `role: 'assistant'`. That's the correct shape — the bridge-ness of the codex account is encoded via the name match (`cfg.bridgeAgentName`, default `'codex'`) and by `selectExposableAgents`, NOT by the role.
+
+### Fix
+
+`ensureAccount(..., 'assistant')` — same role claudecode's install uses. Added a regression test (`provisions the bridge agent with role="assistant" — NOT "bridge"`) that asserts the exact ensureAccount call shape so this can't sneak back in.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/codex` | 0.1.0 | 0.1.1 |
+| `@agenticmail/cli` | 0.9.17 | 0.9.18 |
+
+Operator upgrade (only relevant if you haven't installed codex yet — existing 0.1.0 installs are working since Codex/users worked around it manually):
+
+```
+npm install -g @agenticmail/codex@latest
+```
+
 ## [0.9.17] - 2026-05-15
 
 ### Added — `@agenticmail/codex@0.1.0` shipped to npm

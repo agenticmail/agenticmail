@@ -225,7 +225,14 @@ export async function install(opts: ResolveConfigOptions = {}): Promise<InstallR
   }
 
   // 2. Provision (or look up) the bridge agent — Codex's identity in AgenticMail.
-  const bridge = await ensureAccount(cfg.apiUrl, cfg.masterKey, cfg.bridgeAgentName, 'bridge');
+  //
+  // Role MUST be one of {secretary, assistant, researcher, writer, custom}
+  // per the AgenticMail API's account-role validator (see core's
+  // accounts/role.ts). 0.1.0 passed 'bridge' here which 400'd against any
+  // real install — fixed in 0.1.1. The bridge-ness of the account is
+  // encoded via the name match (cfg.bridgeAgentName, default 'codex') and
+  // by selectExposableAgents below, NOT by the role.
+  const bridge = await ensureAccount(cfg.apiUrl, cfg.masterKey, cfg.bridgeAgentName, 'assistant');
 
   // 3. Discover every other agent so we can both register them as Codex
   //    subagents AND seed the per-account API-key map for the MCP server's

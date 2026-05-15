@@ -1,7 +1,7 @@
 {
   "name": "agenticmail",
   "description": "Give every Claude Code agent its own real email address and phone number. Self-hosted, runs entirely on the user's machine. Coordinate work across multiple agents using ordinary email threads.",
-  "version": "0.9.17",
+  "version": "0.9.18",
   "author": {
     "name": "Ope Olatunji",
     "url": "https://github.com/agenticmail/agenticmail"

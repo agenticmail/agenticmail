@@ -89,6 +89,21 @@ const baseOpts = () => ({
 });
 
 describe('install', () => {
+  it('provisions the bridge agent with role="assistant" — NOT "bridge"', async () => {
+    // Regression for 0.1.0: install.ts called ensureAccount(..., 'bridge')
+    // which 400'd against the API's role validator
+    // ({secretary, assistant, researcher, writer, custom}). The bridge-ness
+    // of the codex account is encoded via name match, not role.
+    await install(baseOpts());
+    expect(api.ensureAccount).toHaveBeenCalledTimes(1);
+    expect(api.ensureAccount).toHaveBeenCalledWith(
+      expect.any(String),  // apiUrl
+      expect.any(String),  // masterKey
+      'codex',             // bridge agent name
+      'assistant',         // role — must be one of the API's allowed values
+    );
+  });
+
   it('writes the MCP server block, hooks, and one .toml per exposable agent', async () => {
     const result = await install(baseOpts());
     expect(result.changed).toBe(true);
