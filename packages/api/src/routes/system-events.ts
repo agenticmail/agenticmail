@@ -78,6 +78,52 @@ export function closeAllSystemEventListeners(): void {
 export function createSystemEventRoutes(): Router {
   const router = Router();
 
+  /**
+   * Operator's notification email (read).
+   *
+   * Returns `{ email: string | null }`. Master-key scoped because the
+   * value is a (mild) bit of personally-identifying info. Surfaced
+   * for the host agent's `setup_operator_email` MCP tool so it can
+   * tell the operator "you're currently set to forward alerts to
+   * X — change?" rather than blindly overwriting.
+   */
+  router.get('/system/operator-email', requireMaster, async (_req, res) => {
+    try {
+      const { getOperatorEmail } = await import('@agenticmail/core');
+      res.json({ email: getOperatorEmail() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  /**
+   * Operator's notification email (write / clear).
+   *
+   * Body: `{ email: string | null }`. Pass `null` (or empty) to
+   * clear. The dispatcher reads this from disk on every bridge
+   * escalation, so a change here takes effect on the next escalation
+   * without restart. Master-key scoped — the address is a system-wide
+   * preference, not per-agent.
+   */
+  router.patch('/system/operator-email', requireMaster, async (req, res) => {
+    try {
+      const { setOperatorEmail } = await import('@agenticmail/core');
+      const raw = (req.body && typeof req.body === 'object') ? (req.body as { email?: unknown }).email : null;
+      const email = typeof raw === 'string' ? raw : null;
+      const stored = setOperatorEmail(email);
+      res.json({ email: stored });
+    } catch (err) {
+      const msg = (err as Error).message;
+      // Validation error → 400 with the message; everything else
+      // bubbles as a 500 for the error handler to render.
+      if (msg.includes('must contain an @')) {
+        res.status(400).json({ error: msg });
+        return;
+      }
+      res.status(500).json({ error: msg });
+    }
+  });
+
   router.get('/system/events', requireMaster, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');

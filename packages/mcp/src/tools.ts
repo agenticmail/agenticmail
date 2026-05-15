@@ -562,6 +562,17 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'setup_operator_email',
+    description: 'Save the operator\'s notification email address for bridge-escalation alerts. When sub-agents mail a host bridge (e.g. `wake: ["codex"]`) AND no fresh host session is available for a headless resume, the dispatcher forwards a digest to this address so the operator gets a phone push (via Gmail / Apple Mail / whichever app handles their address). Master-key scoped. The host agent should call this during bootstrap after asking the operator: "what email should we alert you at when sub-agents need your attention?" — the answer is typically the operator\'s personal Gmail with mobile push enabled. Idempotent: re-running with a new address updates the config.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        email: { type: 'string', description: 'Operator notification email (e.g. ope@gmail.com). Pass `null` or an empty string to clear an existing setting.' },
+      },
+      required: ['email'],
+    },
+  },
+  {
     name: 'setup_email_relay',
     description: 'Configure Gmail/Outlook relay for sending real internet email (requires master API key). BEGINNER-FRIENDLY: Just needs a Gmail/Outlook email + app password. Agents send as user+agentname@gmail.com. Automatically creates a default agent (secretary) unless skipped. Best for: quick setup, personal use, no domain needed.',
     inputSchema: {
@@ -1852,6 +1863,28 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         `  ID: ${result.id}`,
         hostTag ? `  Host: ${hostTag} (this account is owned by the ${hostTag} dispatcher)` : '',
       ].filter(Boolean).join('\n');
+    }
+
+    case 'setup_operator_email': {
+      // Persist the operator's notification address into the master
+      // config. The dispatcher reads it back when bridge mail can't
+      // be resumed and emails a digest there. See
+      // packages/api/src/routes/system-events.ts::bridge-escalation
+      // for the consumer path.
+      const raw = args.email;
+      const email = typeof raw === 'string' ? raw.trim() : '';
+      // Empty / null clears the setting — operator can disable
+      // escalation emails without ripping config out of disk.
+      const body = email ? { email } : { email: null };
+      const result = await apiRequest('PATCH', '/system/operator-email', body, true);
+      if (!email) {
+        return 'Operator escalation email cleared. Bridge alerts will still be recorded as system events but no email forward will be sent.';
+      }
+      return [
+        `✓ Operator escalation email set to ${result?.email ?? email}.`,
+        `When sub-agents mail a bridge inbox and no fresh host session is available for a headless resume, the dispatcher will email this address with a digest so you get a phone push.`,
+        `Re-run setup_operator_email with a new address any time to update.`,
+      ].join('\n');
     }
 
     case 'setup_email_relay': {

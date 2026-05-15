@@ -175,7 +175,20 @@ interface ProcessState {
 }
 let processState: ProcessState | null = null;
 
-export function createDispatcherActivityRoutes(): Router {
+/**
+ * Optional injectables for the dispatcher routes. The escalation
+ * handler uses `gatewayManager` + `accountManager` to forward bridge-
+ * mail digests to the operator's email when no host session can be
+ * resumed. Both are optional so existing callers (tests, custom
+ * embeddings) keep working without them — the route degrades to
+ * "system event only" when the deps aren't wired.
+ */
+export interface DispatcherActivityRoutesDeps {
+  gatewayManager?: { routeOutbound: (agentName: string, mail: Record<string, unknown>) => Promise<unknown> };
+  accountManager?: { getByName: (name: string) => Promise<{ id: string; name: string; email: string } | null> };
+}
+
+export function createDispatcherActivityRoutes(deps: DispatcherActivityRoutesDeps = {}): Router {
   const router = Router();
 
   /** Dispatcher → API: a worker just started. */
@@ -415,7 +428,7 @@ export function createDispatcherActivityRoutes(): Router {
    * phone. The forward is best-effort: SMS failures don't poison
    * the system event.
    */
-  router.post('/dispatcher/bridge-escalation', requireMaster, (req, res) => {
+  router.post('/dispatcher/bridge-escalation', requireMaster, async (req, res) => {
     const body = req.body ?? {};
     const event = {
       type: 'bridge_escalation',
@@ -430,14 +443,53 @@ export function createDispatcherActivityRoutes(): Router {
       atMs: Date.now(),
     };
     pushSystemEvent(event);
-    // SMS escalation hook — only attempts delivery when the host
-    // bridge has a configured SMS target. We don't reach into smsManager
-    // directly here (that route lives on per-agent endpoints); a future
-    // 0.10.x release will wire this through a dedicated bridge-alerts
-    // config that names a target phone number. For now the system event
-    // is the operator's notification channel, surfaced by the web UI
-    // and audible via the notification sound.
-    res.json({ ok: true, escalated: true });
+
+    // Forward a digest to the operator's notification email if
+    // configured. Best-effort: a send failure (no relay set up,
+    // recipient bounced, transient SMTP error) doesn't poison the
+    // system event response — the operator still sees the escalation
+    // in the web UI. See packages/core/src/operator-prefs.ts for
+    // the storage and `setup_operator_email` MCP tool for the
+    // configuration path.
+    let forwarded = false;
+    try {
+      const { getOperatorEmail } = await import('@agenticmail/core');
+      const operatorEmail = getOperatorEmail();
+      if (operatorEmail && deps.gatewayManager && deps.accountManager && event.agentName) {
+        const bridge = await deps.accountManager.getByName(event.agentName);
+        if (bridge) {
+          const subjectLine = `[AgenticMail Alert] Sub-agent needs your attention — ${event.subject ?? '(no subject)'}`;
+          const lines = [
+            `A sub-agent mailed your ${event.agentName}@localhost bridge inbox and the dispatcher could not resume a host session to handle it on your behalf.`,
+            '',
+            `Reason: ${event.reason}${event.errorMessage ? ` — ${event.errorMessage.slice(0, 160)}` : ''}`,
+            '',
+            `From:    ${event.from ?? 'unknown'}`,
+            `Subject: ${event.subject ?? '(no subject)'}`,
+            `UID:     ${event.uid ?? '?'}`,
+            '',
+            event.preview ? `Preview:\n${event.preview.slice(0, 800)}` : '',
+            '',
+            `Open ${event.agentName} in the AgenticMail web UI, or run \`claude\` / \`codex\` and the next hook fire will surface this thread.`,
+            '',
+            `— AgenticMail (this address is set via setup_operator_email; reply does nothing)`,
+          ].filter(Boolean).join('\n');
+          await deps.gatewayManager.routeOutbound(bridge.name, {
+            from: bridge.email,
+            to: operatorEmail,
+            subject: subjectLine,
+            text: lines,
+          });
+          forwarded = true;
+        }
+      }
+    } catch (err) {
+      // Don't propagate — escalation event still fires.
+      // eslint-disable-next-line no-console
+      console.warn('[bridge-escalation] forward to operator email failed:', (err as Error).message);
+    }
+
+    res.json({ ok: true, escalated: true, forwarded });
   });
 
   router.post('/dispatcher/worker-skipped', requireMaster, (req, res) => {

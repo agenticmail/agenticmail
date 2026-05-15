@@ -68,6 +68,29 @@ After `bootstrap` finishes, tell the user to **restart their host CLI**
 new MCP server entry takes effect. The MCP block lands in
 `~/.claude.json` for Claude Code and `~/.codex/config.toml` for Codex.
 
+### Right after install — ASK THE USER for their notification email
+
+This is the SECOND thing to do after `bootstrap` finishes, before dispatcher tuning. When a sub-agent mails the host bridge (`wake: ["codex"]` / `wake: ["claudecode"]`) and the dispatcher CAN'T resume your CLI session (you closed the window, session token expired, etc.), it forwards a digest to a configured operator email so you get a phone push. Without this set, escalations are silent unless you're actively watching the web UI.
+
+Ask:
+
+> "When a sub-agent needs your attention and you're not at the keyboard, where should we email you? (typically your personal Gmail — it gets phone push notifications by default)"
+
+Then call the MCP tool with their answer:
+
+```
+mcp__agenticmail__setup_operator_email({ email: "their-address@example.com" })
+```
+
+To check / change later:
+
+```
+mcp__agenticmail__setup_operator_email({ email: "new-address@example.com" })
+mcp__agenticmail__setup_operator_email({ email: "" })  // clear, no email forward
+```
+
+The address is stored at `~/.agenticmail/operator-prefs.json`. Master-key scoped — never per-agent.
+
 ### Right after install — ASK THE USER about dispatcher tuning
 
 The dispatcher ships with conservative defaults so a fresh install

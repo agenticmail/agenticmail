@@ -161,6 +161,7 @@ export const TOOL_SETS = {
   /** Mail-server setup / onboarding wizards. */
   setup: [
     'setup_guide',
+    'setup_operator_email',
     'setup_email_relay',
     'setup_email_domain',
     'setup_gmail_alias',

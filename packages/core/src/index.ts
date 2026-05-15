@@ -115,6 +115,17 @@ export {
   REDACTED,
 } from './util/redact.js';
 
+// Operator notification preferences. Stored separately from the
+// bootstrap-managed config.json so the host agent (claudecode /
+// codex) can update it via MCP at any time without touching the
+// read-only config blob. See operator-prefs.ts for the storage
+// format and the use case (bridge-escalation email forwarding).
+export {
+  getOperatorEmail,
+  setOperatorEmail,
+  operatorPrefsStoragePath,
+} from './operator-prefs.js';
+
 // Headless bridge-wake: persist host session_id captured from the
 // mail-hook so the dispatcher can resume a Claude Code / Codex
 // session against bridge mail when the operator's CLI isn't

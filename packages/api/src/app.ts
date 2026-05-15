@@ -246,7 +246,15 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createSmsRoutes(db, accountManager, config, gatewayManager));
   app.use('/api/agenticmail', createStorageRoutes(db as any, accountManager, config));
   app.use('/api/agenticmail', createSystemEventRoutes());
-  app.use('/api/agenticmail', createDispatcherActivityRoutes());
+  app.use('/api/agenticmail', createDispatcherActivityRoutes({
+    // Wire the gateway + account manager so /dispatcher/bridge-escalation
+    // can forward a digest to the operator's notification email when
+    // no host session is available for a headless resume. See
+    // packages/core/src/operator-prefs.ts for the address source and
+    // the setup_operator_email MCP tool for how it gets configured.
+    gatewayManager: gatewayManager as unknown as { routeOutbound: (n: string, m: Record<string, unknown>) => Promise<unknown> },
+    accountManager: accountManager as unknown as { getByName: (n: string) => Promise<{ id: string; name: string; email: string } | null> },
+  }));
   // Per-agent thread memory + thread-id resolver. Agent-key
   // scoped — workers write their own memory only, never another
   // agent's. See routes/agent-memory.ts for the design.

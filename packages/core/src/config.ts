@@ -50,6 +50,20 @@ export interface AgenticMailConfig {
     provider?: 'google_voice';
     configuredAt?: string;
   };
+  /**
+   * Operator's notification address. Used by the dispatcher's
+   * bridge-escalation path: when sub-agents mail a bridge inbox AND
+   * no fresh host session is available for a headless resume, the
+   * API forwards a digest to this address so the operator gets a
+   * phone push (via Gmail / Apple Mail / whichever app handles
+   * their address). Set during install — the host agent (claude /
+   * codex) collects it via the `setup_operator_email` MCP tool
+   * during bootstrap and persists it here.
+   *
+   * Optional. When unset, escalations are still recorded as a
+   * system event (visible in the web UI) but no email is sent.
+   */
+  operatorEmail?: string;
   masterKey: string;
   dataDir: string;
 }

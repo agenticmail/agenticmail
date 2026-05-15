@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.35] - 2026-05-15
+
+### Added — Operator-email escalation when bridge wake can't resume
+
+0.9.34 added headless bridge-wake (dispatcher resumes host session when sub-agents mail the bridge). What was missing: when the resume CAN'T happen (no fresh session recorded, token expired, SDK missing), the only signal was a system event in the web UI — silent if the operator wasn't watching.
+
+This release closes the loop. The dispatcher now forwards a digest to a configured operator email when escalation fires, so the operator gets a phone push via Gmail (or whatever app handles their address). No SMS provider, no third-party billing — just an email to whatever address the operator already has push notifications enabled for.
+
+### How it works
+
+1. Operator runs `setup_operator_email` via the host agent during bootstrap (or at any time later), passing their notification address.
+2. Address is persisted to `~/.agenticmail/operator-prefs.json` (separate from `config.json` so the host agent can update it via MCP without touching the bootstrap-managed file).
+3. When `/dispatcher/bridge-escalation` fires AND `operatorEmail` is set, the API server uses `gatewayManager.routeOutbound` to send a digest from the host's bridge agent to that address.
+4. Digest carries: reason for escalation, sub-agent who sent, subject, UID, preview, and a pointer to "open AgenticMail web UI or run claude/codex to handle".
+
+Best-effort: send failures (no relay configured, SMTP transient error) don't poison the escalation event. The system event still fires for the web UI.
+
+### New MCP tool — `setup_operator_email`
+
+```
+mcp__agenticmail__setup_operator_email({ email: "ope@gmail.com" })
+mcp__agenticmail__setup_operator_email({ email: "" })  // clear
+```
+
+Master-key scoped. Persists to `~/.agenticmail/operator-prefs.json` via the new `setOperatorEmail()` helper in `@agenticmail/core`. The web UI fetches the current value via `GET /system/operator-email` and the MCP tool writes via `PATCH /system/operator-email`.
+
+### `AGENTS.md` update
+
+The host agent (claudecode / codex) is now instructed to ask the operator for their notification email right after `bootstrap` finishes, BEFORE the dispatcher-tuning question. One sentence, one MCP call, done.
+
+### Tests
+
+8 new regression tests for `operator-prefs.ts` — round-trip, trim, clear, validation, corrupt-file recovery, update semantics. Catalogue audit updated to include the new MCP tool. 764 tests pass total (was 756).
+
+### Versions
+
+- `@agenticmail/core@0.9.7` — `operatorPrefs` module + 8 tests
+- `@agenticmail/api@0.9.26` — `/system/operator-email` get/patch + `bridge-escalation` email forwarding
+- `@agenticmail/mcp@0.9.8` — `setup_operator_email` tool
+- `@agenticmail/claudecode@0.2.21` — picks up the new mcp transitively
+- `@agenticmail/codex@0.1.16` — picks up the new mcp transitively
+- `@agenticmail/cli@0.9.35` — rolls dependencies forward
+
+### Upgrade
+
+```
+npm install -g @agenticmail/cli@latest
+pkill -f '@agenticmail/api/dist/index.js' && agenticmail start
+pm2 restart agenticmail-claudecode-dispatcher --update-env
+pm2 restart agenticmail-codex-dispatcher --update-env
+```
+
+Then, inside `claude` or `codex`:
+
+> "set my operator notification email to ope@gmail.com"
+
+The host agent reads AGENTS.md, calls `setup_operator_email`, you're done. From the next bridge escalation onward, you'll get an email if the dispatcher can't resume your session.
+
 ## [0.9.34] - 2026-05-15
 
 ### Added — Headless bridge-wake: dispatcher resumes operator's host session when sub-agents mail the bridge

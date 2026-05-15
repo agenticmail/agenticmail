@@ -293,6 +293,34 @@ export class SmsManager {
       .run(JSON.stringify(meta), agentId);
   }
 
+  /**
+   * Resolve the operator's "where do I get pinged" address from an
+   * agent's SMS config. Used by the dispatcher's bridge-escalation
+   * path: when sub-agents mail a bridge with no fresh host session
+   * available, we email the operator a digest at this address. Their
+   * phone's Gmail push notification surfaces it within seconds —
+   * effectively a free, programmatic alert channel.
+   *
+   * Returns the configured `forwardingEmail` (the same Gmail Google
+   * Voice forwards inbound SMS to, which the operator already has
+   * push notifications enabled for) when SMS is configured AND
+   * enabled. Returns null otherwise — caller falls through to a
+   * silent log + system event.
+   *
+   * Why we don't try real-SMS delivery yet: Google Voice's
+   * `<number>@txt.voice.google.com` email-to-SMS gateway was
+   * deprecated by Google years ago. A future `carrier` field on
+   * SmsConfig (Verizon vtext.com / AT&T txt.att.net / etc) will let
+   * the operator opt into actual SMS, but that's a follow-up — the
+   * email path already gets the operator a phone notification.
+   */
+  getAlertEmail(agentId: string): string | null {
+    const cfg = this.getSmsConfig(agentId);
+    if (!cfg || !cfg.enabled) return null;
+    if (typeof cfg.forwardingEmail !== 'string' || !cfg.forwardingEmail.includes('@')) return null;
+    return cfg.forwardingEmail;
+  }
+
   /** Remove SMS config from agent metadata */
   removeSmsConfig(agentId: string): void {
     const row = this.db.prepare('SELECT metadata FROM agents WHERE id = ?').get(agentId) as { metadata: string } | undefined;
