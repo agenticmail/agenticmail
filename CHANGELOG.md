@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.26] - 2026-05-15
+
+### Fixed — `agenticmail-codex install --workspace` crashed with "Dynamic require of fs is not supported"
+
+The new `parseWorkspace()` helper in 0.9.25 lazily-loaded `node:fs` and `node:path` via `require()` calls inside the function body. That works when the file is run as CommonJS, but `@agenticmail/codex` is ESM-only — tsup bundles the output with a `require` shim that throws `"Dynamic require of <module> is not supported"` at runtime. The install command crashed before doing anything.
+
+Replaced the in-function `require()` with proper top-level `import` statements. No behavior change otherwise.
+
+### Versions
+
+- `@agenticmail/codex@0.1.8`
+- `@agenticmail/cli@0.9.26`
+
 ## [0.9.25] - 2026-05-15
 
 ### Three production blockers fixed for co-installed Claude Code + Codex

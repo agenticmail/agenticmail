@@ -20,6 +20,8 @@
  *   agenticmail-codex --help
  */
 
+import { existsSync, statSync } from 'node:fs';
+import { isAbsolute, resolve as resolvePath } from 'node:path';
 import { install } from './install.js';
 import { uninstall } from './uninstall.js';
 import { status } from './status.js';
@@ -108,8 +110,6 @@ function clean<T extends Record<string, unknown>>(o: T): Partial<T> {
  * point the operator has long since walked away.
  */
 function parseWorkspace(args: string[]): string | undefined {
-  const { existsSync, statSync } = require('node:fs');
-  const { isAbsolute, resolve: resolvePath } = require('node:path');
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     let raw: string | undefined;
