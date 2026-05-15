@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.12] - 2026-05-14
+
+### Added — Capabilities preamble injected on session start (and on auto-compact)
+
+The model used to start every Claude Code session with no narrative
+about what AgenticMail is FOR. It could see the tools in its
+tool-use schema but had no signal about WHEN to reach for them, so
+"build me a multi-role thing" prompts often went to single-process
+scaffolding when AgenticMail would have unlocked parallel
+designer + developer + reviewer agents on a durable email thread.
+
+Fix: register the existing mail-hook on `SessionStart` too. Output
+is `hookSpecificOutput.additionalContext` carrying a ~250-token
+capabilities blurb covering:
+
+- when to reach for AgenticMail (multi-role parallel work, durable
+  async coordination, sub-tasks that need to talk to EACH OTHER);
+- the three high-leverage tools (`create_account`, `send_email`
+  with `wake`, `call_agent`/`wait_for_email`);
+- the canonical coordination pattern (one thread = the shared
+  workspace, `wake` controls whose turn it is).
+
+`SessionStart` fires on `source: "startup"`, `"resume"`, AND
+`"compact"`. The compact case is the critical one — Claude Code's
+auto-compaction wipes the model's context mid-session but keeps
+the same `session_id`. A naive "once per session_id" dedup
+elsewhere would silently swallow the re-inject the model needs
+after its context was wiped. Hooking `SessionStart` makes the
+blurb re-appear cleanly post-compact with no extra plumbing.
+
+UserPromptSubmit also retains a fallback path: if a session has
+never seen the blurb (rare — only happens when SessionStart
+doesn't fire, e.g. older Claude Code builds), we inject on the
+first user prompt as a safety net. Dedup'd in
+`~/.agenticmail/claudecode-hook-sessions.json` (capped at 100
+entries LRU) so it's a no-op once SessionStart has done its job.
+
+`HOOK_EVENTS_TO_REGISTER` is now `['UserPromptSubmit', 'Stop',
+'SessionStart']`. Stop continues to handle autonomous-mode mail
+backlog awareness exactly as before.
+
+### Fixed — Prev (Back) button invisible after first page
+
+User report: *"after the first 50 emails and I click the next button,
+I can't see the back button on the web."*
+
+Both pager buttons share the same `back` chevron glyph — Prev as-is
+(points left), Next with a 180° transform. The toolbar markup was:
+
+```html
+<button class="icon-btn pager-btn" id="pager-prev" title="Newer" data-icon="back"></button>
+<button class="icon-btn pager-btn" id="pager-next" title="Older"></button>
+```
+
+The `data-icon="back"` attribute on Prev was just metadata —
+nothing in the JS actually populated its innerHTML. Only Next got
+`document.getElementById('pager-next').innerHTML = icon('back', ...)`.
+So Prev was a clickable but visually empty button. On page 1 the
+empty button blended in (it's disabled there anyway); on page 2+
+it was enabled but invisible — the user could click empty space
+to go back but had no visual affordance.
+
+Fix: assign the icon HTML to both buttons.
+
+### Tests
+
+121 claudecode tests still pass. One test updated to assert
+SessionStart is in the registered hook set alongside
+UserPromptSubmit + Stop.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/claudecode` | 0.2.7 | 0.2.8 |
+| `@agenticmail/cli` | 0.9.11 | 0.9.12 |
+
 ## [0.9.11] - 2026-05-14
 
 ### Fixed — Activity badges invisible until next worker event fires

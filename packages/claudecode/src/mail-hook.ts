@@ -110,6 +110,22 @@ interface InboxMessage {
 const AGENTICMAIL_DIR = join(homedir(), '.agenticmail');
 const CONFIG_PATH = join(AGENTICMAIL_DIR, 'config.json');
 const CURSOR_PATH = join(AGENTICMAIL_DIR, 'claudecode-hook-cursor.json');
+/**
+ * Tracks which Claude Code session_ids we've already injected the
+ * AgenticMail capabilities blurb into. Capped at SESSIONS_CAP entries
+ * (LRU by insertion order) so the file stays small even after
+ * months of use. Without this we'd either:
+ *   - re-inject on every prompt (token waste, drowns the model in
+ *     boilerplate it already saw), or
+ *   - never inject (model is unaware of the toolbelt unless the user
+ *     names it explicitly, which defeats the point of the hook).
+ *
+ * Per-session is the right granularity: each `claude` invocation is
+ * a fresh model + fresh context, so the blurb needs to land ONCE on
+ * that session's first prompt and never again.
+ */
+const SESSIONS_PATH = join(AGENTICMAIL_DIR, 'claudecode-hook-sessions.json');
+const SESSIONS_CAP = 100;
 
 /** Tag the cursor file with the version so future schema changes can
  *  detect and re-bootstrap cleanly. */
@@ -146,9 +162,9 @@ const STOP_THROTTLE_MS = 15_000;
  * the input, we just lose the event-type signal.
  *
  * Claude Code payload (relevant subset):
- *   { hook_event_name: "UserPromptSubmit" | "PreToolUse" | ..., ... }
+ *   { hook_event_name: "UserPromptSubmit" | "PreToolUse" | ..., session_id?: string, ... }
  */
-async function readStdinJson(): Promise<{ hook_event_name?: string } | null> {
+async function readStdinJson(): Promise<{ hook_event_name?: string; session_id?: string } | null> {
   if (process.stdin.isTTY) return null;
   return new Promise(resolve => {
     let buf = '';
@@ -181,18 +197,155 @@ async function readStdinJson(): Promise<{ hook_event_name?: string } | null> {
   });
 }
 
+/**
+ * One-shot capabilities preamble injected on the FIRST UserPromptSubmit
+ * of each Claude Code session.
+ *
+ * Why this exists
+ * ───────────────
+ * Claude Code sessions start with no prior knowledge of which MCP tools
+ * are wired up. The model can SEE the tools (they appear in its
+ * tool-use schema), but a tool name + zod schema is a thin signal —
+ * the model doesn't know when AgenticMail is the right reach for a
+ * problem. So when the user asks "build me a flashcard app", Claude
+ * often goes straight to single-process scaffolding when AgenticMail
+ * would unlock multi-agent design/build/review in parallel.
+ *
+ * This blurb tells the model:
+ *   - what AgenticMail is for in plain language
+ *   - the specific patterns it should reach for it (multi-agent
+ *     coordination, durable email threads, sub-agent spawning)
+ *   - the THREE high-leverage tools (send_email, create_account,
+ *     call_agent) — not the full 60+, which would just be noise
+ *
+ * Kept short: ~250 tokens. Long enough to shape behaviour, short
+ * enough that on a 30-prompt session it's <1% of total tokens.
+ */
+function capabilitiesBlurb(): string {
+  return [
+    '🎀 AgenticMail is available via MCP (mcp__agenticmail__*).',
+    '',
+    'When to reach for it:',
+    '  · Building anything that benefits from MULTIPLE specialized roles working in parallel — designer + developer + reviewer, researcher + writer + fact-checker, planner + executor + critic.',
+    '  · Coordinating long-running async work that survives across Claude Code restarts (email threads are durable; in-memory state is not).',
+    '  · Anywhere you would otherwise spawn the Task tool repeatedly for sub-tasks — prefer AgenticMail when those sub-tasks need to talk to EACH OTHER, not just back to you.',
+    '',
+    'High-leverage tools:',
+    '  · mcp__agenticmail__create_account({ name, role })       — spawn a fresh persistent agent identity with its own inbox + API key.',
+    '  · mcp__agenticmail__send_email({ to, cc, subject, text, wake }) — kick off the work. CC the whole team; use `wake: ["alice"]` to give exactly one agent the next turn while others stay informed.',
+    '  · mcp__agenticmail__call_agent({ agent, message }) / mcp__agenticmail__wait_for_email — blocking RPC when you need a specific answer back before continuing your own turn.',
+    '',
+    'Coordination pattern: one email thread = the shared workspace. Reply-all keeps the audit trail. Use `wake` to control whose turn it is.',
+    '',
+    'Other tools cover: inbox/folder management, drafts, templates, tasks, contacts, signatures, SMS, voice. Full list under mcp__agenticmail__* — discover on demand, don\'t front-load them all.',
+  ].join('\n');
+}
+
+/**
+ * Load the set of session_ids we've already injected the capabilities
+ * blurb into. Missing / corrupt file → empty set (next session gets
+ * injected, no harm). Bounded by SESSIONS_CAP via LRU at write time.
+ */
+function loadSeenSessions(): string[] {
+  if (!existsSync(SESSIONS_PATH)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(SESSIONS_PATH, 'utf-8'));
+    const arr = Array.isArray(parsed?.seen) ? parsed.seen : [];
+    return arr.filter((s: unknown): s is string => typeof s === 'string');
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Record that we've injected the blurb into `sessionId`. LRU-trims to
+ * SESSIONS_CAP so the file can never grow unbounded over months of
+ * use. Silent on write failure — worst case we re-inject on the
+ * next prompt of the same session (annoying, not broken).
+ */
+function rememberSession(sessionId: string, seen: string[]): void {
+  const next = seen.filter(s => s !== sessionId);
+  next.push(sessionId);
+  while (next.length > SESSIONS_CAP) next.shift();
+  try {
+    if (!existsSync(dirname(SESSIONS_PATH))) mkdirSync(dirname(SESSIONS_PATH), { recursive: true });
+    writeFileSync(SESSIONS_PATH, JSON.stringify({ seen: next, hookVersion: HOOK_VERSION }, null, 2));
+  } catch { /* ignore */ }
+}
+
 async function main(): Promise<void> {
   // Read the event type up front — drives the rate-limit decision below.
   const input = await readStdinJson();
   const eventName = input?.hook_event_name ?? 'UserPromptSubmit';
+  const sessionId = typeof input?.session_id === 'string' ? input.session_id : '';
 
-  // 1. Load AgenticMail config. If it doesn't exist, silently no-op.
-  if (!existsSync(CONFIG_PATH)) return;
+  // ─── SessionStart fast path ─────────────────────────────────────
+  //
+  // Claude Code fires SessionStart on:
+  //   - "startup" — fresh `claude` invocation
+  //   - "resume"  — `claude --resume <id>`
+  //   - "compact" — auto-compaction wiped the model's context mid-session
+  //
+  // All three want the capabilities blurb re-injected. The compact case
+  // is the one that matters most for long-running sessions: session_id
+  // stays the same across compact, so dedup-by-session-id WOULD swallow
+  // the re-inject silently. SessionStart fires explicitly, so we just
+  // always emit on it — no dedup, no API calls.
+  //
+  // Output schema (per Claude Code hook contract): SessionStart uses
+  // `hookSpecificOutput.additionalContext` just like UserPromptSubmit.
+  if (eventName === 'SessionStart') {
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: capabilitiesBlurb(),
+      },
+    }));
+    return;
+  }
+
+  // For UserPromptSubmit, we also opportunistically emit the blurb if
+  // we've never seen this session_id before. This is a safety net for
+  // Claude Code versions that don't fire SessionStart (some older
+  // releases) or for sessions where SessionStart failed silently. It
+  // is dedup'd by session_id so once SessionStart succeeds, this
+  // fallback is a no-op for the rest of that session.
+  let blurbContext = '';
+  if (eventName === 'UserPromptSubmit' && sessionId) {
+    const seen = loadSeenSessions();
+    if (!seen.includes(sessionId)) {
+      blurbContext = capabilitiesBlurb();
+      rememberSession(sessionId, seen);
+    }
+  }
+
+  // Helper: build the final output. Combines the optional blurb (only
+  // populated on the UserPromptSubmit fallback path) with the
+  // optional mail summary. Empty → no injection, hook is a no-op.
+  const emitAndExit = (mailContext: string) => {
+    const combined = [blurbContext, mailContext].filter(Boolean).join('\n\n');
+    if (!combined) return;
+    if (eventName === 'Stop') {
+      process.stdout.write(JSON.stringify({ decision: 'block', reason: combined }));
+    } else {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: eventName,
+          additionalContext: combined,
+        },
+      }));
+    }
+  };
+
+  // 1. Load AgenticMail config. If it doesn't exist OR is missing the
+  //    master key, we can't talk to the API for mail context — but we
+  //    can still emit the fallback blurb if one is queued.
+  if (!existsSync(CONFIG_PATH)) { emitAndExit(''); return; }
   let cfg: AgenticMailDiskConfig;
   try {
     cfg = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-  } catch { return; }
-  if (!cfg.masterKey) return;
+  } catch { emitAndExit(''); return; }
+  if (!cfg.masterKey) { emitAndExit(''); return; }
 
   const apiHost = cfg.api?.host ?? '127.0.0.1';
   const apiPort = cfg.api?.port ?? 3829;
@@ -207,13 +360,13 @@ async function main(): Promise<void> {
       headers: { Authorization: `Bearer ${cfg.masterKey}` },
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });
-    if (!r.ok) return;
+    if (!r.ok) { emitAndExit(''); return; }
     const data = (await r.json()) as { agents?: Account[] };
     bridge = (data.agents ?? []).find(
       a => a.name === 'claudecode' || a.name === 'claude' || a.role === 'bridge',
     );
-  } catch { return; }
-  if (!bridge?.apiKey) return;
+  } catch { emitAndExit(''); return; }
+  if (!bridge?.apiKey) { emitAndExit(''); return; }
 
   // 3. Load the cursor — the timestamp of the latest mail we've
   //    already surfaced to Claude. Anything newer than this is "new".
@@ -233,7 +386,9 @@ async function main(): Promise<void> {
   //     UserPromptSubmit is always allowed through (user is waiting).
   const now = Date.now();
   if (eventName === 'Stop' && (now - lastCheckedMs) < STOP_THROTTLE_MS) {
-    return; // throttled — no output, Claude stops normally
+    // Throttled — but the fallback blurb (UserPromptSubmit only) is
+    // already gated above, so this is genuinely a no-op for Stop.
+    return;
   }
 
   // 4. Pull the bridge inbox. We don't filter on the server side
@@ -245,10 +400,10 @@ async function main(): Promise<void> {
       headers: { Authorization: `Bearer ${bridge.apiKey}` },
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });
-    if (!r.ok) return;
+    if (!r.ok) { emitAndExit(''); return; }
     const data = (await r.json()) as { messages?: InboxMessage[] };
     messages = data.messages ?? [];
-  } catch { return; }
+  } catch { emitAndExit(''); return; }
 
   // 5. Filter to mail received after the cursor. Some servers return
   //    invalid dates for half-resolved internal pushes — drop those
@@ -273,6 +428,9 @@ async function main(): Promise<void> {
         );
       } catch { /* fine — next call will retry */ }
     }
+    // Still emit the fallback blurb if one is queued from
+    // UserPromptSubmit's first-prompt-of-session path.
+    emitAndExit('');
     return;
   }
 
@@ -317,31 +475,9 @@ async function main(): Promise<void> {
     );
   } catch { /* losing the cursor only means we re-tell on next run — annoying, not broken */ }
 
-  // 8. Emit the hook output, shaped by event type.
-  //
-  //    - UserPromptSubmit: schema accepts
-  //      `hookSpecificOutput.additionalContext`, which Claude Code
-  //      prepends to the user prompt as system-style context.
-  //
-  //    - Stop: schema accepts `decision: 'block'` + `reason`.
-  //      Returning block forces Claude to continue instead of
-  //      stopping; the `reason` field becomes the next-turn context.
-  //      This is how we make autonomous Claude Code sessions aware
-  //      of new agent mail without the noisy PreToolUse-error spam
-  //      from the 0.8.22 attempt.
-  if (eventName === 'Stop') {
-    process.stdout.write(JSON.stringify({
-      decision: 'block',
-      reason: lines.join('\n'),
-    }));
-  } else {
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: eventName,
-        additionalContext: lines.join('\n'),
-      },
-    }));
-  }
+  // 8. Emit. emitAndExit handles the event-shape dispatch and
+  //    prepends the fallback capabilities blurb if one is queued.
+  emitAndExit(lines.join('\n'));
 }
 
 // Hard requirement: NEVER block a user prompt because of a hook failure.

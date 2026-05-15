@@ -33,14 +33,17 @@ function readJson(): any {
 }
 
 describe('upsertMailHook', () => {
-  it('registers on both UserPromptSubmit (interactive) and Stop (autonomous), not PreToolUse', () => {
-    // We register on UserPromptSubmit AND Stop. UserPromptSubmit catches
-    // the interactive case. Stop is the autonomous-mode awareness fix
+  it('registers on UserPromptSubmit, Stop, and SessionStart — not PreToolUse', () => {
+    // We register on three events. UserPromptSubmit catches the
+    // interactive case. Stop is the autonomous-mode awareness fix
     // (long headless runs where no user prompts fire) and returns
-    // `decision: 'block'` + `reason` — the supported output schema for
-    // that event. PreToolUse is intentionally NOT in the set; its
-    // schema rejects additionalContext (that's what produced the noisy
-    // `PreToolUse:tool-name hook error` in 0.8.22).
+    // `decision: 'block'` + `reason`. SessionStart fires on startup
+    // + resume + AUTO-COMPACT — it's how we re-inject the
+    // AgenticMail capabilities blurb when Claude's context gets
+    // wiped mid-session. PreToolUse is intentionally NOT in the
+    // set; its schema rejects additionalContext (that's what
+    // produced the noisy `PreToolUse:tool-name hook error` in
+    // 0.8.22).
     const changed = upsertMailHook(settingsPath, 'agenticmail-mail-hook');
     expect(changed).toBe(true);
     const s = readJson();
@@ -49,6 +52,8 @@ describe('upsertMailHook', () => {
     expect(s.hooks.UserPromptSubmit[0].hooks[0].command).toBe('agenticmail-mail-hook');
     expect(s.hooks.Stop).toHaveLength(1);
     expect(s.hooks.Stop[0].hooks[0].command).toBe('agenticmail-mail-hook');
+    expect(s.hooks.SessionStart).toHaveLength(1);
+    expect(s.hooks.SessionStart[0].hooks[0].command).toBe('agenticmail-mail-hook');
     expect(s.hooks.PreToolUse).toBeUndefined();
   });
 

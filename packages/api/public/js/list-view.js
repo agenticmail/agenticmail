@@ -107,7 +107,7 @@ export async function loadList(agent, folder) {
       </div>
       <div class="list-toolbar-spacer"></div>
       <span class="count-text" id="list-count"></span>
-      <button class="icon-btn pager-btn" id="pager-prev" title="Newer" data-icon="back"></button>
+      <button class="icon-btn pager-btn" id="pager-prev" title="Newer"></button>
       <button class="icon-btn pager-btn" id="pager-next" title="Older"></button>
     </div>
     <div class="list-rows" id="list-rows"><div class="empty">Loading…</div></div>
@@ -116,6 +116,14 @@ export async function loadList(agent, folder) {
   // the head of the inbox); "Older" advances to higher offsets.
   // Each handler clamps to valid bounds and refetches via loadList
   // with the new offset preserved in state.pagination.
+  //
+  // Both buttons share the same `back` chevron glyph — Prev is the
+  // glyph as-is (points left), Next rotates it 180° to point right.
+  // Previously Prev had only a `data-icon="back"` attribute (no
+  // innerHTML assignment), which left it visually empty — the user
+  // could click it but couldn't see it, so on page 2+ the back
+  // button looked entirely missing.
+  document.getElementById('pager-prev').innerHTML = icon('back', { size: 18 });
   document.getElementById('pager-next').innerHTML = icon('back', { size: 18 });
   document.getElementById('pager-next').style.transform = 'rotate(180deg)';
   document.getElementById('pager-prev')?.addEventListener('click', () => goToPage(agent, folder, -1));

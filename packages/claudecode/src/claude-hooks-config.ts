@@ -70,6 +70,7 @@ interface ClaudeSettingsShape {
     UserPromptSubmit?: ClaudeHookRule[];
     Stop?: ClaudeHookRule[];
     PreToolUse?: ClaudeHookRule[];
+    SessionStart?: ClaudeHookRule[];
     [event: string]: ClaudeHookRule[] | undefined;
   };
   [key: string]: unknown;
@@ -78,13 +79,27 @@ interface ClaudeSettingsShape {
 /**
  * Hook events the AgenticMail mail-hook is registered on.
  *
- * Two events, each with a schema-correct output shape:
+ * Three events, each with a schema-correct output shape:
+ *
+ *   - **SessionStart** — fires on `startup`, `resume`, AND `compact`.
+ *     Output uses `hookSpecificOutput.additionalContext` to inject
+ *     the AgenticMail capabilities blurb so the model knows the
+ *     toolbelt is available BEFORE it sees any user prompt.
+ *     Critically also fires after auto-compaction — session_id
+ *     stays the same across compact, so a "once per session_id"
+ *     dedup elsewhere would silently swallow the re-inject the
+ *     model needs after its context was wiped. SessionStart fires
+ *     explicitly, so we re-emit cleanly.
  *
  *   - **UserPromptSubmit** — fires on every user prompt in the
  *     interactive REPL. Output uses
  *     `hookSpecificOutput.additionalContext` to inject a
- *     "you have new mail" preamble before Claude reasons about
- *     the user's prompt. Catches the interactive case.
+ *     "you have new bridge mail" preamble before Claude reasons
+ *     about the user's prompt. Catches the interactive case.
+ *     Also serves as a FALLBACK channel for the capabilities
+ *     blurb in case SessionStart didn't fire (older Claude Code
+ *     builds, edge cases) — dedup'd per session_id so it's a
+ *     no-op once SessionStart has already done its job.
  *
  *   - **Stop** — fires when Claude was about to end a turn. Output
  *     uses `decision: 'block'` + `reason` to force Claude to
@@ -94,8 +109,8 @@ interface ClaudeSettingsShape {
  *     where `UserPromptSubmit` never fires now still wake on
  *     teammate replies at every natural turn boundary.
  *
- * Both event types are supported by Claude Code's hook system and
- * use the supported output schema for that event — no
+ * All three event types are supported by Claude Code's hook system
+ * and use the supported output schema for that event — no
  * "PreToolUse:Read hook error" spam like 0.8.22.
  *
  * # Why HOOK_EVENTS_TO_REMOVE is a superset
@@ -105,8 +120,8 @@ interface ClaudeSettingsShape {
  * that includes historical events so upgrades clean themselves up
  * automatically.
  */
-const HOOK_EVENTS_TO_REGISTER = ['UserPromptSubmit', 'Stop'] as const;
-const HOOK_EVENTS_TO_REMOVE = ['UserPromptSubmit', 'Stop', 'PreToolUse'] as const;
+const HOOK_EVENTS_TO_REGISTER = ['UserPromptSubmit', 'Stop', 'SessionStart'] as const;
+const HOOK_EVENTS_TO_REMOVE = ['UserPromptSubmit', 'Stop', 'PreToolUse', 'SessionStart'] as const;
 type HookEvent =
   | typeof HOOK_EVENTS_TO_REGISTER[number]
   | typeof HOOK_EVENTS_TO_REMOVE[number];
