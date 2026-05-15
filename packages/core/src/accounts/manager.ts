@@ -201,6 +201,28 @@ export class AccountManager {
     return result.changes > 0;
   }
 
+  /**
+   * Update an agent's role. Used by host-integration installers
+   * (`@agenticmail/claudecode`, `@agenticmail/codex`) to migrate a
+   * pre-existing bridge account from `'assistant'` (the workaround they
+   * used before the `'bridge'` role landed) to the canonical
+   * `'bridge'` role. Returns the updated agent, or null when the id
+   * doesn't exist.
+   *
+   * Caller is responsible for validating the role string against
+   * AGENT_ROLES — this method trusts what it's given.
+   */
+  async updateRole(id: string, role: AgentRole): Promise<Agent | null> {
+    const existing = await this.getById(id);
+    if (!existing) return null;
+    if (existing.role === role) return existing;
+    const stmt = this.db.prepare(`
+      UPDATE agents SET role = ?, updated_at = datetime('now') WHERE id = ?
+    `);
+    stmt.run(role, id);
+    return this.getById(id);
+  }
+
   async updateMetadata(id: string, metadata: Record<string, unknown>): Promise<Agent | null> {
     // Merge with existing metadata, preserving internal _-prefixed fields
     const existing = await this.getById(id);

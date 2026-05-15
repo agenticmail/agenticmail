@@ -89,18 +89,20 @@ const baseOpts = () => ({
 });
 
 describe('install', () => {
-  it('provisions the bridge agent with role="assistant" — NOT "bridge"', async () => {
-    // Regression for 0.1.0: install.ts called ensureAccount(..., 'bridge')
-    // which 400'd against the API's role validator
-    // ({secretary, assistant, researcher, writer, custom}). The bridge-ness
-    // of the codex account is encoded via name match, not role.
+  it('provisions the bridge agent with role="bridge"', async () => {
+    // The bridge role landed in @agenticmail/core 0.9.3. It's the
+    // canonical marker that an account represents an external LLM host
+    // (vs a teammate the user assigns work to). 0.1.0 tried this and
+    // hit a 400 because the API didn't accept the role yet. 0.1.1
+    // worked around it with 'assistant'. 0.1.2 reverts to the correct
+    // 'bridge' role now that the API accepts it.
     await install(baseOpts());
     expect(api.ensureAccount).toHaveBeenCalledTimes(1);
     expect(api.ensureAccount).toHaveBeenCalledWith(
       expect.any(String),  // apiUrl
       expect.any(String),  // masterKey
       'codex',             // bridge agent name
-      'assistant',         // role — must be one of the API's allowed values
+      'bridge',            // role — added to AGENT_ROLES in core 0.9.3
     );
   });
 

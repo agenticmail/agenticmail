@@ -31,7 +31,7 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureAccount, listAccounts, checkApiHealth } from './api.js';
+import { ensureAccount, listAccounts, checkApiHealth, setAccountRole } from './api.js';
 import { resolveConfig, type ResolveConfigOptions } from './config.js';
 import {
   upsertMcpServer,
@@ -226,13 +226,33 @@ export async function install(opts: ResolveConfigOptions = {}): Promise<InstallR
 
   // 2. Provision (or look up) the bridge agent — Codex's identity in AgenticMail.
   //
-  // Role MUST be one of {secretary, assistant, researcher, writer, custom}
-  // per the AgenticMail API's account-role validator (see core's
-  // accounts/role.ts). 0.1.0 passed 'bridge' here which 400'd against any
-  // real install — fixed in 0.1.1. The bridge-ness of the account is
-  // encoded via the name match (cfg.bridgeAgentName, default 'codex') and
-  // by selectExposableAgents below, NOT by the role.
-  const bridge = await ensureAccount(cfg.apiUrl, cfg.masterKey, cfg.bridgeAgentName, 'assistant');
+  // Role 'bridge' is the canonical marker for "this account represents an
+  // external LLM host" (added to AGENT_ROLES in @agenticmail/core 0.9.3).
+  // Tagging the host bridge with role='bridge' lets the web UI, list_agents,
+  // wake gating, and the dispatcher's selectExposableAgents filter treat
+  // the host's own inbox distinctly from teammate accounts the user
+  // actually assigns work to.
+  //
+  // History: 0.1.0 tried this and 400'd because the API didn't accept
+  // 'bridge' yet. 0.1.1 worked around it with 'assistant'. 0.1.2 reverts
+  // to the correct 'bridge' role now that the API accepts it.
+  let bridge = await ensureAccount(cfg.apiUrl, cfg.masterKey, cfg.bridgeAgentName, 'bridge');
+
+  // 2a. Migration: if the bridge already existed from a 0.1.0/0.1.1 install
+  // with role='assistant' (the workaround), patch it up to 'bridge' now
+  // that the API accepts the role. ensureAccount returns the existing
+  // record unchanged, so we have to do this explicitly. Best-effort —
+  // if the patch fails for any reason (older API, network blip), log
+  // and continue; the bridge still functions either way, the role is
+  // a display label.
+  if (bridge.role && bridge.role !== 'bridge') {
+    try {
+      await setAccountRole(cfg.apiUrl, cfg.masterKey, bridge.id, 'bridge');
+      bridge = { ...bridge, role: 'bridge' };
+    } catch {
+      /* role stays as-is; bridge still works */
+    }
+  }
 
   // 3. Discover every other agent so we can both register them as Codex
   //    subagents AND seed the per-account API-key map for the MCP server's

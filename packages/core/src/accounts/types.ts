@@ -1,7 +1,18 @@
-/** Predefined agent roles */
-export type AgentRole = 'secretary' | 'assistant' | 'researcher' | 'writer' | 'custom';
+/** Predefined agent roles.
+ *
+ * `bridge` is the host-bridge identity — the account that represents an
+ * external LLM host (Claude Code, Codex, Hermes, …) inside AgenticMail.
+ * It owns its own inbox + API key like any other account but is logically
+ * special: it's not a teammate the user assigns work to, it's the host
+ * itself acting on behalf of itself. The web UI / list_agents / wake
+ * gating SHOULD treat bridge accounts distinctly (they aren't typically
+ * spawned as subagents; they don't show up in coordination team pickers
+ * by default). The host-integration packages (@agenticmail/claudecode,
+ * @agenticmail/codex) use this role when provisioning their bridge.
+ */
+export type AgentRole = 'secretary' | 'assistant' | 'researcher' | 'writer' | 'custom' | 'bridge';
 
-export const AGENT_ROLES: readonly AgentRole[] = ['secretary', 'assistant', 'researcher', 'writer', 'custom'] as const;
+export const AGENT_ROLES: readonly AgentRole[] = ['secretary', 'assistant', 'researcher', 'writer', 'custom', 'bridge'] as const;
 export const DEFAULT_AGENT_ROLE: AgentRole = 'secretary';
 export const DEFAULT_AGENT_NAME = 'secretary';
 

@@ -299,6 +299,31 @@ export function createAccountRoutes(accountManager: AccountManager, db: Database
     } catch (err) { next(err); }
   });
 
+  /**
+   * Update an agent's role. Master-key scoped.
+   *
+   * Primary use case: host-integration installers
+   * (`@agenticmail/claudecode`, `@agenticmail/codex`) migrating a
+   * pre-existing bridge account from the historical workaround role
+   * (`'assistant'`) to the canonical `'bridge'` role added in
+   * @agenticmail/core 0.9.3. Body: `{ "role": "<one of AGENT_ROLES>" }`.
+   *
+   * Returns the updated agent (no api key on the wire — that's never
+   * resurfaced after creation).
+   */
+  router.patch('/accounts/:id/role', requireMaster, async (req, res, next) => {
+    try {
+      const role = req.body?.role;
+      if (typeof role !== 'string' || !AGENT_ROLES.includes(role as AgentRole)) {
+        res.status(400).json({ error: `Invalid role. Must be one of: ${AGENT_ROLES.join(', ')}` });
+        return;
+      }
+      const updated = await accountManager.updateRole(req.params.id as string, role as AgentRole);
+      if (!updated) { res.status(404).json({ error: 'Agent not found' }); return; }
+      res.json(sanitizeAgent(updated));
+    } catch (err) { next(err); }
+  });
+
   // Delete account — requires master key
   // Query params: archive (default true), reason, deletedBy
   router.delete('/accounts/:id', requireMaster, async (req, res, next) => {

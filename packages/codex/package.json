@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/codex",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "OpenAI Codex CLI integration for AgenticMail — surfaces every AgenticMail agent as a native Codex subagent and wires the dispatcher daemon to the Codex SDK",
   "type": "module",
   "main": "dist/index.js",
@@ -45,7 +45,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agenticmail/core": "^0.9.2",
+    "@agenticmail/core": "^0.9.3",
     "@agenticmail/mcp": "^0.9.2",
     "@iarna/toml": "^2.2.5"
   },

@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.19] - 2026-05-15
+
+### Added — `role: 'bridge'` is now a first-class AgentRole
+
+User report: *"the current account codex created via curl is created as sub-agent so that's a problem, check the current agents account!"*
+
+The host bridge account (the one each host integration provisions to represent itself inside AgenticMail — `claudecode@localhost`, `codex@localhost`) was being created with `role: 'assistant'`, the same role regular teammates get. That's misleading both in the web UI and in any "list my agents" call: the host's own identity shouldn't show up alongside teammates the user actually assigns work to.
+
+`'bridge'` is now part of `AGENT_ROLES` in `@agenticmail/core`. Each host integration's installer (`@agenticmail/claudecode`, `@agenticmail/codex`) creates its bridge with `role: 'bridge'` going forward.
+
+### Added — `PATCH /accounts/:id/role` endpoint + migration
+
+For existing installs where the bridge was already created with `role: 'assistant'` (workaround), the API now exposes `PATCH /accounts/:id/role` (master-key scoped). Both host installers call this on re-install to migrate the bridge in-place — no need to delete + recreate (which would invalidate the API key).
+
+### Fixed — Dispatcher was watching OTHER hosts' bridge inboxes
+
+User report: *"the dispatcher try to add codex to the sse stream because its treating it like a sub-agent instead of the host."*
+
+With both host integrations co-installed on the same machine, the claudecode dispatcher opened an SSE channel for `codex@localhost` (and would have done the reverse). Each host's bridge is owned by THAT host's interactive REPL — neither dispatcher should wake on it.
+
+`shouldWatch` now exits early on three independent markers — any one is enough:
+
+1. `account.name === <this host's bridge name>` (your own bridge)
+2. `account.role === 'bridge'` (the canonical post-0.9.3 marker)
+3. `account.metadata.bridge === true` OR `account.metadata.host` is a non-empty string (defensive — catches bridges that were created before the role landed, including the codex bridge Codex's agent provisioned manually with `metadata: {host: 'codex', bridge: true}`)
+
+The metadata check is what fixes the user's running state immediately on dispatcher restart — they don't need to wait for the role migration to run; the metadata marker is already on the codex account.
+
+### Fixed — Codex hook trust UX surfaced in install output
+
+User report: *"after a hook is added, codex required to review and approves them — make sure you fit into the design."*
+
+Codex CLI does NOT auto-trust newly-registered hooks. On the next session start after `agenticmail-codex install`, Codex displays:
+
+```
+⚠ 3 hooks need review before they can run. Open /hooks to review them.
+```
+
+This is correct Codex security behavior (claudecode doesn't have an equivalent — Claude Code auto-trusts hooks in `~/.claude/settings.json`). The codex installer now prints an explicit heads-up in its "next steps" block telling the user how to approve: run `/hooks` in the Codex REPL and press `t` on each of the three AgenticMail hooks (SessionStart, UserPromptSubmit, Stop). After that they fire automatically every session.
+
+### What's NOT solved yet (acknowledged limitation)
+
+When both Claude Code and Codex dispatchers are running on the same machine, **both watch every regular agent** (vesper, orion, atlas, lyra). When a teammate replies on a thread, BOTH dispatchers will wake the recipient — once via Claude, once via Codex — and both will try to reply. That's a duplicate-worker race condition.
+
+This release does NOT fix that. The blocker is account ownership: AgenticMail has no concept yet of "this agent is owned by Claude Code" vs "owned by Codex." Proposal for 0.10: add `metadata.host` to regular accounts at creation time (the host that ran `create_account` tags itself), and have each dispatcher's `shouldWatch` filter to only watch accounts where `!metadata.host || metadata.host === <my host>`.
+
+Operator workaround for now: only run ONE dispatcher at a time. Stop the other one in PM2 (`pm2 stop agenticmail-codex-dispatcher`) if you want claudecode to handle teammate wakes, and vice versa.
+
+### Published
+
+| Package | Old | New |
+|---|---|---|
+| `@agenticmail/core` | 0.9.2 | 0.9.3 |
+| `@agenticmail/api` | 0.9.13 | 0.9.14 |
+| `@agenticmail/claudecode` | 0.2.9 | 0.2.10 |
+| `@agenticmail/codex` | 0.1.1 | 0.1.2 |
+| `@agenticmail/cli` | 0.9.18 | 0.9.19 |
+
+### Operator upgrade
+
+```
+npm install -g @agenticmail/cli@latest
+pm2 restart agenticmail-claudecode-dispatcher
+pm2 restart agenticmail-codex-dispatcher   # if codex is installed
+```
+
+The `shouldWatch` metadata check fires on next dispatcher start, so the codex bridge will drop out of the claudecode dispatcher's SSE channel list immediately. The role migration (`role='assistant'` → `role='bridge'`) runs when you re-execute `agenticmail-codex install` or `agenticmail-claudecode install`.
+
 ## [0.9.18] - 2026-05-15
 
 ### Fixed — `@agenticmail/codex install` 400'd on every real install (role bug)

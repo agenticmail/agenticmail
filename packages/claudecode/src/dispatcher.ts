@@ -1250,8 +1250,28 @@ export class Dispatcher {
    */
   private shouldWatch(account: AgenticMailAccount): boolean {
     const bridgeName = this.cfg.bridgeAgentName.toLowerCase();
+    // (a) This host's own bridge — never watch it; the host's
+    //     interactive REPL drives that inbox via UserPromptSubmit /
+    //     SessionStart hooks. The dispatcher waking on bridge mail
+    //     would compete with the host and burn tokens.
     if (account.name.toLowerCase() === bridgeName) return false;
+    // (b) ANY account explicitly tagged as a bridge — including OTHER
+    //     hosts' bridges. With multiple host integrations co-installed
+    //     (e.g. claudecode + codex on the same machine), each host
+    //     creates its own bridge. The claudecode dispatcher should NOT
+    //     wake on mail to the codex bridge inbox (and vice versa) —
+    //     that inbox is owned by Codex's interactive REPL.
     if (account.role === 'bridge') return false;
+    // (c) Defensive: catch bridges that haven't been migrated to the
+    //     role yet. Accounts provisioned by host-integration installs
+    //     before role='bridge' shipped (0.1.0 / 0.1.1 codex; pre-0.2.10
+    //     claudecode) carry the role='assistant' workaround but ALWAYS
+    //     have metadata.bridge=true and/or metadata.host=<hostname>.
+    //     Both markers are stable across install versions, so we treat
+    //     either as authoritative.
+    const meta = account.metadata as { bridge?: unknown; host?: unknown } | undefined;
+    if (meta && meta.bridge === true) return false;
+    if (meta && typeof meta.host === 'string' && meta.host.length > 0) return false;
     return true;
   }
 

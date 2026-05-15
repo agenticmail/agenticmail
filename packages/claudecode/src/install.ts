@@ -27,7 +27,7 @@
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureAccount, listAccounts, checkApiHealth } from './api.js';
+import { ensureAccount, listAccounts, checkApiHealth, setAccountRole } from './api.js';
 import { resolveConfig, type ResolveConfigOptions } from './config.js';
 import { upsertMcpServer, type ClaudeMcpServerEntry } from './claude-config.js';
 import { upsertUserPromptSubmitHook } from './claude-hooks-config.js';
@@ -206,7 +206,22 @@ export async function install(opts: ResolveConfigOptions = {}): Promise<InstallR
   }
 
   // 2. Provision (or look up) the bridge agent — Claude Code's identity in AgenticMail.
-  const bridge = await ensureAccount(cfg.apiUrl, cfg.masterKey, cfg.bridgeAgentName, 'assistant');
+  // Role 'bridge' marks this as the host's own identity (added to
+  // AGENT_ROLES in @agenticmail/core 0.9.3) — distinct from teammate
+  // accounts the user assigns work to.
+  let bridge = await ensureAccount(cfg.apiUrl, cfg.masterKey, cfg.bridgeAgentName, 'bridge');
+
+  // Migrate pre-0.9.3 bridges from role='assistant' to role='bridge'.
+  // ensureAccount returns the existing record unchanged when the name
+  // already exists, so the role patch has to be explicit. Best-effort.
+  if (bridge.role && bridge.role !== 'bridge') {
+    try {
+      await setAccountRole(cfg.apiUrl, cfg.masterKey, bridge.id, 'bridge');
+      bridge = { ...bridge, role: 'bridge' };
+    } catch {
+      /* role stays as-is; bridge still works */
+    }
+  }
 
   // 3. Discover every other agent so we can both register them as Claude
   //    Code subagents AND seed the per-account API-key map for the MCP

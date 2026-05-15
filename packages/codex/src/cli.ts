@@ -110,8 +110,17 @@ async function runInstall(): Promise<number> {
     if (!result.changed) {
       print(`  ${DIM('Already up to date — no files were modified.')}`);
     } else {
-      print(`  ${BOLD('Next step:')} restart your Codex session so it picks up the new MCP server.`);
-      print(`  ${DIM('Once restarted, try:  spawn_agent({ agent_type: "agenticmail-vesper", message: "hi" })')}`);
+      print(`  ${BOLD('Heads-up — Codex requires hook approval')}`);
+      print(`  ${DIM('Codex CLI does not auto-trust newly-registered hooks. On your next')}`);
+      print(`  ${DIM('session start it will show:')}`);
+      print(`  ${DIM('    ⚠ 3 hooks need review before they can run. Open /hooks to review them.')}`);
+      print(`  ${DIM('In the Codex REPL, run /hooks, then press t on each of the three')}`);
+      print(`  ${DIM('AgenticMail hooks (SessionStart, UserPromptSubmit, Stop). After that')}`);
+      print(`  ${DIM('they fire automatically every session.')}`);
+      print('');
+      print(`  ${BOLD('Next step:')} restart your Codex session so it picks up the new MCP`);
+      print(`  server, then approve the hooks. Once both are done, try:`);
+      print(`  ${DIM('   spawn_agent({ agent_type: "agenticmail-vesper", message: "hi" })')}`);
     }
     print('');
     return 0;

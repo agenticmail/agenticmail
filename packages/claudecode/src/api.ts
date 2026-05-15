@@ -130,6 +130,26 @@ export async function deleteAccount(apiUrl: string, masterKey: string, id: strin
 }
 
 /**
+ * Update an account's role. Used by install.ts to migrate a pre-existing
+ * bridge account (created when the API didn't yet accept 'bridge' as a
+ * role) from 'assistant' to 'bridge'.
+ */
+export async function setAccountRole(
+  apiUrl: string,
+  masterKey: string,
+  id: string,
+  role: string,
+): Promise<{ role: string }> {
+  const updated = await request<{ role: string }>(
+    apiUrl,
+    masterKey,
+    `/accounts/${encodeURIComponent(id)}/role`,
+    { method: 'PATCH', body: { role } },
+  );
+  return updated ?? { role };
+}
+
+/**
  * Restart catch-up helpers.
  *
  * After a dispatcher restart the per-account SSE channel is reopened
