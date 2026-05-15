@@ -8,6 +8,79 @@ const API_KEY = process.env.AGENTICMAIL_API_KEY ?? '';
 const MASTER_KEY = process.env.AGENTICMAIL_MASTER_KEY ?? '';
 
 /**
+ * Which host integration this MCP server instance belongs to.
+ *
+ * Each host installer (`@agenticmail/claudecode install`, `agenticmail-codex
+ * install`) stamps `AGENTICMAIL_MCP_HOST=<bridge-name>` into the MCP server
+ * env block in its host's config. The value is used by:
+ *
+ *   1. `create_account` — to auto-stamp `metadata.host` on every new agent
+ *      so dispatchers and installers can route correctly.
+ *   2. `list_agents` / `check_activity` / `inbox_digest` — to scope the
+ *      response to the calling host's own teammates. Without this filter,
+ *      a Codex session calling `check_activity` sees Claude-owned workers
+ *      (and vice versa), which is confusing UX and a (mild) information
+ *      leak across host boundaries.
+ *
+ * Empty / unset means "no host integration registered me" — fall back to
+ * the un-filtered view so direct MCP usage from a non-host client still
+ * works. Lowercased for case-insensitive comparisons.
+ */
+const MCP_HOST = (process.env.AGENTICMAIL_MCP_HOST ?? '').trim().toLowerCase();
+
+/**
+ * Decide whether `host` (the `metadata.host` value on some account or
+ * worker) should be visible to the caller. Three states:
+ *
+ *   - MCP_HOST is empty (no host integration set): pass everything.
+ *   - host matches MCP_HOST exactly: visible.
+ *   - host is unset/legacy (no metadata.host stamp): visible — these are
+ *     pre-0.9.20 accounts that haven't been claimed by any dispatcher
+ *     yet; surfacing them to every host preserves discovery.
+ *   - host belongs to a different integration: hidden.
+ *
+ * This is the canonical sanity check for every list-style MCP tool that
+ * returns multiple agents / workers.
+ */
+function visibleToCallerHost(host: string | null | undefined): boolean {
+  if (!MCP_HOST) return true;  // not running under a host integration
+  if (!host) return true;       // legacy / unclaimed — always visible
+  return host.toLowerCase() === MCP_HOST;
+}
+
+/**
+ * Assert that an agent named `target` is visible to the current host.
+ * Used by single-target tools (`message_agent`, `call_agent`,
+ * `delete_agent`, …) to refuse cross-host targeting BEFORE the
+ * underlying API call runs — saves a round-trip and produces a clear
+ * error message that names the ownership mismatch.
+ *
+ * If `target` doesn't resolve (typo, deleted, never existed) we
+ * fall through silently so the downstream call can produce its own
+ * "agent not found" error with its usual phrasing.
+ */
+async function assertHostOwnsAgent(target: string): Promise<void> {
+  if (!MCP_HOST) return;
+  if (!target) return;
+  try {
+    const info = await apiRequest('GET', `/accounts/directory/${encodeURIComponent(target)}`);
+    const host = typeof info?.host === 'string' ? info.host : null;
+    if (!visibleToCallerHost(host)) {
+      throw new Error(
+        `Agent "${target}" is owned by host "${host}", not "${MCP_HOST}". ` +
+        `Each host's MCP server only talks to its own teammates + unclaimed accounts. ` +
+        `If you want to transfer this agent: \`agenticmail-${host} claim ${target} --unclaim\` then \`agenticmail-${MCP_HOST} claim ${target}\`.`,
+      );
+    }
+  } catch (err) {
+    // Only rethrow our own ownership error; anything else (404, network)
+    // bubbles through to the downstream call so the model sees the
+    // canonical not-found message.
+    if (err instanceof Error && err.message.includes('owned by host')) throw err;
+  }
+}
+
+/**
  * Per-call identity override.
  *
  * The MCP server has a single "default" identity (AGENTICMAIL_API_KEY). For
@@ -1915,17 +1988,37 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
 
     case 'list_agents': {
       const result = await apiRequest('GET', '/accounts/directory');
-      const agents = result?.agents ?? [];
-      if (agents.length === 0) return 'No agents found.';
-      const lines = agents.map((a: any) => `  ${a.name} (${a.email}) — ${a.role}`);
-      return `Agents in the system:\n${lines.join('\n')}`;
+      const allAgents: any[] = Array.isArray(result?.agents) ? result.agents : [];
+      // Scope the listing to the calling host's own teammates +
+      // unclaimed accounts. When run inside a claudecode session
+      // this hides codex-owned agents (and vice versa), so the
+      // model doesn't try to spawn / mail / delegate to teammates
+      // belonging to the other host's dispatcher.
+      const agents = allAgents.filter(a => visibleToCallerHost(a.host));
+      if (agents.length === 0) {
+        return MCP_HOST
+          ? `No agents owned by host "${MCP_HOST}" (or unclaimed) found. Use \`agenticmail-${MCP_HOST} claim --all\` to take ownership of legacy agents.`
+          : 'No agents found.';
+      }
+      const lines = agents.map((a: any) => {
+        const hostTag = a.host ? ` · host=${a.host}` : '';
+        return `  ${a.name} (${a.email}) — ${a.role}${hostTag}`;
+      });
+      const header = MCP_HOST
+        ? `Agents on host "${MCP_HOST}" (+ unclaimed):`
+        : 'Agents in the system:';
+      return `${header}\n${lines.join('\n')}`;
     }
 
     case 'message_agent': {
       const agentName = String(args.agent ?? '').toLowerCase().trim();
       if (!agentName) throw new Error('agent name is required');
 
-      // Validate the target agent exists
+      // Validate the target agent exists AND belongs to this host.
+      // assertHostOwnsAgent does both — it 404's silently to the
+      // not-found branch below, or throws with a clear ownership
+      // mismatch message if the agent is owned by another host.
+      await assertHostOwnsAgent(agentName);
       try {
         await apiRequest('GET', `/accounts/directory/${encodeURIComponent(agentName)}`);
       } catch {
@@ -1965,6 +2058,10 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
     case 'delete_agent': {
       const agentName = String(args.name ?? '').trim();
       if (!agentName) throw new Error('name is required');
+      // Refuse to delete an agent belonging to a different host —
+      // the calling MCP server's host shouldn't have authority over
+      // teammates owned by another integration's dispatcher.
+      await assertHostOwnsAgent(agentName);
 
       // Look up agent by name to get ID
       const agents = await apiRequest('GET', '/accounts', undefined, true);
@@ -2360,25 +2457,69 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
     }
 
     case 'cleanup_agents': {
+      // Scope every cleanup view + action to agents the calling host
+      // owns (or unclaimed). Without this filter, codex's cleanup
+      // would silently sweep Claude-owned teammates and vice versa.
+      // We post-filter the API response by metadata.host rather than
+      // adding a new server-side parameter so existing master-key
+      // tools (CLI, scripts) keep their broad scope.
+      let visibleNames: Set<string> | null = null;
+      if (MCP_HOST) {
+        try {
+          const dir = await apiRequest('GET', '/accounts/directory');
+          visibleNames = new Set<string>(
+            (Array.isArray(dir?.agents) ? dir.agents : [])
+              .filter((a: any) => visibleToCallerHost(a.host))
+              .map((a: any) => String(a.name ?? '').toLowerCase()),
+          );
+        } catch { /* fall back to no filter on directory failure */ }
+      }
+      const visibleAgent = (a: any) =>
+        !visibleNames || visibleNames.has(String(a.name ?? '').toLowerCase());
+
       if (args.action === 'list_inactive') {
         const qs = args.hours ? `?hours=${args.hours}` : '';
         const r = await apiRequest('GET', `/accounts/inactive${qs}`, undefined, true);
-        if (!r?.agents?.length) return 'No inactive agents found. All agents are either active or persistent.';
-        return `${r.count} inactive agent(s):\n${r.agents.map((a: any) =>
+        const rows = (Array.isArray(r?.agents) ? r.agents : []).filter(visibleAgent);
+        if (rows.length === 0) return 'No inactive agents found. All agents are either active or persistent.';
+        return `${rows.length} inactive agent(s):\n${rows.map((a: any) =>
           `  ${a.name} (${a.email}) — last active: ${a.last_activity_at || 'never'}, persistent: ${a.persistent}`
         ).join('\n')}`;
       }
       if (args.action === 'cleanup') {
         const r = await apiRequest('POST', '/accounts/cleanup', { hours: args.hours, dryRun: args.dryRun }, true);
+        const candidates = (Array.isArray(r?.wouldDelete) ? r.wouldDelete : []).filter(visibleAgent);
+        const deleted = (Array.isArray(r?.deleted) ? r.deleted : []).filter((name: string) =>
+          !visibleNames || visibleNames.has(String(name).toLowerCase()),
+        );
         if (r?.dryRun) {
-          if (!r.count) return 'No inactive agents to clean up. All agents are either active or persistent.';
-          return `Would delete ${r.count} agent(s): ${r.wouldDelete.map((a: any) => a.name).join(', ')}`;
+          if (!candidates.length) return 'No inactive agents to clean up. All agents are either active or persistent.';
+          return `Would delete ${candidates.length} agent(s): ${candidates.map((a: any) => a.name).join(', ')}`;
         }
-        if (!r?.count) return 'No inactive agents to clean up. All agents are either active or persistent.';
-        return `Deleted ${r.count} agent(s): ${r.deleted.join(', ')}`;
+        if (!deleted.length) return 'No inactive agents to clean up. All agents are either active or persistent.';
+        return `Deleted ${deleted.length} agent(s): ${deleted.join(', ')}`;
       }
       if (args.action === 'set_persistent') {
         if (!args.agentId) throw new Error('agentId is required');
+        // Refuse to toggle persistence on agents owned by another
+        // host — the agentId is opaque, so look up the agent's
+        // name + host before mutating. We do this only when an
+        // MCP_HOST is configured; direct master-key callers
+        // (CLI / scripts) keep the broader scope.
+        if (MCP_HOST) {
+          try {
+            const all = await apiRequest('GET', '/accounts', undefined, true);
+            const agent = (all?.agents ?? []).find((a: any) => a.id === args.agentId);
+            const host = typeof agent?.metadata?.host === 'string' ? agent.metadata.host : null;
+            if (agent && !visibleToCallerHost(host)) {
+              throw new Error(`Agent ${args.agentId} (${agent.name}) is owned by host "${host}", not "${MCP_HOST}".`);
+            }
+          } catch (err) {
+            if (err instanceof Error && err.message.includes('owned by host')) throw err;
+            // Network / 404 on the lookup — let the patch attempt
+            // fail with its own clearer error.
+          }
+        }
         await apiRequest('PATCH', `/accounts/${args.agentId}/persistent`, { persistent: args.persistent !== false }, true);
         return `Agent ${args.agentId} persistent flag set to ${args.persistent !== false}`;
       }
@@ -2421,8 +2562,29 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
       const filterAgent = typeof args.agent === 'string' ? args.agent.toLowerCase() : '';
       const includeRecent = args.includeRecent !== false;
       const matchesFilter = (w: any) => !filterAgent || (w.agentName ?? '').toLowerCase().includes(filterAgent);
-      const activeList: any[] = Array.isArray(r?.active) ? r.active.filter(matchesFilter) : [];
-      const recentList: any[] = includeRecent && Array.isArray(r?.recent) ? r.recent.filter(matchesFilter) : [];
+      // Build the set of agent names visible to this host so we can
+      // filter the activity registry to "workers for agents I own".
+      // Without this, a codex MCP session calling check_activity sees
+      // every Claude-owned worker too — confusing UX and a (mild)
+      // cross-host information leak.
+      let visibleNames: Set<string> | null = null;
+      if (MCP_HOST) {
+        try {
+          const dir = await apiRequest('GET', '/accounts/directory');
+          visibleNames = new Set<string>(
+            (Array.isArray(dir?.agents) ? dir.agents : [])
+              .filter((a: any) => visibleToCallerHost(a.host))
+              .map((a: any) => String(a.name ?? '').toLowerCase()),
+          );
+        } catch { /* fall back to no host filter on directory failure */ }
+      }
+      const visibleToHost = (w: any) => {
+        if (!visibleNames) return true;  // no host scoping
+        return visibleNames.has(String(w.agentName ?? '').toLowerCase());
+      };
+      const matchesAll = (w: any) => matchesFilter(w) && visibleToHost(w);
+      const activeList: any[] = Array.isArray(r?.active) ? r.active.filter(matchesAll) : [];
+      const recentList: any[] = includeRecent && Array.isArray(r?.recent) ? r.recent.filter(matchesAll) : [];
       if (activeList.length === 0 && recentList.length === 0) {
         if (filterAgent) return `No dispatcher activity for "${args.agent}" right now or in the last 2 minutes. Either the agent has not been woken on this thread yet, the dispatcher is not running, or mail to them is still in flight.`;
         return 'No dispatcher activity right now or in the last 2 minutes. If you just sent mail and expected an agent to wake, give it a moment — the dispatcher subscribes to /system/events for sub-second wake. If nothing happens for 30s, check that the dispatcher process is running (`pm2 list`) and that the recipient is a real local agent (`list_agents`).';
@@ -2485,6 +2647,15 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
 
     case 'call_agent': {
       const timeoutSec = Math.min(Math.max(Number(args.timeout) || 180, 5), 300);
+
+      // Refuse to call an agent owned by a different host — same
+      // routing principle as message_agent. Without this, codex's
+      // call_agent could synchronously RPC into a Claude-owned
+      // teammate, which would either deadlock (Claude's dispatcher
+      // wakes the agent, codex polls and times out) or succeed
+      // but cross the host boundary in a way the operator didn't
+      // ask for.
+      await assertHostOwnsAgent(String(args.target ?? ''));
 
       // Step 1: Create the task (quick request — returns immediately)
       const created = await apiRequest('POST', '/tasks/assign', {

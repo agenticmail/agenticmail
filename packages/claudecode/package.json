@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/claudecode",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "Claude Code integration for AgenticMail — surfaces every AgenticMail agent as a native Claude Code subagent so any Claude Code session can delegate to them with the Agent tool",
   "type": "module",
   "main": "dist/index.js",
@@ -48,7 +48,7 @@
   },
   "dependencies": {
     "@agenticmail/core": "^0.9.5",
-    "@agenticmail/mcp": "^0.9.5",
+    "@agenticmail/mcp": "^0.9.6",
     "@anthropic-ai/claude-agent-sdk": "^0.2.140"
   },
   "peerDependencies": {

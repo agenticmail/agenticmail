@@ -130,11 +130,20 @@ export function createAccountRoutes(accountManager: AccountManager, db: Database
     }
   });
 
-  // Agent directory — accessible with any valid key (agent or master)
+  // Agent directory — accessible with any valid key (agent or master).
+  //
+  // Includes a sanitised `host` field (lifted from metadata.host) so
+  // MCP clients can filter the directory to "agents on my host" without
+  // needing master-key access to the full accounts list. The host
+  // value is host-integration metadata, not a secret.
   router.get('/accounts/directory', requireAuth, async (_req, res, next) => {
     try {
       const agents = await accountManager.list();
-      const directory = agents.map(a => ({ name: a.name, email: a.email, role: a.role }));
+      const directory = agents.map(a => {
+        const meta = (a.metadata ?? {}) as { host?: unknown };
+        const host = typeof meta.host === 'string' ? meta.host : null;
+        return { name: a.name, email: a.email, role: a.role, host };
+      });
       res.json({ agents: directory });
     } catch (err) {
       next(err);
@@ -149,7 +158,9 @@ export function createAccountRoutes(accountManager: AccountManager, db: Database
         res.status(404).json({ error: 'Agent not found' });
         return;
       }
-      res.json({ name: agent.name, email: agent.email, role: agent.role });
+      const meta = (agent.metadata ?? {}) as { host?: unknown };
+      const host = typeof meta.host === 'string' ? meta.host : null;
+      res.json({ name: agent.name, email: agent.email, role: agent.role, host });
     } catch (err) {
       next(err);
     }

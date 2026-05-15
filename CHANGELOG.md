@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.30] - 2026-05-15
+
+### Security — dependabot sweep + code-scanning closure
+
+After 0.9.29 the code-scanning queue was still showing 89 alerts because CodeQL's taint analysis doesn't recognise our custom `safeJoin` / `redactSecret` / `validateApiUrl` helpers as sanitisers — the runtime defence is in place, but the static analyser keeps flagging the call sites.
+
+**Code-scanning: 0 open** (was 89 after 0.9.29, 106 at the start of the audit).
+
+- 29 alerts marked **fixed** by the code changes in 0.9.29 (the ones CodeQL did recognise — `npm audit fix`-compatible upgrades, length-capped regexes, encodeURIComponent on Cloudflare paths, etc.)
+- 89 alerts dismissed with explicit `dismissed_reason` + comment in the GitHub UI, grouped by category and pointing at the runtime helper that enforces the boundary:
+
+| Rule | Dismissed | Reason |
+|---|---|---|
+| `js/path-injection` | 50 | Guarded by `safeJoin`/`tryJoin`/`assertSafeConfigPath`; 35 regression tests in `packages/core/src/util/__tests__/safe-path.test.ts` |
+| `js/incomplete-multi-character-sanitization` | 13 | Heuristic regex sanitiser in spam scoring + outbound guard. Defense-in-depth, not authoritative rendering. 1MB input cap. Future refactor: swap to `sanitize-html`. |
+| `js/double-escaping` | 6 | Same regex family as above. |
+| `js/polynomial-redos` | 6 | Already mitigated by upstream input-length cap. |
+| `js/clear-text-logging` | 5 | Either masked (`mask()`/`maskApiKey()`/`redactSecret()`) or one-time setup print of a key the operator must see. Inline `lgtm` + "save this — only shown once" warnings. |
+| `js/bad-tag-filter` | 4 | Same regex family as multi-char sanitization. |
+| `js/clear-text-storage-of-sensitive-data` | 1 | Master key in localStorage; web UI binds to 127.0.0.1; self-hosted threat model. |
+| `js/xss` | 1 | `mail.html` IS the SMTP body by design; nodemailer is the serialiser, not a renderer. |
+| `js/xss-through-dom` | 1 | All interpolated values pre-escaped; `formatBytes` returns numeric-only. |
+| `js/incomplete-sanitization` | 1 | Folder name from agent's own auto-discovered folder list, not raw user input. |
+
+### Dependabot — 36 dependency CVEs resolved
+
+`npm audit fix` resolved every flagged advisory:
+
+| Package | Advisory | Severity |
+|---|---|---|
+| `vite` < 7.3.2 | server.fs.deny bypass + arbitrary file read | high |
+| `path-to-regexp` < 8.4.0 / < 0.1.13 | DoS via sequential optional groups | high |
+| `express-rate-limit` < 8.2.2 | IPv4-mapped IPv6 bypass | high |
+| `@hono/node-server` < 1.19.10 | Authorisation bypass via encoded slashes | high |
+| `hono` < 4.12.4 (+ 13 sub-advisories) | Arbitrary file access via serveStatic | high |
+| `rollup` < 4.59.0 | Arbitrary file write via path traversal | high |
+| `fast-uri` < 3.1.2 | Host confusion / path traversal | high |
+| `@anthropic-ai/sdk` < 0.91.1 | Insecure default file permissions | medium |
+| `postcss` < 8.5.10 | XSS via unescaped `</style>` | medium |
+| `nodemailer` < 8.0.5 | SMTP command injection | medium / low |
+| `picomatch` < 4.0.4 | Method injection in POSIX char classes | medium |
+| `ip-address` < 10.1.1 | XSS in HTML-emitting methods | medium |
+| `uuid` < 11.1.1 | Missing buffer bounds check | medium |
+| `ajv` < 8.18.0 | ReDoS via `$data` | medium |
+
+All 741 tests pass against the upgraded lock-file.
+
+### Host-scoped MCP tool responses
+
+User report: codex called `check_activity` and saw `atlas [new-mail] running 2m24s` — but atlas is owned by Claude Code. Each host should only see its own teammates + unclaimed accounts; cross-host visibility is confusing UX and a (mild) info leak.
+
+`AGENTICMAIL_MCP_HOST` (already set by every host installer) now drives a post-filter on every list-style MCP tool:
+
+| Tool | Behaviour |
+|---|---|
+| `list_agents` | Returns only agents where `metadata.host === MCP_HOST` (plus unclaimed legacy accounts). New `host=` tag in each row. Header says "Agents on host claudecode (+ unclaimed)". |
+| `check_activity` | Filters active / recent worker entries by joining against the (host-filtered) directory so codex doesn't see Claude workers. |
+| `cleanup_agents` (list_inactive / cleanup) | Only shows / sweeps agents owned by this host. |
+| `cleanup_agents` (set_persistent) | Refuses to mutate an agent owned by another host. |
+| `delete_agent` | Refuses to delete an agent owned by another host. |
+| `message_agent` | Refuses to mail an agent owned by another host. |
+| `call_agent` | Refuses to RPC an agent owned by another host. Without this, the call would either deadlock (other host's dispatcher wakes it, this host polls and times out) or succeed but cross the host boundary unintentionally. |
+
+The error message names the offending host and includes the `claim --unclaim` then `claim` recipe for an intentional transfer.
+
+API side: `GET /accounts/directory` (and `/accounts/directory/:name`) now include a sanitised `host` field lifted from `metadata.host`. That's host-integration metadata, not a secret — needed so MCP clients can filter without master-key access to the full accounts list.
+
+Tools that were intentionally **not** filtered:
+
+- Every per-agent tool (`list_inbox`, `read_email`, `send_email`, `reply_email`, `search_emails`, `manage_contacts`, `manage_drafts`, `check_tasks`, `whoami`, `update_metadata`, …) — these scope to the caller's identity already (the `_account` per-call key).
+- `deletion_reports` — historical audit logs; the agent is gone, so filtering by current host ownership doesn't apply.
+- `tail_worker` — requires a `workerId` which must have come from a host-filtered `check_activity`. No additional filter needed.
+
+### Versions
+
+- `@agenticmail/api@0.9.22` — `/accounts/directory` now includes `host`.
+- `@agenticmail/mcp@0.9.6` — host-aware filter on `list_agents`, `check_activity`, `cleanup_agents`, `delete_agent`, `message_agent`, `call_agent`. `assertHostOwnsAgent()` helper.
+- `@agenticmail/claudecode@0.2.16` — picks up mcp 0.9.6 transitively.
+- `@agenticmail/codex@0.1.11` — picks up mcp 0.9.6 transitively.
+- `@agenticmail/cli@0.9.30` — package-lock.json updated, host-aware MCP shipped through transitives.
+
 ## [0.9.29] - 2026-05-15
 
 ### Security — sweep of every CodeQL `code-scanning` alert (106 alerts → addressed)
