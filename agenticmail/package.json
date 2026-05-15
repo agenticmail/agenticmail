@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/cli",
-  "version": "0.9.21",
+  "version": "0.9.22",
   "description": "Email and SMS infrastructure for AI agents — the first platform to give agents real email addresses and phone numbers",
   "type": "module",
   "main": "dist/index.js",
@@ -36,8 +36,8 @@
     "json5": "^2.2.3"
   },
   "optionalDependencies": {
-    "@agenticmail/claudecode": "^0.2.11",
-    "@agenticmail/codex": "^0.1.3"
+    "@agenticmail/claudecode": "^0.2.12",
+    "@agenticmail/codex": "^0.1.4"
   },
   "devDependencies": {
     "tsup": "^8.4.0",

@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.22] - 2026-05-15
+
+### Fixed — Cross-host bridges leaking into the wrong host's subagent list
+
+When the user installed `agenticmail-codex` on a machine that already had `agenticmail-claudecode` set up, Codex wrote a subagent file for `agenticmail-claudecode` — i.e. it surfaced the OTHER host's bridge as a teammate. Spawning that subagent would have made no sense and risked back-and-forth loops between bridges.
+
+### Root causes
+
+1. **`selectExposableAgents` filter was missing `metadata.host`**. Both `@agenticmail/claudecode/install` and `@agenticmail/codex/install` only filtered on `name === self` and `role === 'bridge'`. The Claude bridge in the test rig still had the legacy `role='assistant'` (because the role-migration step only runs on a re-install, not on the live API), so the Codex installer didn't recognize it as a bridge and wrote a subagent file for it.
+
+2. **Installer never stamped `host=<bridge>` on its own bridge**. The MCP server's `create_account` auto-stamps `metadata.host` from the `AGENTICMAIL_MCP_HOST` env var, but the bridge account is created via the master API directly (not through MCP), so the env-var path never fires for the bridge itself. The bridge therefore showed `host=-` in the web UI and didn't carry an ownership tag.
+
+### Fix
+
+`packages/{claudecode,codex}/src/install.ts`:
+
+- `selectExposableAgents` now also rejects `metadata.bridge === true` and any account whose `metadata.host` is set to a value other than this host's bridge name. Unclaimed accounts (no host stamp) stay visible to every host — back-compat preserved.
+- `install()` now calls `setAccountHost(bridgeId, bridgeName)` after `ensureAccount` so the bridge carries its own host tag. The web UI host badge and dispatcher metadata filter now treat bridges consistently with teammates.
+
+The Codex installer's docstring previously promised the `metadata.host` filter behavior; this release makes the implementation match.
+
+### Versions
+
+- `@agenticmail/claudecode@0.2.12`
+- `@agenticmail/codex@0.1.4`
+- `@agenticmail/cli@0.9.22` (rolls the optionalDependencies forward to the patched host packages)
+
 ## [0.9.21] - 2026-05-14
 
 ### Fixed — `agenticmail-claudecode: command not found` after global install

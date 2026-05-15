@@ -27,7 +27,7 @@
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureAccount, listAccounts, checkApiHealth, setAccountRole } from './api.js';
+import { ensureAccount, listAccounts, checkApiHealth, setAccountRole, setAccountHost } from './api.js';
 import { resolveConfig, type ResolveConfigOptions } from './config.js';
 import { upsertMcpServer, type ClaudeMcpServerEntry } from './claude-config.js';
 import { upsertUserPromptSubmitHook } from './claude-hooks-config.js';
@@ -98,15 +98,30 @@ function buildMcpEntry(cfg: ClaudeCodeIntegrationConfig, bridgeKey: string, acco
  *     is silly and would also create a duplicate-name collision in the
  *     subagent_type namespace)
  *   - any account with role="bridge" (reserved for hosts like this one)
+ *   - any account flagged `metadata.bridge === true` (legacy marker from
+ *     pre-0.9.3 installs where the 'bridge' role didn't exist yet)
+ *   - any account owned by a DIFFERENT host (`metadata.host` set and not
+ *     matching this host's bridge name) — prevents a Codex install from
+ *     exposing Claude's bridge as a Claude Code subagent, and vice-versa
+ *
+ * Unclaimed accounts (no host stamp) stay visible to every host for
+ * backwards compatibility with legacy installs.
  */
 export function selectExposableAgents(
   accounts: AgenticMailAccount[],
   cfg: ClaudeCodeIntegrationConfig,
 ): AgenticMailAccount[] {
-  return accounts.filter(a =>
-    a.name.toLowerCase() !== cfg.bridgeAgentName.toLowerCase()
-    && a.role !== 'bridge',
-  );
+  const ownHost = cfg.bridgeAgentName.toLowerCase();
+  return accounts.filter(a => {
+    if (a.name.toLowerCase() === ownHost) return false;
+    if (a.role === 'bridge') return false;
+    const meta = a.metadata as { bridge?: unknown; host?: unknown } | undefined;
+    if (meta && meta.bridge === true) return false;
+    if (meta && typeof meta.host === 'string' && meta.host.trim().length > 0) {
+      if (meta.host.toLowerCase() !== ownHost) return false;
+    }
+    return true;
+  });
 }
 
 /**
@@ -226,6 +241,26 @@ export async function install(opts: ResolveConfigOptions = {}): Promise<InstallR
       bridge = { ...bridge, role: 'bridge' };
     } catch {
       /* role stays as-is; bridge still works */
+    }
+  }
+
+  // Stamp host ownership on the bridge itself. The MCP server's
+  // create_account auto-tags accounts it provisions, but the bridge is
+  // created here via the master API directly — it never goes through
+  // MCP, so the env-var path doesn't apply. Stamping it explicitly
+  // surfaces the bridge under its own host badge in the web UI and
+  // keeps the dispatcher's metadata.host filter consistent across
+  // teammates and bridges. Best-effort.
+  const bridgeHost = (bridge.metadata as { host?: unknown } | undefined)?.host;
+  if (typeof bridgeHost !== 'string' || bridgeHost.toLowerCase() !== cfg.bridgeAgentName.toLowerCase()) {
+    try {
+      await setAccountHost(cfg.apiUrl, cfg.masterKey, bridge.id, cfg.bridgeAgentName);
+      bridge = {
+        ...bridge,
+        metadata: { ...(bridge.metadata ?? {}), host: cfg.bridgeAgentName },
+      };
+    } catch {
+      /* host stays as-is; bridge still works */
     }
   }
 
