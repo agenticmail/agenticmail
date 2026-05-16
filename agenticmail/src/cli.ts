@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// MUST be first import — installs a process.emit hook that hides Node's
+// "SQLite is an experimental feature" warning before @agenticmail/core
+// (which loads node:sqlite) gets evaluated.
+import './suppress-experimental-warnings.js';
 import { createInterface, emitKeypressEvents } from 'node:readline';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -697,18 +701,34 @@ async function cmdSetupEmail() {
     }
   } catch { /* ignore */ }
 
-  const email = (await ask(`  ${c.cyan('Your email address:')} `)).trim();
-  if (!email || !email.includes('@')) {
-    log('');
-    fail('That doesn\'t look like a valid email address.');
-    process.exit(1);
+  // Email prompt loops until we get something that at least looks like
+  // user@host. A typo shouldn't tear the whole flow down — re-prompt
+  // and let the operator fix it. Hard cap so a stuck pipe doesn't spin
+  // forever, but generous enough that humans don't notice.
+  const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
+  const OUTLOOK_DOMAINS = new Set(['outlook.com', 'hotmail.com', 'live.com', 'msn.com']);
+  const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const MAX_EMAIL_ATTEMPTS = 5;
+
+  let email = '';
+  for (let attempt = 1; attempt <= MAX_EMAIL_ATTEMPTS; attempt++) {
+    const raw = (await ask(`  ${c.cyan('Your email address:')} `)).trim();
+    if (EMAIL_SHAPE.test(raw)) {
+      email = raw;
+      break;
+    }
+    fail(`That doesn't look like a valid email address${raw ? ` (${raw})` : ''}.`);
+    if (attempt === MAX_EMAIL_ATTEMPTS) {
+      log('');
+      info('Too many invalid attempts — exiting. Re-run `agenticmail setup-email` when ready.');
+      log('');
+      process.exit(1);
+    }
+    info(`Try again ${c.dim(`(attempt ${attempt + 1} of ${MAX_EMAIL_ATTEMPTS})`)}`);
   }
 
   // Auto-detect provider from the domain.
   const domain = email.split('@')[1]!.toLowerCase();
-  const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
-  const OUTLOOK_DOMAINS = new Set(['outlook.com', 'hotmail.com', 'live.com', 'msn.com']);
-
   let provider: RelayProvider;
   let smtpHost: string | undefined;
   let smtpPort: number | undefined;
@@ -757,58 +777,100 @@ async function cmdSetupEmail() {
   log(`  ${c.dim("Spaces in the password are fine — we'll strip them.")}`);
   log('');
 
-  const rawPassword = await askSecret(`  ${c.cyan('Password:')} `);
-  const password = rawPassword.replace(/\s+/g, '');
-  if (!password) {
-    log('');
-    fail('No password entered.');
-    process.exit(1);
-  }
-
-  log('');
-  const spinner = new Spinner('relay');
-  spinner.start();
-
-  try {
-    const response = await fetch(`${apiBase}/api/agenticmail/gateway/relay`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.masterKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        provider, email, password, agentName,
-        smtpHost, smtpPort, imapHost, imapPort,
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      const friendly = parseFriendlyError(text);
-      spinner.fail(friendly.message);
-      log('');
-      if (friendly.isAuthError) {
-        info('Check the email + password and run `agenticmail setup-email` again.');
+  // Password loop — retry on empty input AND on auth failure from the
+  // mail provider. A typo'd app password is the single most common
+  // failure mode here and shouldn't force the operator to restart the
+  // whole command.
+  const MAX_PASSWORD_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_PASSWORD_ATTEMPTS; attempt++) {
+    const rawPassword = await askSecret(`  ${c.cyan('Password:')} `);
+    const password = rawPassword.replace(/\s+/g, '');
+    if (!password) {
+      fail('No password entered.');
+      if (attempt === MAX_PASSWORD_ATTEMPTS) {
+        info('Exiting — re-run `agenticmail setup-email` when ready.');
+        log('');
+        process.exit(1);
       }
+      info(`Try again ${c.dim(`(attempt ${attempt + 1} of ${MAX_PASSWORD_ATTEMPTS})`)}`);
+      continue;
+    }
+
+    log('');
+    const spinner = new Spinner('relay');
+    spinner.start();
+
+    // Timeout note: SMTP + IMAP handshake against Gmail / Outlook can
+    // take 20–40 s on slow links (TLS negotiation + first-time IMAP
+    // mailbox enumeration). 30 s was tight; 90 s covers the long tail
+    // without making the operator wait forever on a truly dead server.
+    let response: Response;
+    try {
+      response = await fetch(`${apiBase}/api/agenticmail/gateway/relay`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.masterKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider, email, password, agentName,
+          smtpHost, smtpPort, imapHost, imapPort,
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+    } catch (err) {
+      const msg = (err as Error).message;
+      const isTimeout = msg.includes('aborted due to timeout') || (err as Error).name === 'TimeoutError' || (err as Error).name === 'AbortError';
+      if (isTimeout) {
+        spinner.fail('Mail server took too long to respond (>90 s).');
+        if (attempt < MAX_PASSWORD_ATTEMPTS) {
+          log(`  ${c.yellow('Could be a flaky link or a slow IMAP handshake. Try again.')} ${c.dim(`(attempt ${attempt + 1} of ${MAX_PASSWORD_ATTEMPTS})`)}`);
+          log('');
+          continue;
+        }
+        log('');
+        info('If this keeps happening, check the API logs at ~/.agenticmail/logs/server.log');
+        log('');
+        process.exit(1);
+      }
+      spinner.fail(`Couldn't reach the API: ${msg}`);
       log('');
       process.exit(1);
     }
 
-    const data = await response.json() as any;
-    spinner.succeed(`Mailbox connected — ${c.bold(email)} ${c.dim('via ' + provider)}`);
-    if (data?.agent?.subAddress) {
+    if (response.ok) {
+      const data = await response.json() as any;
+      spinner.succeed(`Mailbox connected — ${c.bold(email)} ${c.dim('via ' + provider)}`);
+      if (data?.agent?.subAddress) {
+        log('');
+        ok(`Agent ${c.bold('"' + (data.agent.name ?? agentName) + '"')} ready at ${c.cyan(data.agent.subAddress)}`);
+      }
       log('');
-      ok(`Agent ${c.bold('"' + (data.agent.name ?? agentName) + '"')} ready at ${c.cyan(data.agent.subAddress)}`);
+      log(`  ${c.bold('Next:')} point bridge-escalation alerts at your personal email:`);
+      log('');
+      log(`    ${c.cyan('Option A')} — tell your host agent: "set my operator notification email to <you@example.com>"`);
+      log(`    ${c.cyan('Option B')} — open the web UI → click your avatar → ${c.bold('Alert email')} → type, Save`);
+      log('');
+      return;
     }
+
+    // Non-OK response — figure out whether it's recoverable (auth) or fatal.
+    const text = await response.text();
+    const friendly = parseFriendlyError(text);
+    spinner.fail(friendly.message);
+
+    if (friendly.isAuthError && attempt < MAX_PASSWORD_ATTEMPTS) {
+      log(`  ${c.yellow('Wrong password — try again.')} ${c.dim(`(attempt ${attempt + 1} of ${MAX_PASSWORD_ATTEMPTS})`)}`);
+      log('');
+      continue;
+    }
+    // Non-auth error (mail server unreachable, server config issue) or
+    // we've exhausted our password attempts — surface and exit. Operator
+    // can re-run after fixing whatever the underlying issue is.
     log('');
-    log(`  ${c.bold('Next:')} point bridge-escalation alerts at your personal email:`);
-    log('');
-    log(`    ${c.cyan('Option A')} — tell your host agent: "set my operator notification email to <you@example.com>"`);
-    log(`    ${c.cyan('Option B')} — open the web UI → click your avatar → ${c.bold('Alert email')} → type, Save`);
-    log('');
-  } catch (err) {
-    spinner.fail(`Setup-email failed: ${(err as Error).message}`);
+    if (friendly.isAuthError) {
+      info('Check the email + password and re-run `agenticmail setup-email`.');
+    }
     log('');
     process.exit(1);
   }

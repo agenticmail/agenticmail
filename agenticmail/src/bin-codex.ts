@@ -6,6 +6,7 @@
  *
  * See bin-host-shim.ts for the full rationale.
  */
+import './suppress-experimental-warnings.js';
 import { runHostBin } from './bin-host-shim.js';
 
 runHostBin('@agenticmail/codex', 'agenticmail-codex');

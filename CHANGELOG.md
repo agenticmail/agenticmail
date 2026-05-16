@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.39] - 2026-05-15
+
+### Fixed — three rough edges from 0.9.38's `setup-email` shakedown
+
+User reports during operator testing of the new `agenticmail setup-email` flow:
+
+**1. Node SQLite ExperimentalWarning leaks all over the CLI.** Every invocation of any subcommand printed two lines of `(node:NNNNN) ExperimentalWarning: SQLite is an experimental feature and might change at any time` because `@agenticmail/core` uses Node's built-in `node:sqlite` and Node fires the warning when the module first loads. Operators didn't choose the storage engine and the warning is unactionable noise.
+
+Fix: a new side-effecting module `agenticmail/src/suppress-experimental-warnings.ts` imported first in all three bin entries (`cli.ts`, `bin-claudecode.ts`, `bin-codex.ts`). It hooks `process.emit('warning', …)` and drops only the SQLite ExperimentalWarning — every other warning (deprecations, unhandled promises, user-opted experimental flags) passes through to Node's default printer. Has to be a separate module imported first because ESM hoists all imports before any module body runs; inline code at the top of `cli.ts` would fire after `@agenticmail/core` is already loaded.
+
+**2. Typo'd email tore the whole flow down with a single-shot exit.** Operator typed `astrumsphere@gmail` (missing `.com`), got `✗ That doesn't look like a valid email address`, and the process exited. Forced a full re-run.
+
+Fix: email prompt now loops up to 5 times with a stricter shape check (`^[^\s@]+@[^\s@]+\.[^\s@]+$` — catches missing TLDs). Same pattern for the password prompt — empty input re-prompts up to 3 times instead of exiting on the first miss.
+
+**3. SMTP/IMAP verification timed out at 30 s, fatal exit.** Gmail's first-time IMAP handshake on a slow link can take 30–60 s (TLS negotiation + mailbox enumeration). The 30 s `AbortSignal.timeout(30_000)` we copied from `setup-relay` was too tight; operators on coffee-shop Wi-Fi hit `Setup-email failed: The operation was aborted due to timeout` and had to re-run from scratch.
+
+Fix: bumped timeout to 90 s. AND on `AbortError` / `TimeoutError`, the password loop offers a retry instead of exiting (since a flaky link doesn't mean the password is wrong). Auth errors still retry within the password loop — they did before; this entry's just for the non-auth timeout path.
+
+### Files
+
+- `agenticmail/src/suppress-experimental-warnings.ts` — new side-effect module that hooks `process.emit` and drops the SQLite warning specifically. Wrapped in a block scope so no module-level binding leaks into the type-declaration output (avoids TS4023).
+- `agenticmail/src/cli.ts` — added `import './suppress-experimental-warnings.js';` as the first import. Replaced single-shot exits in `cmdSetupEmail` with email loop (5 attempts) and password loop (3 attempts). Bumped relay fetch timeout 30 s → 90 s. On timeout/abort, password loop retries instead of exiting.
+- `agenticmail/src/bin-claudecode.ts`, `agenticmail/src/bin-codex.ts` — added the same first-import of the suppression module so the host-bin shims don't leak the warning either.
+- `agenticmail/package.json` — version → 0.9.39.
+
 ## [0.9.38] - 2026-05-15
 
 ### Added — `agenticmail setup-email`: two-question relay setup, any provider
