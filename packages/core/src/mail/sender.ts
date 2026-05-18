@@ -10,6 +10,7 @@ export interface MailSenderOptions {
   password: string;
   authUser?: string;
   secure?: boolean;
+  tlsRejectUnauthorized?: boolean;
 }
 
 export interface SendResultWithRaw extends SendResult {
@@ -32,7 +33,7 @@ export class MailSender {
         pass: options.password,
       },
       tls: {
-        rejectUnauthorized: false, // Local dev — no TLS
+        rejectUnauthorized: options.tlsRejectUnauthorized ?? true,
       },
       connectionTimeout: 10_000, // 10s to establish TCP connection
       greetingTimeout: 10_000,   // 10s for SMTP greeting

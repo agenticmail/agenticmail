@@ -91,6 +91,29 @@ function encodeBase64(str) {
   return btoa(str);
 }
 
+class ClientRequestError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const CONTROL_CHARS = /[\r\n\x00-\x1F\x7F]/;
+
+function assertHeaderValue(value, field) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "string" || CONTROL_CHARS.test(value)) {
+    throw new ClientRequestError(`${field} contains invalid characters`);
+  }
+}
+
+function assertEnvelopeAddress(value, field) {
+  assertHeaderValue(value, field);
+  if (!value || /[<>\s]/.test(value) || !/^[^@]+@[^@]+$/.test(value)) {
+    throw new ClientRequestError(`${field} must be a plain email address`);
+  }
+}
+
 async function smtpLogin(smtp, user, pass) {
   // Try AUTH LOGIN
   const authResp = await smtp.command("AUTH LOGIN");
@@ -111,6 +134,13 @@ async function smtpLogin(smtp, user, pass) {
 
 function buildRawEmail({ from, to, subject, text, html, replyTo, inReplyTo, references }) {
   const recipients = Array.isArray(to) ? to : [to];
+  assertEnvelopeAddress(from, "from");
+  for (const recipient of recipients) assertEnvelopeAddress(recipient, "recipient");
+  assertHeaderValue(subject, "subject");
+  if (replyTo) assertEnvelopeAddress(replyTo, "replyTo");
+  assertHeaderValue(inReplyTo, "inReplyTo");
+  assertHeaderValue(references, "references");
+
   const domain = from.split("@")[1];
   const msgId = "<" + crypto.randomUUID() + "@" + domain + ">";
   const boundary = "----=_Part_" + Date.now().toString(36);
@@ -150,6 +180,9 @@ function buildRawEmail({ from, to, subject, text, html, replyTo, inReplyTo, refe
 // --- SMTP Relay Delivery ---
 
 async function relayEmail(from, to, rawEmail, env) {
+  assertEnvelopeAddress(from, "from");
+  assertEnvelopeAddress(to, "recipient");
+
   const host = env.SMTP_HOST || "smtp.gmail.com";
   const port = parseInt(env.SMTP_PORT || "465", 10);
   const user = env.SMTP_USER;
@@ -248,8 +281,16 @@ export default {
       return new Response("Method not allowed", { status: 405 });
     }
 
+    const configuredSecret = env.OUTBOUND_SECRET;
+    if (!configuredSecret || typeof configuredSecret !== "string") {
+      return new Response(JSON.stringify({ error: "OUTBOUND_SECRET must be configured" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const secret = request.headers.get("X-Outbound-Secret");
-    if (secret !== (env.OUTBOUND_SECRET || "outbound_2sabi_secret_key")) {
+    if (secret !== configuredSecret) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
@@ -288,7 +329,7 @@ export default {
     } catch (err) {
       return new Response(
         JSON.stringify({ error: err.message }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        { status: err.status || 500, headers: { "Content-Type": "application/json" } }
       );
     }
   },

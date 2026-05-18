@@ -39,6 +39,34 @@ interface IndexDef {
 
 // ─── Helpers ────────────────────────────────────────────
 
+const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+class StorageRouteError extends Error {
+  constructor(message: string, public statusCode = 400) {
+    super(message);
+  }
+}
+
+function sendStorageError(res: Response, err: any): void {
+  const statusCode = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
+  res.status(statusCode).json({ error: err?.message || 'Storage operation failed' });
+}
+
+function requireIdentifier(value: unknown, label = 'identifier'): string {
+  if (typeof value !== 'string' || !IDENTIFIER_RE.test(value)) {
+    throw new StorageRouteError(`${label} contains invalid characters`);
+  }
+  return value;
+}
+
+function requireIdentifierList(values: string[], label: string): string[] {
+  return values.map((value) => requireIdentifier(value, label));
+}
+
+function escapeSqlString(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 function mapColumnType(col: ColumnDef, dialect: string): string {
   const typeMap: Record<string, Record<string, string>> = {
     sqlite: { text: 'TEXT', integer: 'INTEGER', real: 'REAL', boolean: 'INTEGER', json: 'JSON', blob: 'BLOB', timestamp: 'TEXT' },
@@ -50,7 +78,8 @@ function mapColumnType(col: ColumnDef, dialect: string): string {
 }
 
 function buildColumnDDL(col: ColumnDef, dialect: string): string {
-  let ddl = `${col.name} ${mapColumnType(col, dialect)}`;
+  const columnName = requireIdentifier(col.name, 'column name');
+  let ddl = `${columnName} ${mapColumnType(col, dialect)}`;
   if (col.primaryKey) ddl += ' PRIMARY KEY';
   if (col.required && !col.primaryKey) ddl += ' NOT NULL';
   if (col.unique && !col.primaryKey) ddl += ' UNIQUE';
@@ -81,7 +110,7 @@ function buildColumnDDL(col: ColumnDef, dialect: string): string {
       const trimmed = col.default.slice(0, 500).trim();
       const isSqlExpr = /\(.*\)/.test(trimmed)
         || /^CURRENT_(?:TIMESTAMP|DATE|TIME)$/i.test(trimmed);
-      val = isSqlExpr ? `(${trimmed})` : `'${col.default.replace(/'/g, "''")}'`;
+      val = isSqlExpr ? `(${trimmed})` : `'${escapeSqlString(col.default)}'`;
     } else {
       val = col.default;
     }
@@ -89,7 +118,7 @@ function buildColumnDDL(col: ColumnDef, dialect: string): string {
   }
   if (col.check) ddl += ` CHECK (${col.check})`;
   if (col.references) {
-    ddl += ` REFERENCES ${col.references.table}(${col.references.column})`;
+    ddl += ` REFERENCES ${requireIdentifier(col.references.table, 'reference table')}(${requireIdentifier(col.references.column, 'reference column')})`;
     if (col.references.onDelete) ddl += ` ON DELETE ${col.references.onDelete}`;
   }
   return ddl;
@@ -108,54 +137,112 @@ function resolveTable(agentId: string, name: string): string {
 }
 
 function isSafeTable(tableName: string): boolean {
-  return tableName.startsWith('agt_') || tableName.startsWith('shared_');
+  return IDENTIFIER_RE.test(tableName) && (tableName.startsWith('agt_') || tableName.startsWith('shared_'));
 }
 
 function buildWhereClause(where: Record<string, any>): { sql: string; params: any[] } {
   const params: any[] = [];
   const conditions = Object.entries(where).map(([k, v]) => {
-    if (v === null) return `${k} IS NULL`;
+    const column = requireIdentifier(k, 'where key');
+    if (v === null) return `${column} IS NULL`;
     if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
       // Operator objects: { $gt: 5, $lt: 10, $like: '%foo%', $ne: 'bar', $is_null: true, $in: [1,2,3] }
       const ops = Object.entries(v).map(([op, val]) => {
         switch (op) {
-          case '$gt': params.push(val); return `${k} > ?`;
-          case '$gte': params.push(val); return `${k} >= ?`;
-          case '$lt': params.push(val); return `${k} < ?`;
-          case '$lte': params.push(val); return `${k} <= ?`;
-          case '$ne': params.push(val); return `${k} != ?`;
-          case '$like': params.push(val); return `${k} LIKE ?`;
-          case '$ilike': params.push(val); return `LOWER(${k}) LIKE LOWER(?)`;
-          case '$not_like': params.push(val); return `${k} NOT LIKE ?`;
+          case '$gt': params.push(val); return `${column} > ?`;
+          case '$gte': params.push(val); return `${column} >= ?`;
+          case '$lt': params.push(val); return `${column} < ?`;
+          case '$lte': params.push(val); return `${column} <= ?`;
+          case '$ne': params.push(val); return `${column} != ?`;
+          case '$like': params.push(val); return `${column} LIKE ?`;
+          case '$ilike': params.push(val); return `LOWER(${column}) LIKE LOWER(?)`;
+          case '$not_like': params.push(val); return `${column} NOT LIKE ?`;
           case '$in': {
+            if (!Array.isArray(val)) throw new StorageRouteError('$in requires an array value');
             const arr = val as any[];
             params.push(...arr);
-            return `${k} IN (${arr.map(() => '?').join(', ')})`;
+            return `${column} IN (${arr.map(() => '?').join(', ')})`;
           }
           case '$not_in': {
+            if (!Array.isArray(val)) throw new StorageRouteError('$not_in requires an array value');
             const arr = val as any[];
             params.push(...arr);
-            return `${k} NOT IN (${arr.map(() => '?').join(', ')})`;
+            return `${column} NOT IN (${arr.map(() => '?').join(', ')})`;
           }
-          case '$is_null': return val ? `${k} IS NULL` : `${k} IS NOT NULL`;
+          case '$is_null': return val ? `${column} IS NULL` : `${column} IS NOT NULL`;
           case '$between': {
+            if (!Array.isArray(val) || val.length !== 2) throw new StorageRouteError('$between requires a two-item array');
             const [lo, hi] = val as [any, any];
             params.push(lo, hi);
-            return `${k} BETWEEN ? AND ?`;
+            return `${column} BETWEEN ? AND ?`;
           }
-          default: params.push(val); return `${k} = ?`;
+          default:
+            throw new StorageRouteError(`Unsupported where operator: ${op}`);
         }
       });
       return ops.join(' AND ');
     }
     if (Array.isArray(v)) {
       params.push(...v);
-      return `${k} IN (${v.map(() => '?').join(', ')})`;
+      return `${column} IN (${v.map(() => '?').join(', ')})`;
     }
     params.push(typeof v === 'object' ? JSON.stringify(v) : v);
-    return `${k} = ?`;
+    return `${column} = ?`;
   });
   return { sql: conditions.join(' AND '), params };
+}
+
+function buildOrderBy(orderBy: string): string {
+  const parts = orderBy.split(',').map((part) => {
+    const match = part.trim().match(/^([A-Za-z_][A-Za-z0-9_]{0,63})(?:\s+(ASC|DESC))?$/i);
+    if (!match) throw new StorageRouteError('orderBy contains invalid characters');
+    return `${match[1]}${match[2] ? ` ${match[2].toUpperCase()}` : ''}`;
+  });
+  return parts.join(', ');
+}
+
+function buildGroupBy(groupBy: string): string {
+  return requireIdentifierList(groupBy.split(',').map((part) => part.trim()), 'groupBy column').join(', ');
+}
+
+function extractTableRefs(sql: string): string[] {
+  const refs = new Set<string>();
+  const refPattern = /\b(?:FROM|INTO|UPDATE|TABLE|JOIN)\s+["`[]?([A-Za-z_][A-Za-z0-9_]{0,63})["`\]]?/gi;
+  for (const match of sql.matchAll(refPattern)) refs.add(match[1]);
+  // Hardening — the FROM/JOIN-anchored scan above misses tables in a
+  // comma-join list (`FROM agt_mine, agt_victim` only captures the
+  // first). Catch EVERY storage-table-shaped token anywhere in the
+  // query as a backstop: any agt_*/shared_*/metadata token must be
+  // ownership-checked by verifySqlAccess, comma-join or not.
+  const storageTokenPattern = /\b(agt_[A-Za-z0-9_]+|shared_[A-Za-z0-9_]+|agenticmail_storage_meta)\b/gi;
+  for (const match of sql.matchAll(storageTokenPattern)) refs.add(match[1]);
+  return [...refs];
+}
+
+/**
+ * Hardening — `having` was the one query clause still interpolated raw
+ * into SQL after the #GHSA storage patch validated `groupBy`/`orderBy`.
+ * HAVING legitimately needs aggregate expressions (`COUNT(*) > 5`), so
+ * it can't be identifier-validated like the others. Instead: bound the
+ * length and reject statement-breaking constructs (stacked statements,
+ * comment markers) and any DDL/DML keyword. The caller already owns the
+ * table and is authenticated, so a HAVING expression that can't escape
+ * the SELECT or run DDL/DML has no meaningful blast radius.
+ */
+function sanitizeHavingClause(having: string): string {
+  if (typeof having !== 'string') {
+    throw new StorageRouteError('having must be a string');
+  }
+  if (having.length > 200) {
+    throw new StorageRouteError('having clause is too long (max 200 chars)');
+  }
+  if (/;|--|\/\*|\*\//.test(having)) {
+    throw new StorageRouteError('having clause contains a forbidden token');
+  }
+  if (/\b(DROP|DELETE|INSERT|UPDATE|UNION|ATTACH|DETACH|PRAGMA|CREATE|ALTER|REPLACE|EXEC|VACUUM)\b/i.test(having)) {
+    throw new StorageRouteError('having clause contains a forbidden keyword');
+  }
+  return having;
 }
 
 function nowExpr(dialect: string): string {
@@ -253,6 +340,25 @@ export function createStorageRoutes(
     return meta;
   }
 
+  async function verifySqlAccess(agent: { id: string }, sql: string): Promise<void> {
+    const tableRefs = extractTableRefs(sql);
+    for (const tbl of tableRefs) {
+      if (tbl === 'agenticmail_storage_meta') {
+        throw new StorageRouteError('Direct SQL access to storage metadata is not allowed', 403);
+      }
+      if (!isSafeTable(tbl)) {
+        throw new StorageRouteError(`Cannot operate on table "${tbl}". Only agt_* and shared_* tables are allowed.`, 403);
+      }
+      const meta = await db.get('SELECT * FROM agenticmail_storage_meta WHERE table_name = ?', [tbl]);
+      if (!meta) {
+        throw new StorageRouteError(`Table "${tbl}" is not registered in storage metadata`, 404);
+      }
+      if (meta.agent_id !== agent.id && !meta.shared) {
+        throw new StorageRouteError(`Access denied for table "${tbl}"`, 403);
+      }
+    }
+  }
+
   // ─── Metadata tracking table ────────────────────────
   const ensureMetaTable = (() => {
     let done = false;
@@ -327,14 +433,15 @@ export function createStorageRoutes(
       if (indexes?.length) {
         for (let i = 0; i < indexes.length; i++) {
           const idx = indexes[i];
-          const idxName = idx.name || `idx_${tableName}_${idx.columns.join('_')}`;
+          const idxColumns = requireIdentifierList(idx.columns, 'index column');
+          const idxName = idx.name ? requireIdentifier(idx.name, 'index name') : `idx_${tableName}_${idxColumns.join('_')}`;
           const unique = idx.unique ? 'UNIQUE ' : '';
-          let idxSql = `CREATE ${unique}INDEX IF NOT EXISTS ${idxName} ON ${tableName}(${idx.columns.join(', ')})`;
+          let idxSql = `CREATE ${unique}INDEX IF NOT EXISTS ${idxName} ON ${tableName}(${idxColumns.join(', ')})`;
           if (idx.where && (dialect === 'sqlite' || dialect === 'postgres' || dialect === 'turso')) {
             idxSql += ` WHERE ${idx.where}`;
           }
           await db.run(idxSql);
-          idxMeta.push({ name: idxName, columns: idx.columns, unique: !!idx.unique, where: idx.where });
+          idxMeta.push({ name: idxName, columns: idxColumns, unique: !!idx.unique, where: idx.where });
         }
       }
 
@@ -344,7 +451,7 @@ export function createStorageRoutes(
       );
 
       res.json({ ok: true, table: tableName, columns: allCols, indexes: idxMeta });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── GET /storage/tables — List tables ──────────────
@@ -379,7 +486,7 @@ export function createStorageRoutes(
           updatedAt: t.updated_at,
         })),
       });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── GET /storage/tables/:name/describe — Full schema ─
@@ -436,7 +543,7 @@ export function createStorageRoutes(
         dbIndexes: indexInfo,
         createdAt: meta.created_at,
       });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/tables/:name/columns — Add column ─
@@ -461,7 +568,7 @@ export function createStorageRoutes(
       await db.run(`UPDATE agenticmail_storage_meta SET columns = ?, updated_at = ${nowExpr(dialect)} WHERE table_name = ?`, [JSON.stringify(cols), tableName]);
 
       res.json({ ok: true, column: column.name });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── DELETE /storage/tables/:name/columns/:col — Drop column ─
@@ -489,7 +596,7 @@ export function createStorageRoutes(
       await db.run(`UPDATE agenticmail_storage_meta SET columns = ?, updated_at = ${nowExpr(dialect)} WHERE table_name = ?`, [JSON.stringify(cols), tableName]);
 
       res.json({ ok: true, dropped: colName });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/tables/:name/rename — Rename table ─
@@ -513,7 +620,7 @@ export function createStorageRoutes(
         [newTableName, newName, tableName]);
 
       res.json({ ok: true, oldTable: tableName, newTable: newTableName });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/tables/:name/rename-column — Rename column ─
@@ -539,7 +646,7 @@ export function createStorageRoutes(
       await db.run(`UPDATE agenticmail_storage_meta SET columns = ?, updated_at = ${nowExpr(dialect)} WHERE table_name = ?`, [JSON.stringify(cols), tableName]);
 
       res.json({ ok: true, oldName, newName });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── DELETE /storage/tables/:name — Drop table ──────
@@ -558,7 +665,7 @@ export function createStorageRoutes(
       await db.run('DELETE FROM agenticmail_storage_meta WHERE table_name = ?', [tableName]);
 
       res.json({ ok: true, dropped: tableName });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/tables/:name/clone — Clone table ─
@@ -593,7 +700,7 @@ export function createStorageRoutes(
       );
 
       res.json({ ok: true, table: newTableName, rows: countResult?.cnt || 0 });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
 
@@ -629,7 +736,7 @@ export function createStorageRoutes(
       await db.run(`UPDATE agenticmail_storage_meta SET indexes = ?, updated_at = ${nowExpr(dialect)} WHERE table_name = ?`, [JSON.stringify(indexes), tableName]);
 
       res.json({ ok: true, index: finalName });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── GET /storage/tables/:name/indexes — List indexes ─
@@ -658,7 +765,7 @@ export function createStorageRoutes(
       }
 
       res.json({ indexes: dbIndexes });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── DELETE /storage/tables/:name/indexes/:idx — Drop index ─
@@ -685,7 +792,7 @@ export function createStorageRoutes(
       await db.run(`UPDATE agenticmail_storage_meta SET indexes = ?, updated_at = ${nowExpr(dialect)} WHERE table_name = ?`, [JSON.stringify(indexes), tableName]);
 
       res.json({ ok: true, dropped: idxName });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/tables/:name/reindex — Rebuild indexes ─
@@ -709,7 +816,7 @@ export function createStorageRoutes(
       }
 
       res.json({ ok: true });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
 
@@ -736,7 +843,7 @@ export function createStorageRoutes(
 
       let inserted = 0;
       for (const row of rows) {
-        const keys = Object.keys(row);
+        const keys = requireIdentifierList(Object.keys(row), 'row key');
         const vals = Object.values(row).map(v => typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
         const placeholders = keys.map(() => '?').join(', ');
         await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders})`, vals);
@@ -748,7 +855,7 @@ export function createStorageRoutes(
       await db.run('UPDATE agenticmail_storage_meta SET row_count = ?, updated_at = ' + nowExpr(dialect) + ' WHERE table_name = ?', [countResult?.cnt || 0, tableName]);
 
       res.json({ ok: true, inserted });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/upsert — Insert or update on conflict ─
@@ -768,23 +875,24 @@ export function createStorageRoutes(
       if (!meta) return;
 
       let upserted = 0;
+      const safeConflictColumn = requireIdentifier(conflictColumn, 'conflict column');
       for (const row of rows) {
-        const keys = Object.keys(row);
+        const keys = requireIdentifierList(Object.keys(row), 'row key');
         const vals = Object.values(row).map(v => typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
         const placeholders = keys.map(() => '?').join(', ');
-        const updateCols = keys.filter(k => k !== conflictColumn).map(k => `${k} = excluded.${k}`).join(', ');
+        const updateCols = keys.filter(k => k !== safeConflictColumn).map(k => `${k} = excluded.${k}`).join(', ');
 
         if (dialect === 'mysql') {
-          const dupUpdate = keys.filter(k => k !== conflictColumn).map(k => `${k} = VALUES(${k})`).join(', ');
+          const dupUpdate = keys.filter(k => k !== safeConflictColumn).map(k => `${k} = VALUES(${k})`).join(', ');
           await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${dupUpdate}`, vals);
         } else {
-          await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${conflictColumn}) DO UPDATE SET ${updateCols}`, vals);
+          await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${safeConflictColumn}) DO UPDATE SET ${updateCols}`, vals);
         }
         upserted++;
       }
 
       res.json({ ok: true, upserted });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/query — Query rows ───────────────
@@ -814,7 +922,7 @@ export function createStorageRoutes(
       const meta = await verifyAccess(agent, tableName, res);
       if (!meta) return;
 
-      const selectCols = columns?.length ? columns.join(', ') : '*';
+      const selectCols = columns?.length ? requireIdentifierList(columns, 'selected column').join(', ') : '*';
       let sql = `SELECT ${distinct ? 'DISTINCT ' : ''}${selectCols} FROM ${tableName}`;
       let params: any[] = [];
 
@@ -824,15 +932,15 @@ export function createStorageRoutes(
         params = w.params;
       }
 
-      if (groupBy) sql += ` GROUP BY ${groupBy.replace(/[^a-zA-Z0-9_, ()]/g, '')}`;
-      if (having) sql += ` HAVING ${having}`;
-      if (orderBy) sql += ` ORDER BY ${orderBy.replace(/[^a-zA-Z0-9_, ]/g, '')}`;
+      if (groupBy) sql += ` GROUP BY ${buildGroupBy(groupBy)}`;
+      if (having) sql += ` HAVING ${sanitizeHavingClause(having)}`;
+      if (orderBy) sql += ` ORDER BY ${buildOrderBy(orderBy)}`;
       if (limit) { sql += ' LIMIT ?'; params.push(limit); }
       if (offset) { sql += ' OFFSET ?'; params.push(offset); }
 
       const rows = await db.all(sql, params);
       res.json({ rows, count: rows.length });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/aggregate — Aggregate queries ────
@@ -858,8 +966,8 @@ export function createStorageRoutes(
       if (!meta) return;
 
       const selects = operations.map((op, i) => {
-        const alias = op.alias || `${op.fn}_${op.column || 'all'}`;
-        const col = op.column || '*';
+        const alias = requireIdentifier(op.alias || `${op.fn}_${op.column || 'all'}`, 'operation alias');
+        const col = op.column ? requireIdentifier(op.column, 'operation column') : '*';
         switch (op.fn) {
           case 'count': return `COUNT(${col}) as ${alias}`;
           case 'count_distinct': return `COUNT(DISTINCT ${col}) as ${alias}`;
@@ -871,7 +979,8 @@ export function createStorageRoutes(
         }
       });
 
-      let sql = `SELECT ${groupBy ? groupBy + ', ' : ''}${selects.join(', ')} FROM ${tableName}`;
+      const groupBySql = groupBy ? buildGroupBy(groupBy) : '';
+      let sql = `SELECT ${groupBySql ? groupBySql + ', ' : ''}${selects.join(', ')} FROM ${tableName}`;
       let params: any[] = [];
 
       if (where && Object.keys(where).length) {
@@ -880,11 +989,11 @@ export function createStorageRoutes(
         params = w.params;
       }
 
-      if (groupBy) sql += ` GROUP BY ${groupBy.replace(/[^a-zA-Z0-9_, ]/g, '')}`;
+      if (groupBySql) sql += ` GROUP BY ${groupBySql}`;
 
       const rows = await db.all(sql, params);
       res.json({ result: rows });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/update — Update rows ─────────────
@@ -903,13 +1012,14 @@ export function createStorageRoutes(
       const meta = await verifyAccess(agent, tableName, res);
       if (!meta) return;
 
-      const setClauses = Object.keys(set).map(k => `${k} = ?`);
+      const setKeys = requireIdentifierList(Object.keys(set), 'set key');
+      const setClauses = setKeys.map(k => `${k} = ?`);
       const setVals = Object.values(set).map(v => typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
       const w = buildWhereClause(where);
 
       await db.run(`UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE ${w.sql}`, [...setVals, ...w.params]);
       res.json({ ok: true });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/delete-rows — Delete rows ───────
@@ -935,7 +1045,7 @@ export function createStorageRoutes(
       await db.run('UPDATE agenticmail_storage_meta SET row_count = ?, updated_at = ' + nowExpr(dialect) + ' WHERE table_name = ?', [countResult?.cnt || 0, tableName]);
 
       res.json({ ok: true });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/truncate — Delete all rows ──────
@@ -958,7 +1068,7 @@ export function createStorageRoutes(
 
       await db.run('UPDATE agenticmail_storage_meta SET row_count = 0, updated_at = ' + nowExpr(dialect) + ' WHERE table_name = ?', [tableName]);
       res.json({ ok: true });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
 
@@ -981,7 +1091,7 @@ export function createStorageRoutes(
       await db.run(`UPDATE agenticmail_storage_meta SET table_name = ?, archived_at = ${nowExpr(dialect)} WHERE table_name = ?`, [archivedName, tableName]);
 
       res.json({ ok: true, archived: archivedName });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   router.post('/storage/tables/:name/unarchive', async (req: Request, res: Response) => {
@@ -1000,7 +1110,7 @@ export function createStorageRoutes(
       await db.run('UPDATE agenticmail_storage_meta SET table_name = ?, archived_at = NULL WHERE table_name = ?', [restoredName, archivedName]);
 
       res.json({ ok: true, restored: restoredName });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
 
@@ -1048,7 +1158,7 @@ export function createStorageRoutes(
       }
 
       res.json({ rows, rowCount: rows.length });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/tables/:name/import — Bulk import ─
@@ -1075,24 +1185,26 @@ export function createStorageRoutes(
       let skipped = 0;
 
       for (const row of rows) {
-        const keys = Object.keys(row);
+        const keys = requireIdentifierList(Object.keys(row), 'row key');
         const vals = Object.values(row).map(v => typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
         const placeholders = keys.map(() => '?').join(', ');
 
         try {
           if (onConflict === 'replace' && conflictColumn) {
-            const updateCols = keys.filter(k => k !== conflictColumn).map(k => `${k} = excluded.${k}`).join(', ');
+            const safeConflictColumn = requireIdentifier(conflictColumn, 'conflict column');
+            const updateCols = keys.filter(k => k !== safeConflictColumn).map(k => `${k} = excluded.${k}`).join(', ');
             if (dialect === 'mysql') {
-              const dupUpdate = keys.filter(k => k !== conflictColumn).map(k => `${k} = VALUES(${k})`).join(', ');
+              const dupUpdate = keys.filter(k => k !== safeConflictColumn).map(k => `${k} = VALUES(${k})`).join(', ');
               await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${dupUpdate}`, vals);
             } else {
-              await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${conflictColumn}) DO UPDATE SET ${updateCols}`, vals);
+              await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${safeConflictColumn}) DO UPDATE SET ${updateCols}`, vals);
             }
           } else if (onConflict === 'skip' && conflictColumn) {
+            const safeConflictColumn = requireIdentifier(conflictColumn, 'conflict column');
             if (dialect === 'mysql') {
               await db.run(`INSERT IGNORE INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders})`, vals);
             } else {
-              await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${conflictColumn}) DO NOTHING`, vals);
+              await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders}) ON CONFLICT(${safeConflictColumn}) DO NOTHING`, vals);
             }
           } else {
             await db.run(`INSERT INTO ${tableName} (${keys.join(', ')}) VALUES (${placeholders})`, vals);
@@ -1108,7 +1220,7 @@ export function createStorageRoutes(
       await db.run('UPDATE agenticmail_storage_meta SET row_count = ?, updated_at = ' + nowExpr(dialect) + ' WHERE table_name = ?', [countResult?.cnt || 0, tableName]);
 
       res.json({ ok: true, imported, skipped, totalRows: countResult?.cnt || 0 });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
 
@@ -1132,16 +1244,7 @@ export function createStorageRoutes(
         if (upper.includes(p)) return res.status(403).json({ error: `Operation not allowed: ${p}` });
       }
 
-      // Ensure the query references only safe tables
-      const tableRefs = sql.match(/(?:FROM|INTO|UPDATE|TABLE|JOIN)\s+(\w+)/gi);
-      if (tableRefs) {
-        for (const ref of tableRefs) {
-          const tbl = ref.split(/\s+/).pop()!;
-          if (!isSafeTable(tbl) && tbl !== 'agenticmail_storage_meta') {
-            return res.status(403).json({ error: `Cannot operate on table "${tbl}". Only agt_* and shared_* tables are allowed.` });
-          }
-        }
-      }
+      await verifySqlAccess(agent, sql);
 
       if (upper.startsWith('SELECT') || upper.startsWith('WITH') || upper.startsWith('EXPLAIN') || upper.startsWith('PRAGMA')) {
         const rows = await db.all(sql, params);
@@ -1150,7 +1253,7 @@ export function createStorageRoutes(
         await db.run(sql, params);
         return res.json({ ok: true });
       }
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
 
@@ -1191,7 +1294,7 @@ export function createStorageRoutes(
         dbSize,
         dialect,
       });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/vacuum — Optimize/compact database ─
@@ -1212,7 +1315,7 @@ export function createStorageRoutes(
         for (const t of tables) await db.run(`OPTIMIZE TABLE ${t.table_name}`);
       }
       res.json({ ok: true });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/analyze — Update query planner stats ─
@@ -1236,7 +1339,7 @@ export function createStorageRoutes(
       }
 
       res.json({ ok: true });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   // ─── POST /storage/explain — Query execution plan ───
@@ -1244,10 +1347,12 @@ export function createStorageRoutes(
   router.post('/storage/explain', async (req: Request, res: Response) => {
     const agent = getAgent(req, res);
     if (!agent) return;
+    await ensureMetaTable();
 
     try {
       const { sql, params } = req.body as { sql: string; params?: any[] };
       if (!sql) return res.status(400).json({ error: 'sql is required' });
+      await verifySqlAccess(agent, sql);
 
       let explainSql: string;
       if (dialect === 'postgres') {
@@ -1260,7 +1365,7 @@ export function createStorageRoutes(
 
       const plan = await db.all(explainSql, params);
       res.json({ plan });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendStorageError(res, err); }
   });
 
   return router;

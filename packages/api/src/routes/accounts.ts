@@ -17,6 +17,17 @@ function sanitizeAgent(agent: any): any {
   return agent;
 }
 
+function parsePositiveIntegerHours(value: unknown, fallback: number): number | null {
+  if (value === undefined || value === null || value === '') return fallback;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+  const text = String(raw).trim();
+  if (!/^\d+$/.test(text)) return null;
+  const parsed = Number.parseInt(text, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
 export function createAccountRoutes(accountManager: AccountManager, db: Database, config: AgenticMailConfig): Router {
   const router = Router();
   const deletionService = new AgentDeletionService(db, accountManager, config);
@@ -204,14 +215,18 @@ export function createAccountRoutes(accountManager: AccountManager, db: Database
   // IMPORTANT: Must be before /accounts/:id to avoid "inactive" matching as :id
   router.get('/accounts/inactive', requireMaster, async (_req, res, next) => {
     try {
-      const hours = Math.max(parseInt(_req.query.hours as string) || 24, 1);
+      const hours = parsePositiveIntegerHours(_req.query.hours, 24);
+      if (hours === null) {
+        res.status(400).json({ error: 'hours must be a positive integer' });
+        return;
+      }
       // Use COALESCE so agents with NULL last_activity_at fall back to created_at
       // (prevents brand-new agents from being flagged as inactive)
       const rows = db.prepare(
         `SELECT id, name, email, role, last_activity_at, persistent, created_at FROM agents
-         WHERE persistent = 0 AND COALESCE(last_activity_at, created_at) < datetime('now', '-${hours} hours')
+         WHERE persistent = 0 AND COALESCE(last_activity_at, created_at) < datetime('now', ?)
          ORDER BY COALESCE(last_activity_at, created_at) ASC`
-      ).all() as any[];
+      ).all(`-${hours} hours`) as any[];
       res.json({ agents: rows, count: rows.length });
     } catch (err) { next(err); }
   });
@@ -219,14 +234,18 @@ export function createAccountRoutes(accountManager: AccountManager, db: Database
   // Cleanup inactive non-persistent agents — requires master key
   router.post('/accounts/cleanup', requireMaster, async (req, res, next) => {
     try {
-      const hours = Math.max(parseInt(req.body?.hours as string) || 24, 1);
+      const hours = parsePositiveIntegerHours(req.body?.hours, 24);
+      if (hours === null) {
+        res.status(400).json({ error: 'hours must be a positive integer' });
+        return;
+      }
       const dryRun = req.body?.dryRun === true;
       // Use COALESCE so agents with NULL last_activity_at fall back to created_at
       // (prevents brand-new agents from being swept up in cleanup)
       const rows = db.prepare(
         `SELECT id, name, email FROM agents
-         WHERE persistent = 0 AND COALESCE(last_activity_at, created_at) < datetime('now', '-${hours} hours')`
-      ).all() as any[];
+         WHERE persistent = 0 AND COALESCE(last_activity_at, created_at) < datetime('now', ?)`
+      ).all(`-${hours} hours`) as any[];
 
       if (dryRun) {
         res.json({ wouldDelete: rows, count: rows.length, dryRun: true });
