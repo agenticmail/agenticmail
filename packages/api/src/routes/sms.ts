@@ -33,9 +33,12 @@ function secretMatches(provided: string, expected: string): boolean {
 
 export function createSmsWebhookRoutes(
   db: ReturnType<typeof import('@agenticmail/core').getDatabase>,
+  config: AgenticMailConfig,
 ): Router {
   const router = Router();
-  const smsManager = new SmsManager(db as any);
+  // Pass the master key so the webhook can decrypt the stored
+  // per-agent webhook secret for the timing-safe comparison below.
+  const smsManager = new SmsManager(db as any, config.masterKey);
 
   // POST /sms/webhook/46elks — Receive inbound SMS from 46elks without bearer auth.
   router.post('/sms/webhook/46elks', (req: Request, res: Response) => {
@@ -45,14 +48,18 @@ export function createSmsWebhookRoutes(
         return res.status(400).json({ error: 'Invalid 46elks SMS webhook payload' });
       }
 
+      // Security hardening — an unauthenticated caller must not be able to
+      // tell "no agent owns this number" (404) apart from "wrong secret"
+      // (403): that difference is a phone-number enumeration oracle.
+      // Resolve the agent and verify the secret, then return ONE uniform
+      // 403 for every failure mode (no match / no configured secret /
+      // missing or wrong provided secret). Only a fully valid, secret-
+      // authenticated request gets past this block.
       const match = smsManager.findAgentBySmsNumber(event.to, '46elks');
-      if (!match) {
-        return res.status(404).json({ error: 'No enabled 46elks SMS config found for recipient number' });
-      }
-
-      const expectedSecret = requestString(match.config.webhookSecret);
+      const expectedSecret = match ? requestString(match.config.webhookSecret) : '';
       const providedSecret = readWebhookSecret(req);
-      if (!expectedSecret || !providedSecret || !secretMatches(providedSecret, expectedSecret)) {
+      if (!match || !expectedSecret || !providedSecret
+          || !secretMatches(providedSecret, expectedSecret)) {
         return res.status(403).json({ error: 'Invalid SMS webhook secret' });
       }
 
@@ -87,7 +94,10 @@ export function createSmsRoutes(
   gatewayManager?: any,
 ): Router {
   const router = Router();
-  const smsManager = new SmsManager(db as any);
+  // Master key threads through so SMS provider credentials
+  // (46elks API password, webhook secret, GV forwarding password)
+  // are encrypted at rest in agent metadata, not stored plaintext.
+  const smsManager = new SmsManager(db as any, config.masterKey);
 
   /** Helper: get authenticated agent or return 401 */
   function getAgent(req: Request, res: Response): { id: string; email: string } | null {
@@ -155,6 +165,24 @@ export function createSmsRoutes(
         if (!requestString(webhookSecret)) {
           return res.status(400).json({ error: 'webhookSecret is required for provider "46elks"' });
         }
+        // Security hardening — the outbound SMS call sends the 46elks
+        // Basic-Auth credentials in the request header. If apiUrl were
+        // allowed to be a plaintext-http or arbitrary-scheme URL, those
+        // credentials could be exfiltrated over the wire or pointed at
+        // an internal host (SSRF). Require an https:// URL when an
+        // override is supplied; the built-in default is already https.
+        const apiUrlValue = requestString(apiUrl);
+        if (apiUrlValue) {
+          let parsedApiUrl: URL;
+          try {
+            parsedApiUrl = new URL(apiUrlValue);
+          } catch {
+            return res.status(400).json({ error: 'apiUrl must be a valid URL' });
+          }
+          if (parsedApiUrl.protocol !== 'https:') {
+            return res.status(400).json({ error: 'apiUrl must use https:// — credentials are sent on every request' });
+          }
+        }
 
         const smsConfig: SmsConfig = {
           enabled: true,
@@ -163,7 +191,7 @@ export function createSmsRoutes(
           username: requestString(username),
           password: requestString(password),
           webhookSecret: requestString(webhookSecret),
-          apiUrl: requestString(apiUrl) || undefined,
+          apiUrl: apiUrlValue || undefined,
           configuredAt: new Date().toISOString(),
         };
 
@@ -174,7 +202,8 @@ export function createSmsRoutes(
           sms: redactSmsConfig(smsConfig),
           nextSteps: [
             'Configure the inbound SMS webhook in 46elks for this number.',
-            'Set sms_url to /api/agenticmail/sms/webhook/46elks?secret=<webhookSecret> on this AgenticMail API host.',
+            'Point sms_url at /api/agenticmail/sms/webhook/46elks on this AgenticMail API host.',
+            'Authenticate the webhook by sending the secret in the "x-46elks-secret" request header (preferred — keeps it out of access logs). If your provider can only append query params, ?secret=<webhookSecret> also works.',
             'Outbound SMS will be sent directly through the configured 46elks API credentials.',
           ],
         });

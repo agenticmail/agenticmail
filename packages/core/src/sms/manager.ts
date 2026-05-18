@@ -11,6 +11,7 @@
  */
 
 import type { Database } from '../storage/db.js';
+import { encryptSecret, decryptSecret, isEncryptedSecret } from '../crypto/secrets.js';
 
 export interface SmsConfig {
   /** Whether SMS is enabled for this agent */
@@ -92,7 +93,15 @@ function asString(value: unknown): string {
 }
 
 function defaultApiUrl(config: SmsConfig): string {
-  return (config.apiUrl || 'https://api.46elks.com/a1').replace(/\/+$/, '');
+  const url = (config.apiUrl || 'https://api.46elks.com/a1').replace(/\/+$/, '');
+  // Defense-in-depth — the outbound call attaches Basic-Auth credentials,
+  // so the endpoint MUST be https. The /sms/setup route already rejects
+  // non-https overrides, but enforce it again at the point of use in case
+  // a config was persisted before that validation existed.
+  if (!/^https:\/\//i.test(url)) {
+    throw new Error('46elks apiUrl must use https:// — refusing to send credentials over a non-TLS connection');
+  }
+  return url;
 }
 
 function basicAuth(username: string, password: string): string {
@@ -418,11 +427,59 @@ export function extractVerificationCode(smsBody: string): string | null {
   return null;
 }
 
+/**
+ * Credential fields on SmsConfig that must never sit in plaintext at rest.
+ * The 46elks API password, the inbound-webhook shared secret, and the
+ * Google Voice forwarding-mailbox app password are all live credentials —
+ * a leaked SQLite file should not hand an attacker a working account.
+ */
+const SMS_SECRET_FIELDS = ['password', 'webhookSecret', 'forwardingPassword'] as const;
+
 export class SmsManager {
   private initialized = false;
 
-  constructor(private db: Database) {
+  /**
+   * Optional master key used to encrypt SMS credentials at rest (same
+   * AES-256-GCM scheme GatewayManager uses for relay/domain secrets).
+   * When absent (e.g. tests, or a deployment with no master key) configs
+   * are stored as-is and reads tolerate plaintext — so upgrades and
+   * downgrades both stay safe.
+   */
+  constructor(private db: Database, private encryptionKey?: string) {
     this.ensureTable();
+  }
+
+  /** Encrypt the credential fields of an SMS config before persisting. */
+  private encryptConfig(config: SmsConfig): SmsConfig {
+    if (!this.encryptionKey) return config;
+    const out: SmsConfig = { ...config };
+    for (const field of SMS_SECRET_FIELDS) {
+      const value = out[field];
+      // Only encrypt non-empty plaintext — never double-encrypt.
+      if (typeof value === 'string' && value && !isEncryptedSecret(value)) {
+        out[field] = encryptSecret(value, this.encryptionKey);
+      }
+    }
+    return out;
+  }
+
+  /** Decrypt the credential fields of an SMS config after loading. */
+  private decryptConfig(config: SmsConfig): SmsConfig {
+    if (!this.encryptionKey) return config;
+    const out: SmsConfig = { ...config };
+    for (const field of SMS_SECRET_FIELDS) {
+      const value = out[field];
+      if (typeof value === 'string' && isEncryptedSecret(value)) {
+        try {
+          out[field] = decryptSecret(value, this.encryptionKey);
+        } catch {
+          // Wrong key / corrupt blob — leave the ciphertext in place
+          // rather than crashing; the caller's auth check will simply
+          // fail closed.
+        }
+      }
+    }
+    return out;
   }
 
   private ensureTable(): void {
@@ -451,19 +508,20 @@ export class SmsManager {
     }
   }
 
-  /** Get SMS config from agent metadata */
+  /** Get SMS config from agent metadata (credential fields decrypted). */
   getSmsConfig(agentId: string): SmsConfig | null {
     const row = this.db.prepare('SELECT metadata FROM agents WHERE id = ?').get(agentId) as { metadata: string } | undefined;
     if (!row) return null;
     try {
       const meta = JSON.parse(row.metadata || '{}');
-      return meta.sms && meta.sms.enabled !== undefined ? meta.sms : null;
+      if (!meta.sms || meta.sms.enabled === undefined) return null;
+      return this.decryptConfig(meta.sms as SmsConfig);
     } catch {
       return null;
     }
   }
 
-  /** Save SMS config to agent metadata */
+  /** Save SMS config to agent metadata (credential fields encrypted). */
   saveSmsConfig(agentId: string, config: SmsConfig): void {
     const row = this.db.prepare('SELECT metadata FROM agents WHERE id = ?').get(agentId) as { metadata: string } | undefined;
     if (!row) throw new Error(`Agent ${agentId} not found`);
@@ -474,7 +532,7 @@ export class SmsManager {
     } catch {
       meta = {};
     }
-    meta.sms = config;
+    meta.sms = this.encryptConfig(config);
     this.db.prepare("UPDATE agents SET metadata = ?, updated_at = datetime('now') WHERE id = ?")
       .run(JSON.stringify(meta), agentId);
   }
@@ -531,7 +589,9 @@ export class SmsManager {
         if (!cfg?.enabled) continue;
         if (provider && cfg.provider !== provider) continue;
         if (normalizePhoneNumber(cfg.phoneNumber) === normalized) {
-          return { agentId: row.id, config: cfg };
+          // Decrypt before returning so callers (e.g. the webhook secret
+          // check) compare against the real plaintext, not ciphertext.
+          return { agentId: row.id, config: this.decryptConfig(cfg) };
         }
       } catch {
         // Ignore malformed agent metadata.

@@ -1,6 +1,6 @@
 import type { Database } from '../storage/db.js';
 import { join } from 'node:path';
-import { createCipheriv, createDecipheriv, randomBytes, createHash, scryptSync } from 'node:crypto';
+import { encryptSecret, decryptSecret } from '../crypto/secrets.js';
 import nodemailer from 'nodemailer';
 import { debug } from '../debug.js';
 import { RelayGateway, formatPollError, type InboundEmail } from './relay.js';
@@ -43,57 +43,6 @@ export interface GatewayManagerOptions {
   onInboundMail?: (agentName: string, mail: InboundEmail) => void | Promise<void>;
   /** Master key used to encrypt credentials at rest in SQLite. */
   encryptionKey?: string;
-}
-
-/**
- * Derive a 32-byte AES key from a master key using scrypt (with a random salt).
- * Returns { derivedKey, salt }.
- */
-function deriveKey(key: string, salt: Buffer): Buffer {
-  return scryptSync(key, salt, 32, { N: 16384, r: 8, p: 1 });
-}
-
-/**
- * Encrypt a string using AES-256-GCM with scrypt-derived key.
- * Returns "enc2:salt:iv:authTag:ciphertext" (all hex-encoded).
- */
-function encryptSecret(plaintext: string, key: string): string {
-  const salt = randomBytes(16);
-  const derivedKey = deriveKey(key, salt);
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', derivedKey, iv);
-  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  return `enc2:${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
-}
-
-/**
- * Decrypt a string encrypted with encryptSecret.
- * Supports both new "enc2:" (scrypt) and legacy "enc:" (SHA-256) formats.
- * Returns the original plaintext, or the input unchanged if not encrypted.
- */
-function decryptSecret(value: string, key: string): string {
-  if (value.startsWith('enc2:')) {
-    // New scrypt-based format: enc2:salt:iv:authTag:ciphertext
-    const parts = value.split(':');
-    if (parts.length !== 5) return value;
-    const [, saltHex, ivHex, authTagHex, ciphertextHex] = parts;
-    const derivedKey = deriveKey(key, Buffer.from(saltHex, 'hex'));
-    const decipher = createDecipheriv('aes-256-gcm', derivedKey, Buffer.from(ivHex, 'hex'));
-    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-    return Buffer.concat([decipher.update(Buffer.from(ciphertextHex, 'hex')), decipher.final()]).toString('utf8');
-  }
-  if (value.startsWith('enc:')) {
-    // Legacy SHA-256 format: enc:iv:authTag:ciphertext — read-only for migration
-    const parts = value.split(':');
-    if (parts.length !== 4) return value;
-    const [, ivHex, authTagHex, ciphertextHex] = parts;
-    const keyHash = createHash('sha256').update(key).digest();
-    const decipher = createDecipheriv('aes-256-gcm', keyHash, Buffer.from(ivHex, 'hex'));
-    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-    return Buffer.concat([decipher.update(Buffer.from(ciphertextHex, 'hex')), decipher.final()]).toString('utf8');
-  }
-  return value; // plaintext (unencrypted legacy)
 }
 
 /**

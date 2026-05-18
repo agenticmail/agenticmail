@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.45] - 2026-05-18
+
+### Added — EU SMS provider registry + 46elks
+
+Community contribution from @benediktkraus ([#35](https://github.com/agenticmail/agenticmail/pull/35)).
+
+- **Provider registry** — SMS is now provider-backed. Google Voice
+  remains the default legacy provider; 46elks is the first direct-API
+  provider. `sms_setup` takes a `provider` argument across REST, MCP,
+  and OpenClaw.
+- **46elks integration** — direct outbound SMS through the 46elks API
+  (HTTP Basic auth, form-encoded), and a secret-protected inbound SMS
+  webhook (`POST /sms/webhook/46elks`) mounted before bearer auth.
+- **Credential redaction** — `GET /sms/config` and every setup
+  response now run through `redactSmsConfig`, so provider passwords
+  and webhook secrets never appear in API output.
+
+### Security — hardening applied during review of #35
+
+The feature was audited before merge; no malicious code was found.
+The following defense-in-depth changes were added on top:
+
+- **SMS credentials encrypted at rest.** The 46elks API password, the
+  inbound-webhook shared secret, and the Google Voice forwarding-mailbox
+  app password were being stored as plaintext in agent metadata.
+  `SmsManager` now encrypts those fields with the same AES-256-GCM +
+  scrypt scheme `GatewayManager` already uses for relay/domain
+  credentials. The cipher helpers were extracted into a shared
+  `crypto/secrets` module so both managers use one audited
+  implementation. Reads tolerate legacy plaintext, so the upgrade is
+  seamless; a leaked SQLite file no longer hands over working
+  provider credentials.
+- **Webhook number-enumeration oracle closed.** The inbound webhook
+  returned `404` for an unknown recipient number but `403` for a wrong
+  secret — letting an unauthenticated caller probe which phone numbers
+  are registered. It now returns a single uniform `403` for every
+  failure mode (unknown number, no configured secret, missing or wrong
+  secret). The secret check uses `timingSafeEqual`.
+- **`apiUrl` override forced to https.** A 46elks `apiUrl` override is
+  the endpoint the outbound call sends Basic-Auth credentials to.
+  `/sms/setup` now rejects any non-`https://` override, and the
+  provider re-checks the scheme at send time — credentials can't be
+  exfiltrated over plaintext or pointed at an arbitrary internal host.
+- **Webhook secret moved out of the URL.** Setup guidance now tells
+  operators to authenticate the inbound webhook with the
+  `x-46elks-secret` header (kept out of access logs); the query-param
+  form is documented only as a fallback for providers that can't send
+  custom headers.
+
 ## [0.9.39] - 2026-05-15
 
 ### Fixed — three rough edges from 0.9.38's `setup-email` shakedown

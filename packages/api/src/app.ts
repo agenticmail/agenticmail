@@ -214,7 +214,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createInboundRoutes(accountManager, config, gatewayManager));
 
   // Inbound SMS provider webhooks (use provider-specific secrets, before bearer auth)
-  app.use('/api/agenticmail', createSmsWebhookRoutes(db));
+  app.use('/api/agenticmail', createSmsWebhookRoutes(db, config));
 
   // Integration bootstrap routes — mounted BEFORE bearer auth so a fresh
   // AI agent (Claude Code, etc.) can self-install without having to first
