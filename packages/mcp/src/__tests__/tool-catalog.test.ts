@@ -79,6 +79,17 @@ describe('tool catalogue ↔ tool definitions', () => {
     expect(TOOL_SETS.essential).toContain('call_agent');
   });
 
+  it('phone set exposes the call-control mission surface', () => {
+    expect(TOOL_SETS.phone).toEqual([
+      'phone_transport_setup',
+      'phone_capabilities',
+      'call_phone',
+      'call_status',
+      'call_transcript',
+      'call_cancel',
+    ]);
+  });
+
   it('total catalogued tool count matches the real tool count minus meta-tools', () => {
     const realToolCount = [...definedNames].filter(n => !META_TOOLS.has(n)).length;
     expect(catalogNames.size).toBe(realToolCount);
