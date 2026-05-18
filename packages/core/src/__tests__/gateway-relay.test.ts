@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { RelayGateway } from '../gateway/relay.js';
+import {
+  formatPollError,
+  formatRelayError,
+  isRelayCredentialError,
+  RelayGateway,
+} from '../gateway/relay.js';
 
 // We can't easily mock nodemailer/imapflow at module level without network,
 // so we test the stateful logic and extractAgentName via the public interface.
@@ -78,6 +83,77 @@ describe('RelayGateway', () => {
       const callback = vi.fn();
       const relayWithCb = new RelayGateway({ onInboundMail: callback });
       expect(relayWithCb.isConfigured()).toBe(false);
+    });
+  });
+
+  describe('relay error formatting', () => {
+    it('keeps structured fields in generic poll errors', () => {
+      const msg = formatPollError({
+        message: 'connect ETIMEDOUT',
+        code: 'ETIMEDOUT',
+        syscall: 'connect',
+        hostname: 'imap.example.com',
+        port: 993,
+      });
+
+      expect(msg).toContain('connect ETIMEDOUT');
+      expect(msg).toContain('code=ETIMEDOUT');
+      expect(msg).toContain('host=imap.example.com');
+      expect(msg).toContain('port=993');
+    });
+
+    it('classifies Gmail app-password/auth failures as credential errors', () => {
+      const err = {
+        message: 'Invalid login',
+        code: 'EAUTH',
+        response: '535-5.7.8 Username and Password not accepted.',
+        command: 'AUTH PLAIN',
+      };
+
+      expect(isRelayCredentialError(err)).toBe(true);
+      const msg = formatRelayError(err, {
+        provider: 'gmail',
+        email: 'owner@gmail.com',
+      }, 'SMTP send');
+
+      expect(msg).toContain('Gmail relay authentication');
+      expect(msg).toContain('owner@gmail.com');
+      expect(msg).toContain('fresh Gmail app password');
+      expect(msg).toContain('Original error:');
+    });
+
+    it('classifies Microsoft OAuth/token expiry as an actionable reconnect error', () => {
+      const err = {
+        message: 'AUTHENTICATE failed',
+        responseText: 'invalid_grant: AADSTS700082: The refresh token has expired',
+      };
+
+      expect(isRelayCredentialError(err)).toBe(true);
+      const msg = formatRelayError(err, {
+        provider: 'outlook',
+        email: 'owner@example.com',
+      }, 'IMAP poll');
+
+      expect(msg).toContain('Outlook/Microsoft 365 relay authentication');
+      expect(msg).toContain('invalid, expired, or revoked');
+      expect(msg).toContain('Refresh/recreate the Microsoft relay credential or OAuth token');
+    });
+
+    it('classifies string auth errors too', () => {
+      expect(isRelayCredentialError('535 5.7.8 Authentication failed')).toBe(true);
+    });
+
+    it('does not call network failures credential errors', () => {
+      const err = {
+        message: 'connect ENOTFOUND imap.example.com',
+        code: 'ENOTFOUND',
+      };
+
+      expect(isRelayCredentialError(err)).toBe(false);
+      expect(formatRelayError(err, {
+        provider: 'custom',
+        email: 'owner@example.com',
+      }, 'IMAP search')).toBe('Relay IMAP search failed: connect ENOTFOUND imap.example.com | code=ENOTFOUND');
     });
   });
 });

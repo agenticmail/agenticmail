@@ -85,6 +85,76 @@ export function formatPollError(err: unknown): string {
   return parts.join(' | ');
 }
 
+export function isRelayCredentialError(err: unknown): boolean {
+  if (!err) return false;
+  const haystack = typeof err === 'object'
+    ? (() => {
+        const e = err as Record<string, any>;
+        return [
+          e.message,
+          e.code,
+          e.responseCode,
+          e.response,
+          e.responseText,
+          e.command,
+          e.serverResponse,
+        ].filter(Boolean).join(' ').toLowerCase();
+      })()
+    : String(err).toLowerCase();
+
+  return [
+    'eauth',
+    'authenticationfailed',
+    'authentication failed',
+    'authenticate failed',
+    'invalid credentials',
+    'invalid login',
+    'login failed',
+    'username and password not accepted',
+    'application-specific password',
+    'app password',
+    'badcredentials',
+    'invalid_grant',
+    'invalid_token',
+    'expired token',
+    'token expired',
+    'access token has expired',
+    'token has expired',
+    'token is expired',
+    'token is invalid',
+    'token revoked',
+    'xoauth2',
+    'aadsts',
+    '535',
+    '534',
+    '5.7.8',
+  ].some(marker => haystack.includes(marker));
+}
+
+export function formatRelayError(err: unknown, config: Pick<RelayConfig, 'provider' | 'email'>, phase: string): string {
+  const detail = formatPollError(err);
+  if (!isRelayCredentialError(err)) {
+    return `Relay ${phase} failed: ${detail}`;
+  }
+
+  const provider = config.provider === 'gmail'
+    ? 'Gmail'
+    : config.provider === 'outlook'
+      ? 'Outlook/Microsoft 365'
+      : 'custom';
+  const action = config.provider === 'gmail'
+    ? 'Create a fresh Gmail app password or reconnect the relay, then run agenticmail setup-relay again.'
+    : config.provider === 'outlook'
+      ? 'Refresh/recreate the Microsoft relay credential or OAuth token, then run agenticmail setup-relay again.'
+      : 'Refresh the relay credential, then run agenticmail setup-relay again.';
+
+  return [
+    `Relay ${phase} failed: ${provider} relay authentication for ${config.email} is invalid, expired, or revoked.`,
+    action,
+    `Original error: ${detail}`,
+  ].join(' ');
+}
+
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1).trimEnd() + '…';
@@ -150,7 +220,11 @@ export class RelayGateway {
       },
     });
 
-    await this.smtpTransport.verify();
+    try {
+      await this.smtpTransport.verify();
+    } catch (err) {
+      throw new Error(formatRelayError(err, config, 'SMTP verification'));
+    }
 
     // Validate IMAP connection
     const imap = new ImapFlow({
@@ -164,8 +238,13 @@ export class RelayGateway {
       logger: false,
     });
 
-    await imap.connect();
-    await imap.logout();
+    try {
+      await imap.connect();
+    } catch (err) {
+      throw new Error(formatRelayError(err, config, 'IMAP verification'));
+    } finally {
+      try { await imap.logout(); } catch { /* ignore */ }
+    }
   }
 
   /**
@@ -176,10 +255,11 @@ export class RelayGateway {
     if (!this.config || !this.smtpTransport) {
       throw new Error('Relay not configured. Call setup() first.');
     }
+    const relayConfig = this.config;
 
-    const atIdx = this.config.email.lastIndexOf('@');
-    const localPart = this.config.email.slice(0, atIdx);
-    const domain = this.config.email.slice(atIdx + 1);
+    const atIdx = relayConfig.email.lastIndexOf('@');
+    const localPart = relayConfig.email.slice(0, atIdx);
+    const domain = relayConfig.email.slice(atIdx + 1);
     const relayFrom = `${localPart}+${agentName}@${domain}`;
 
     const displayName = mail.fromName || agentName;
@@ -207,7 +287,12 @@ export class RelayGateway {
     const composer = new MailComposer(mailOpts);
     const raw = await composer.compile().build();
 
-    const result = await this.smtpTransport.sendMail(mailOpts);
+    let result: any;
+    try {
+      result = await this.smtpTransport.sendMail(mailOpts);
+    } catch (err) {
+      throw new Error(formatRelayError(err, relayConfig, 'SMTP send'));
+    }
 
     // Track sent messageId for In-Reply-To based routing of replies
     if (result.messageId) {
@@ -307,7 +392,9 @@ export class RelayGateway {
       // syscall) so the log line tells you whether you're looking at
       // bad creds, a DNS miss, a TLS failure, a timeout, or a
       // subprocess crash.
-      const msg = formatPollError(err);
+      const msg = this.config
+        ? formatRelayError(err, this.config, 'IMAP poll')
+        : formatPollError(err);
       console.error(`[RelayGateway] Poll failed (attempt ${this.consecutiveFailures}): ${msg}`);
       if (this.consecutiveFailures >= 5 && this.consecutiveFailures % 5 === 0) {
         console.error(`[RelayGateway] ${this.consecutiveFailures} consecutive failures — check IMAP credentials and connectivity (${this.config?.imapHost}:${this.config?.imapPort})`);
@@ -587,14 +674,15 @@ export class RelayGateway {
     seen?: boolean;
   }, maxResults = 50): Promise<RelaySearchResult[]> {
     if (!this.config) throw new Error('Relay not configured');
+    const relayConfig = this.config;
 
     const imap = new ImapFlow({
-      host: this.config.imapHost,
-      port: this.config.imapPort,
-      secure: this.config.imapPort === 993,
+      host: relayConfig.imapHost,
+      port: relayConfig.imapPort,
+      secure: relayConfig.imapPort === 993,
       auth: {
-        user: this.config.email,
-        pass: this.config.password,
+        user: relayConfig.email,
+        pass: relayConfig.password,
       },
       logger: false,
     });
@@ -641,7 +729,7 @@ export class RelayGateway {
             results.push({
               uid,
               source: 'relay',
-              account: this.config!.email,
+              account: relayConfig.email,
               messageId: envelope.messageId ?? '',
               subject: envelope.subject ?? '',
               from: (envelope.from ?? []).map((a: any) => ({ name: a.name, address: a.address ?? '' })),
@@ -659,7 +747,7 @@ export class RelayGateway {
         lock.release();
       }
     } catch (err) {
-      console.error('[RelayGateway] Relay search failed:', err instanceof Error ? err.message : err);
+      console.error('[RelayGateway] Relay search failed:', formatRelayError(err, relayConfig, 'IMAP search'));
       return []; // Return empty on failure rather than crashing
     } finally {
       try { await imap.logout(); } catch { /* ignore */ }
@@ -672,14 +760,15 @@ export class RelayGateway {
    */
   async fetchRelayMessage(uid: number): Promise<InboundEmail | null> {
     if (!this.config) throw new Error('Relay not configured');
+    const relayConfig = this.config;
 
     const imap = new ImapFlow({
-      host: this.config.imapHost,
-      port: this.config.imapPort,
-      secure: this.config.imapPort === 993,
+      host: relayConfig.imapHost,
+      port: relayConfig.imapPort,
+      secure: relayConfig.imapPort === 993,
       auth: {
-        user: this.config.email,
-        pass: this.config.password,
+        user: relayConfig.email,
+        pass: relayConfig.password,
       },
       logger: false,
     });
@@ -724,7 +813,7 @@ export class RelayGateway {
         lock.release();
       }
     } catch (err) {
-      console.error('[RelayGateway] Fetch relay message failed:', err instanceof Error ? err.message : err);
+      console.error('[RelayGateway] Fetch relay message failed:', formatRelayError(err, relayConfig, 'IMAP fetch'));
       return null;
     } finally {
       try { await imap.logout(); } catch { /* ignore */ }
