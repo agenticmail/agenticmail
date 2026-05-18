@@ -1,10 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   normalizePhoneNumber,
   isValidPhoneNumber,
   parseGoogleVoiceSms,
   extractVerificationCode,
+  getSmsProvider,
+  mapProviderSmsStatus,
+  redactSmsConfig,
 } from '../sms/manager.js';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('normalizePhoneNumber', () => {
   it('normalizes 10-digit US number', () => {
@@ -17,6 +24,10 @@ describe('normalizePhoneNumber', () => {
 
   it('normalizes +1 prefix', () => {
     expect(normalizePhoneNumber('+12125551234')).toBe('+12125551234');
+  });
+
+  it('keeps international E.164 numbers', () => {
+    expect(normalizePhoneNumber('+46701234567')).toBe('+46701234567');
   });
 
   it('normalizes 11-digit with leading 1', () => {
@@ -35,6 +46,81 @@ describe('normalizePhoneNumber', () => {
 
   it('rejects garbage', () => {
     expect(normalizePhoneNumber('abcdef')).toBeNull();
+  });
+});
+
+describe('SMS providers', () => {
+  it('redacts provider secrets from SMS config', () => {
+    expect(redactSmsConfig({
+      enabled: true,
+      provider: '46elks',
+      phoneNumber: '+46701234567',
+      username: 'u',
+      password: 'p',
+      webhookSecret: 's',
+      configuredAt: '2026-05-18T00:00:00.000Z',
+    })).toMatchObject({
+      provider: '46elks',
+      username: 'u',
+      password: '***',
+      webhookSecret: '***',
+    });
+  });
+
+  it('parses inbound 46elks webhook payloads', () => {
+    const event = getSmsProvider('46elks').parseInboundSms({
+      id: 'sms123',
+      direction: 'incoming',
+      from: '+46709999999',
+      to: '+46701234567',
+      message: 'Your code is 123456',
+      created: '2026-05-18T10:00:00.000Z',
+    });
+
+    expect(event).toMatchObject({
+      provider: '46elks',
+      id: 'sms123',
+      from: '+46709999999',
+      to: '+46701234567',
+      body: 'Your code is 123456',
+    });
+  });
+
+  it('sends 46elks SMS with basic auth and form encoding', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({
+      id: 'sms123',
+      status: 'created',
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await getSmsProvider('46elks').sendSms({
+      enabled: true,
+      provider: '46elks',
+      phoneNumber: '+46701234567',
+      username: 'api-user',
+      password: 'api-pass',
+      configuredAt: '2026-05-18T00:00:00.000Z',
+    }, {
+      to: '+46709999999',
+      body: 'Hello',
+    });
+
+    expect(result).toMatchObject({ provider: '46elks', id: 'sms123', status: 'created' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.46elks.com/a1/sms');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toMatchObject({
+      Authorization: `Basic ${Buffer.from('api-user:api-pass').toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    });
+    expect(String(init.body)).toBe('to=%2B46709999999&from=%2B46701234567&message=Hello');
+  });
+
+  it('maps provider SMS status to internal status', () => {
+    expect(mapProviderSmsStatus('delivered')).toBe('delivered');
+    expect(mapProviderSmsStatus('created')).toBe('sent');
+    expect(mapProviderSmsStatus('failed')).toBe('failed');
   });
 });
 

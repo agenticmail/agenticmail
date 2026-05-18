@@ -187,10 +187,10 @@ Search for available domains via Cloudflare Registrar (requires master key). NOT
 ## SMS / Phone
 
 ### `agenticmail_sms_setup`
-Configure SMS/phone number access via Google Voice. The user must have a Google Voice account with SMS-to-email forwarding enabled.
+Configure SMS/phone number access via Google Voice legacy forwarding or 46elks direct API/webhooks.
 
 ### `agenticmail_sms_send`
-Send an SMS text message via Google Voice. Records the message and provides instructions for sending via Google Voice web interface.
+Send an SMS text message. 46elks configs send directly through the provider API; Google Voice configs record the message and return browser-send instructions.
 
 ### `agenticmail_sms_messages`
 List SMS messages (inbound and outbound). Use direction filter to see only received or sent messages..
@@ -208,10 +208,9 @@ Record an SMS message that you read from Google Voice web or any other source. S
 Parse an SMS from a forwarded Google Voice email. Use this when you receive an email from Google Voice containing an SMS.
 
 ### `agenticmail_sms_config`
-Get the current SMS/phone number configuration for this agent. Shows whether SMS is enabled, the phone number, and forwarding email..
+Get the current SMS/phone number configuration for this agent. Secrets are redacted.
 
 ## Database Storage
 
 ### `agenticmail_storage`
 Full database management for agents. Create/alter/drop tables, CRUD rows, manage indexes, run aggregations, import/export data, execute raw SQL, optimize & analyze — all on whatever database the user deployed (SQLite, Postgres, MySQL, Turso).
-

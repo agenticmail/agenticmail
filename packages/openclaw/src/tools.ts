@@ -2163,28 +2163,39 @@ export function registerTools(
     },
   });
 
-  // --- SMS / Google Voice Tools ---
+  // --- SMS / Phone Tools ---
 
   reg('agenticmail_sms_setup', {
-    description: 'Configure SMS/phone number access via Google Voice. The user must have a Google Voice account with SMS-to-email forwarding enabled. This gives the agent a phone number for receiving verification codes and sending texts.',
+    description: 'Configure SMS/phone number access. Supports Google Voice legacy forwarding and direct 46elks provider delivery/webhooks. This gives the agent a phone number for receiving verification codes and sending texts.',
     parameters: {
-      phoneNumber: { type: 'string', required: true, description: 'Google Voice phone number (e.g. +12125551234)' },
-      forwardingEmail: { type: 'string', description: 'Email address Google Voice forwards SMS to (defaults to agent email)' },
+      phoneNumber: { type: 'string', required: true, description: 'SMS phone number in E.164 format (e.g. +46701234567 or +12125551234)' },
+      provider: { type: 'string', description: 'SMS provider: "google_voice" (default) or "46elks"' },
+      forwardingEmail: { type: 'string', description: 'Google Voice only: email address Google Voice forwards SMS to (defaults to agent email)' },
+      forwardingPassword: { type: 'string', description: 'Google Voice only: app password for a separate forwarding Gmail' },
+      username: { type: 'string', description: '46elks only: API username' },
+      password: { type: 'string', description: '46elks only: API password' },
+      webhookSecret: { type: 'string', description: '46elks only: shared secret required on inbound SMS webhooks' },
+      apiUrl: { type: 'string', description: '46elks only: optional API base URL override' },
     },
     handler: async (params: any) => {
       try {
         const c = await ctxForParams(ctx, params);
         return await apiRequest(c, 'POST', '/sms/setup', {
           phoneNumber: params.phoneNumber,
+          provider: params.provider ?? 'google_voice',
           forwardingEmail: params.forwardingEmail,
-          provider: 'google_voice',
+          forwardingPassword: params.forwardingPassword,
+          username: params.username,
+          password: params.password,
+          webhookSecret: params.webhookSecret,
+          apiUrl: params.apiUrl,
         });
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });
 
   reg('agenticmail_sms_send', {
-    description: 'Send an SMS text message via Google Voice. Records the message and provides instructions for sending via Google Voice web interface. The agent can automate the actual send using the browser tool on voice.google.com.',
+    description: 'Send an SMS text message. Direct provider configs such as 46elks send through the provider API; Google Voice legacy configs record the message and return browser-send instructions for voice.google.com.',
     parameters: {
       to: { type: 'string', required: true, description: 'Recipient phone number' },
       body: { type: 'string', required: true, description: 'Text message body' },
@@ -2456,7 +2467,7 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
   });
 
   reg('agenticmail_sms_config', {
-    description: 'Get the current SMS/phone number configuration for this agent. Shows whether SMS is enabled, the phone number, and forwarding email.',
+    description: 'Get the current SMS/phone number configuration for this agent. Secrets are redacted.',
     parameters: {},
     handler: async (params: any) => {
       try {

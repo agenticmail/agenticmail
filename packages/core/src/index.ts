@@ -84,8 +84,26 @@ export type {
 export { RELAY_PRESETS } from './gateway/types.js';
 
 // SMS / Google Voice
-export { SmsManager, SmsPoller, parseGoogleVoiceSms, extractVerificationCode, normalizePhoneNumber, isValidPhoneNumber } from './sms/index.js';
-export type { SmsConfig, ParsedSms, SmsMessage } from './sms/index.js';
+export {
+  SmsManager,
+  SmsPoller,
+  parseGoogleVoiceSms,
+  extractVerificationCode,
+  normalizePhoneNumber,
+  isValidPhoneNumber,
+  getSmsProvider,
+  mapProviderSmsStatus,
+  redactSmsConfig,
+} from './sms/index.js';
+export type {
+  SmsConfig,
+  ParsedSms,
+  SmsMessage,
+  SendSmsInput,
+  SendSmsResult,
+  InboundSmsEvent,
+  SmsProvider,
+} from './sms/index.js';
 
 // Telemetry
 export { recordToolCall, setTelemetryVersion, flushTelemetry } from './telemetry.js';

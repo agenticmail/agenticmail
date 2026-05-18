@@ -1037,22 +1037,28 @@ export const toolDefinitions = [
     },
   },
 
-  // --- SMS / Google Voice Tools ---
+  // --- SMS / Phone Tools ---
   {
     name: 'sms_setup',
-    description: 'Configure SMS/phone number access via Google Voice. The user must have a Google Voice account with SMS-to-email forwarding enabled. This gives the agent a phone number for receiving verification codes and sending texts.',
+    description: 'Configure SMS/phone number access. Supports Google Voice legacy forwarding and direct 46elks provider delivery/webhooks.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        phoneNumber: { type: 'string', description: 'Google Voice phone number (e.g. +12125551234)' },
-        forwardingEmail: { type: 'string', description: 'Email address Google Voice forwards SMS to (defaults to agent email)' },
+        phoneNumber: { type: 'string', description: 'SMS phone number in E.164 format (e.g. +46701234567 or +12125551234)' },
+        provider: { type: 'string', enum: ['google_voice', '46elks'], description: 'SMS provider (default: google_voice)' },
+        forwardingEmail: { type: 'string', description: 'Google Voice only: email address Google Voice forwards SMS to (defaults to agent email)' },
+        forwardingPassword: { type: 'string', description: 'Google Voice only: app password for a separate forwarding Gmail' },
+        username: { type: 'string', description: '46elks only: API username' },
+        password: { type: 'string', description: '46elks only: API password' },
+        webhookSecret: { type: 'string', description: '46elks only: shared secret required on inbound SMS webhooks' },
+        apiUrl: { type: 'string', description: '46elks only: optional API base URL override' },
       },
       required: ['phoneNumber'],
     },
   },
   {
     name: 'sms_send',
-    description: 'Send an SMS text message via Google Voice. Records the message and provides instructions for sending via Google Voice web interface. The agent can automate the actual send using browser automation on voice.google.com.',
+    description: 'Send an SMS text message. Direct provider configs such as 46elks send through the provider API; Google Voice legacy configs return browser-send instructions.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -2804,13 +2810,18 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
       throw new Error('Invalid action. Use: list or get');
     }
 
-    // --- SMS / Google Voice Tools ---
+    // --- SMS / Phone Tools ---
 
     case 'sms_setup': {
       const result = await apiRequest('POST', '/sms/setup', {
         phoneNumber: args.phoneNumber,
+        provider: args.provider ?? 'google_voice',
         forwardingEmail: args.forwardingEmail,
-        provider: 'google_voice',
+        forwardingPassword: args.forwardingPassword,
+        username: args.username,
+        password: args.password,
+        webhookSecret: args.webhookSecret,
+        apiUrl: args.apiUrl,
       });
       return JSON.stringify(result, null, 2);
     }

@@ -24,7 +24,7 @@ import { createDomainRoutes } from './routes/domains.js';
 import { createGatewayRoutes } from './routes/gateway.js';
 import { createFeatureRoutes } from './routes/features.js';
 import { createTaskRoutes } from './routes/tasks.js';
-import { createSmsRoutes } from './routes/sms.js';
+import { createSmsRoutes, createSmsWebhookRoutes } from './routes/sms.js';
 import { createStorageRoutes } from './routes/storage.js';
 import { createSystemEventRoutes } from './routes/system-events.js';
 import { createDispatcherActivityRoutes } from './routes/dispatcher-activity.js';
@@ -143,6 +143,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   });
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   // Cast: express-rate-limit v7 ships Express 5 types; we're on
   // Express 4 types to match the v4 runtime, so the handler signature
   // doesn't line up exactly. The cast is safe because rate-limit's
@@ -211,6 +212,9 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
 
   // Inbound email webhook (uses its own secret-based auth, before bearer auth)
   app.use('/api/agenticmail', createInboundRoutes(accountManager, config, gatewayManager));
+
+  // Inbound SMS provider webhooks (use provider-specific secrets, before bearer auth)
+  app.use('/api/agenticmail', createSmsWebhookRoutes(db));
 
   // Integration bootstrap routes — mounted BEFORE bearer auth so a fresh
   // AI agent (Claude Code, etc.) can self-install without having to first

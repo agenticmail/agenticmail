@@ -287,8 +287,8 @@ Self-messaging is also prevented — an agent cannot send a message to itself.
 
 | Tool | Description |
 |------|-------------|
-| `agenticmail_sms_setup` | Configure Google Voice phone number for SMS access |
-| `agenticmail_sms_send` | Record and send SMS via Google Voice |
+| `agenticmail_sms_setup` | Configure Google Voice or 46elks phone number access |
+| `agenticmail_sms_send` | Send SMS through 46elks API or return Google Voice send instructions |
 | `agenticmail_sms_messages` | List inbound/outbound SMS messages |
 | `agenticmail_sms_check_code` | Extract verification/OTP codes from recent SMS |
 | `agenticmail_sms_read_voice` | Read SMS directly from Google Voice web (fastest method) |

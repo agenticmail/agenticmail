@@ -109,10 +109,10 @@ Search for available domains via Cloudflare Registrar (requires master API key).
 ## SMS / Phone
 
 ### `sms_setup`
-Configure SMS/phone number access via Google Voice. The user must have a Google Voice account with SMS-to-email forwarding enabled.
+Configure SMS/phone number access via Google Voice legacy forwarding or 46elks direct API/webhooks.
 
 ### `sms_send`
-Send an SMS text message via Google Voice. Records the message and provides instructions for sending via Google Voice web interface.
+Send an SMS text message. 46elks configs send directly through the provider API; Google Voice configs record the message and return browser-send instructions.
 
 ### `sms_messages`
 List SMS messages (inbound and outbound). Use direction filter to see only received or sent messages..
@@ -136,4 +136,3 @@ Get the current SMS/phone number configuration for this agent. Shows whether SMS
 
 ### `storage`
 Full database management system for agents. 28 actions: DDL (create/alter/drop/clone/rename tables & columns), DML (insert/upsert/query/aggregate/update/delete/truncate), indexing (create/list/drop/reindex), import/export (JSON/CSV, conflict handling), raw SQL, maintenance (stats/vacuum/analyze/explain), archiving.
-

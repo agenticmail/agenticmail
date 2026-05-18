@@ -95,7 +95,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 ---
 
-AgenticMail is a self-hosted communication platform purpose-built for AI agents. It runs a local [Stalwart](https://stalw.art) mail server via Docker, integrates Google Voice for SMS/phone access, exposes a REST API with 75+ endpoints, ships a lightweight Gmail-style web UI for human oversight, and works with any MCP-compatible AI client and [OpenClaw](https://github.com/openclaw/openclaw) via plugin. Each agent gets its own email address, phone number, inbox, and API key.
+AgenticMail is a self-hosted communication platform purpose-built for AI agents. It runs a local [Stalwart](https://stalw.art) mail server via Docker, integrates SMS/phone access via Google Voice or 46elks, exposes a REST API with 75+ endpoints, ships a lightweight Gmail-style web UI for human oversight, and works with any MCP-compatible AI client and [OpenClaw](https://github.com/openclaw/openclaw) via plugin. Each agent gets its own email address, phone number, inbox, and API key.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-green)](https://nodejs.org)
@@ -133,7 +133,7 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Internet email connectivity** — two gateway modes to send/receive real email (Gmail relay or custom domain with DKIM/SPF/DMARC).
 - **Security guardrails** — outbound scanning prevents agents from leaking API keys, passwords, or PII. Blocked emails require human approval.
 - **Agent collaboration** — agents can email each other, assign tasks, and make synchronous RPC calls.
-- **SMS / Phone number access** — integrate Google Voice for SMS receive/send, verification code extraction, and phone number access for AI agents.
+- **SMS / Phone number access** — integrate Google Voice or 46elks for SMS receive/send, verification code extraction, and phone number access for AI agents.
 - **Smart orchestration** — `call_agent` replaces basic sub-agent spawning with auto mode detection, dynamic timeouts, runtime tool discovery, and async execution for long-running tasks.
 - **Tool integrations** — 62 MCP tools for any AI client, 63 OpenClaw tools, and a 44-command interactive shell.
 - **Self-updating** — `agenticmail update` checks npm, verifies OpenClaw compatibility, and updates both packages automatically.
@@ -215,12 +215,14 @@ That's a real multi-agent thread captured in the REPL — the host kicked off on
 - **Rate limiting** — configurable per-endpoint rate limits
 
 ### SMS / Phone Number Access
+- **Provider selection** — choose Google Voice legacy forwarding or 46elks direct SMS API/webhooks
+- **46elks integration** — send SMS through the provider API and receive inbound SMS through a secret-protected webhook
 - **Google Voice integration** — give agents a real phone number via Google Voice
 - **Direct Voice web reading** (primary, instant) — reads SMS directly from voice.google.com via browser
 - **Email forwarding** (fallback) — Google Voice forwards SMS to email, agent auto-detects and records them during relay polling
 - **Separate Gmail polling** — for users whose GV Gmail differs from relay email, runs a dedicated IMAP poll
 - **Verification codes** — automatic extraction of OTP/verification codes from SMS (4-8 digit, alphanumeric, Google G-codes)
-- **Send SMS** — record outbound messages, send via Google Voice web automation
+- **Send SMS** — direct provider API send when configured, or Google Voice web automation instructions for legacy configs
 - **Smart setup wizard** — validates Gmail/GV email matching, warns about mismatches, collects separate credentials when needed
 
 ### Smart Orchestration (call_agent)
@@ -367,7 +369,7 @@ npm install -g @agenticmail/cli
 agenticmail setup
 ```
 
-The wizard walks you through everything: dependency checks, master key generation, mail-server start, optional Gmail relay or custom domain, optional Google Voice SMS, optional OpenClaw integration. Re-runnable any time.
+The wizard walks you through everything: dependency checks, master key generation, mail-server start, optional Gmail relay or custom domain, optional SMS setup, optional OpenClaw integration. Re-runnable any time.
 
 ### Skip external email entirely?
 

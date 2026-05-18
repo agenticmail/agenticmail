@@ -116,8 +116,8 @@ That's it. The command sets up the mail server, creates an agent account, config
 ### SMS / Phone (8 tools)
 | Tool | Description |
 |------|-------------|
-| `agenticmail_sms_setup` | Configure SMS via Google Voice (phone number + forwarding email) |
-| `agenticmail_sms_send` | Send an SMS text message via Google Voice |
+| `agenticmail_sms_setup` | Configure SMS via Google Voice or 46elks |
+| `agenticmail_sms_send` | Send SMS via direct provider API or Google Voice instructions |
 | `agenticmail_sms_messages` | List SMS messages (inbound/outbound) |
 | `agenticmail_sms_check_code` | Check for recent verification/OTP codes from SMS |
 | `agenticmail_sms_read_voice` | Read SMS directly from Google Voice web (fastest method) |
@@ -238,7 +238,7 @@ Set in your OpenClaw config under `plugins.entries`:
 - **Automatic follow-up** — Exponential backoff reminders when blocked emails await approval
 - **Spam filtering** — Inbound emails scored and flagged with configurable thresholds
 - **Task delegation** — Inter-agent task queue with assign, claim, submit, and synchronous RPC
-- **SMS / Phone** — Google Voice integration for verification codes and text messaging
+- **SMS / Phone** — Google Voice or 46elks integration for verification codes and text messaging
 - **Database storage** — 28-action DBMS (DDL, DML, indexing, aggregation, import/export, raw SQL)
 - **Rate limiting** — Built-in protection against agent email storms
 - **Configurable inbox awareness** — Agents can receive unread count, summaries, or required read-first prompts

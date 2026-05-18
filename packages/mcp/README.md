@@ -243,8 +243,8 @@ These tools require the master key:
 
 | Tool | Description |
 |------|-------------|
-| `sms_setup` | Configure Google Voice phone number for SMS access |
-| `sms_send` | Record and send SMS via Google Voice |
+| `sms_setup` | Configure Google Voice or 46elks phone number access |
+| `sms_send` | Send SMS through 46elks API or return Google Voice send instructions |
 | `sms_messages` | List inbound/outbound SMS messages |
 | `sms_check_code` | Extract verification/OTP codes from recent SMS |
 | `sms_read_voice` | Read SMS directly from Google Voice web (fastest method) |
