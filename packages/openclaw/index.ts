@@ -2,6 +2,7 @@ import { registerTools, recordInboundAgentMessage, registerAgentIdentity, unregi
 import { initFollowUpSystem, cancelAllFollowUps } from './src/pending-followup.js';
 import { mailChannelPlugin } from './src/channel.js';
 import { createMailMonitorService } from './src/monitor.js';
+import { recordOpenClawHostSession } from './src/host-session.js';
 import {
   formatUnreadInboxContext,
   resolveInboxInjectionConfig,
@@ -206,7 +207,7 @@ function stopSubAgentWatcher(agentName: string): void {
 
 /** Check if a session key belongs to a sub-agent (format: agent:*:subagent:*) */
 function isSubagentSession(sessionKey: string): boolean {
-  return sessionKey.includes(':subagent:');
+  return sessionKey.startsWith('subagent:') || sessionKey.includes(':subagent:');
 }
 
 /** Sanitize a label into a valid agent email name (lowercase alphanumeric + dashes) */
@@ -610,6 +611,8 @@ function activate(api: any): void {
   // send intro emails, start SSE watchers. No prompt mutation here —
   // that's handled by before_prompt_build below.
   api.on('before_agent_start', async (_event: any, context: any) => {
+    recordOpenClawHostSession(context, 'before_agent_start');
+
     const sessionKey: string = context?.sessionKey ?? '';
     const isSubAgent = isSubagentSession(sessionKey);
 
@@ -783,6 +786,8 @@ function activate(api: any): void {
   // from before_agent_start). Uses prependSystemContext for static guidance
   // (cacheable across turns) and prependContext for dynamic per-turn content.
   api.on('before_prompt_build', async (_event: any, context: any) => {
+    recordOpenClawHostSession(context, 'before_prompt_build');
+
     const sessionKey: string = context?.sessionKey ?? '';
     let agentApiKey = ctx.config.apiKey;
     const prependLines: string[] = [];
@@ -1002,6 +1007,8 @@ function activate(api: any): void {
   // tool params when the hook has session context. The main injection path is
   // the tool factory in registerTools() which always has the session key.
   api.on('before_tool_call', async (event: any, context: any) => {
+    recordOpenClawHostSession(context, 'before_tool_call');
+
     const toolName: string = event?.toolName ?? '';
 
     // --- Sub-agent API key injection (fallback for when factory didn't inject) ---
