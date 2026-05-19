@@ -52,6 +52,12 @@ import {
   parseElksRealtimeMessage,
   type ElksRealtimeAudioFormat,
 } from './realtime.js';
+import {
+  buildRealtimeToolGuidance,
+  type RealtimeToolCall,
+  type RealtimeToolDefinition,
+  type ToolExecutor,
+} from './realtime-tools.js';
 
 // ─── Constants ──────────────────────────────────────────
 
@@ -82,6 +88,26 @@ export const REALTIME_MAX_AUDIO_FRAME_BASE64 = 256 * 1024;
  */
 const MAX_PENDING_AUDIO_FRAMES = 200;
 
+/**
+ * Bridge-side safety net for a slow tool call (plan §6). The model-side
+ * keeps the line warm (it announces a hold and reassures the caller);
+ * this is the floor under that — if a tool's `execute()` never settles
+ * (a hung `ask_operator`, a wedged search) the bridge still answers the
+ * model after this long so the call cannot be wedged forever. It is set
+ * deliberately ABOVE `OPERATOR_QUERY_TIMEOUT_MS` (5 min) so the tool's
+ * own graceful timeout sentinel normally wins the race; this only fires
+ * if the executor itself hangs.
+ */
+export const REALTIME_TOOL_CALL_TIMEOUT_MS = 6 * 60_000;
+
+/**
+ * Hard ceiling on how many tool calls the bridge will track in flight
+ * at once. The model rarely fans out more than one or two; a flood is
+ * either a buggy or a hostile peer, so excess calls are answered with a
+ * refusal rather than dispatched.
+ */
+const MAX_IN_FLIGHT_TOOL_CALLS = 8;
+
 // ─── Session config ─────────────────────────────────────
 
 export interface RealtimeInstructionOptions {
@@ -93,6 +119,12 @@ export interface RealtimeInstructionOptions {
   agentName?: string;
   /** Override the default persona preamble. */
   persona?: string;
+  /**
+   * Natural-language tool-use guidance, appended as its own section.
+   * Normally produced by `buildRealtimeToolGuidance()` and folded in
+   * automatically by `buildRealtimeSessionConfig()` when tools are set.
+   */
+  toolGuidance?: string;
 }
 
 const DEFAULT_PERSONA =
@@ -129,6 +161,11 @@ export function buildRealtimeInstructions(opts: RealtimeInstructionOptions): str
     );
   }
 
+  const toolGuidance = opts.toolGuidance?.trim();
+  if (toolGuidance) {
+    sections.push(toolGuidance);
+  }
+
   return sections.join('\n\n');
 }
 
@@ -139,6 +176,15 @@ export interface RealtimeSessionConfigOptions extends RealtimeInstructionOptions
   model?: string;
   /** Provide a fully-formed instruction string instead of composing one. */
   instructions?: string;
+  /**
+   * Function tools to declare on the session. When present they are
+   * emitted under `session.tools` with a `tool_choice`, and (unless
+   * `instructions` is overridden) tool-use guidance is folded into the
+   * composed instructions automatically.
+   */
+  tools?: RealtimeToolDefinition[];
+  /** `tool_choice` override — defaults to `'auto'` when tools are set. */
+  toolChoice?: 'auto' | 'none' | 'required';
 }
 
 /**
@@ -146,32 +192,53 @@ export interface RealtimeSessionConfigOptions extends RealtimeInstructionOptions
  * API. Audio in/out are PCM16 @ 24 kHz (matches 46elks `pcm_24000`),
  * turn-taking is server-side VAD, and the agent's memory is folded into
  * `instructions`.
+ *
+ * When `tools` are supplied they are declared under `session.tools`
+ * with a `tool_choice` (default `'auto'`), and — unless the caller
+ * passed an explicit `instructions` string — natural-language tool-use
+ * guidance is appended to the composed instructions so the model knows
+ * to put the caller on hold before a slow tool (plan §6).
+ *
+ * > The `session.tools` / `tool_choice` field names follow the OpenAI
+ * > Realtime function-calling protocol per the plan §3; verify against
+ * > current OpenAI docs before the live smoke test.
  */
 export function buildRealtimeSessionConfig(
   opts: RealtimeSessionConfigOptions,
 ): Record<string, unknown> {
+  const tools = opts.tools ?? [];
+  // Fold tool-use guidance into the composed instructions — but only
+  // when we are composing them; an explicit `instructions` override is
+  // taken verbatim, the caller owns it.
   const instructions = (opts.instructions?.trim())
-    || buildRealtimeInstructions(opts);
+    || buildRealtimeInstructions({
+      ...opts,
+      toolGuidance: opts.toolGuidance ?? buildRealtimeToolGuidance(tools),
+    });
 
-  return {
-    type: 'session.update',
-    session: {
-      type: 'realtime',
-      model: opts.model?.trim() || DEFAULT_REALTIME_MODEL,
-      output_modalities: ['audio'],
-      instructions,
-      audio: {
-        input: {
-          format: { type: 'audio/pcm', rate: REALTIME_AUDIO_SAMPLE_RATE },
-          turn_detection: { type: 'server_vad' },
-        },
-        output: {
-          format: { type: 'audio/pcm', rate: REALTIME_AUDIO_SAMPLE_RATE },
-          voice: opts.voice?.trim() || DEFAULT_REALTIME_VOICE,
-        },
+  const session: Record<string, unknown> = {
+    type: 'realtime',
+    model: opts.model?.trim() || DEFAULT_REALTIME_MODEL,
+    output_modalities: ['audio'],
+    instructions,
+    audio: {
+      input: {
+        format: { type: 'audio/pcm', rate: REALTIME_AUDIO_SAMPLE_RATE },
+        turn_detection: { type: 'server_vad' },
+      },
+      output: {
+        format: { type: 'audio/pcm', rate: REALTIME_AUDIO_SAMPLE_RATE },
+        voice: opts.voice?.trim() || DEFAULT_REALTIME_VOICE,
       },
     },
   };
+
+  if (tools.length > 0) {
+    session.tools = tools;
+    session.tool_choice = opts.toolChoice ?? 'auto';
+  }
+
+  return { type: 'session.update', session };
 }
 
 /** Build the `wss://…/v1/realtime?model=…` URL for a model. */
@@ -208,10 +275,29 @@ export interface RealtimeVoiceBridgeOptions {
   sendFormat?: ElksRealtimeAudioFormat;
   /** Per-frame base64 ceiling (default {@link REALTIME_MAX_AUDIO_FRAME_BASE64}). */
   maxAudioFrameBase64?: number;
+  /**
+   * Dispatches the model's function calls. When omitted the bridge has
+   * no tools — a function call from the model is acknowledged with a
+   * "no tools available" output rather than left to wedge the model.
+   */
+  toolExecutor?: ToolExecutor;
+  /**
+   * Bridge-side safety-net timeout for a single tool call (default
+   * {@link REALTIME_TOOL_CALL_TIMEOUT_MS}). If the executor does not
+   * settle within this window the bridge answers the model itself so
+   * the call cannot be wedged by a hung tool.
+   */
+  maxToolCallMs?: number;
   /** Sink for transcript / lifecycle entries worth persisting on the mission. */
   onTranscript?: (entry: RealtimeBridgeTranscriptEntry) => void;
-  /** Called exactly once when the bridge has fully ended. */
-  onEnd?: (summary: { reason: string }) => void;
+  /**
+   * Called exactly once when the bridge has fully ended. `pendingToolCalls`
+   * is how many tool calls were still in flight at teardown — non-zero
+   * means the call dropped mid-tool (e.g. an unanswered `ask_operator`),
+   * which is the signal the API layer uses to arm callback-on-disconnect
+   * (plan §7).
+   */
+  onEnd?: (summary: { reason: string; pendingToolCalls: number }) => void;
 }
 
 /**
@@ -228,8 +314,10 @@ export class RealtimeVoiceBridge {
   private readonly listenFormat: ElksRealtimeAudioFormat;
   private readonly sendFormat: ElksRealtimeAudioFormat;
   private readonly maxAudioFrameBase64: number;
+  private readonly toolExecutor?: ToolExecutor;
+  private readonly maxToolCallMs: number;
   private readonly onTranscript?: (entry: RealtimeBridgeTranscriptEntry) => void;
-  private readonly onEnd?: (summary: { reason: string }) => void;
+  private readonly onEnd?: (summary: { reason: string; pendingToolCalls: number }) => void;
 
   /** 46elks `hello` received — the call leg is live. */
   private helloSeen = false;
@@ -246,6 +334,14 @@ export class RealtimeVoiceBridge {
   private droppedFramesReported = false;
   /** Accumulated assistant speech transcript for the current response. */
   private assistantTranscript = '';
+  /**
+   * Function-call name keyed by `call_id`, captured from
+   * `response.output_item.added`. The later `*.arguments.done` event is
+   * not guaranteed to echo the tool name, so we remember it here.
+   */
+  private readonly toolCallNames = new Map<string, string>();
+  /** `call_id`s whose tool call is currently executing. */
+  private readonly inFlightToolCalls = new Set<string>();
 
   constructor(opts: RealtimeVoiceBridgeOptions) {
     this.elks = opts.elks;
@@ -254,6 +350,8 @@ export class RealtimeVoiceBridge {
     this.listenFormat = opts.listenFormat ?? 'pcm_24000';
     this.sendFormat = opts.sendFormat ?? 'pcm_24000';
     this.maxAudioFrameBase64 = opts.maxAudioFrameBase64 ?? REALTIME_MAX_AUDIO_FRAME_BASE64;
+    this.toolExecutor = opts.toolExecutor;
+    this.maxToolCallMs = opts.maxToolCallMs ?? REALTIME_TOOL_CALL_TIMEOUT_MS;
     this.onTranscript = opts.onTranscript;
     this.onEnd = opts.onEnd;
   }
@@ -266,6 +364,11 @@ export class RealtimeVoiceBridge {
   /** The 46elks call id, once the `hello` frame has been seen. */
   get currentCallId(): string {
     return this.callId;
+  }
+
+  /** How many tool calls are executing right now. */
+  get pendingToolCalls(): number {
+    return this.inFlightToolCalls.size;
   }
 
   // ─── OpenAI side lifecycle ────────────────────────────
@@ -431,6 +534,36 @@ export class RealtimeVoiceBridge {
         return;
       }
 
+      // A new output item was added to the response. When it is a
+      // function call we capture `name` keyed by `call_id` here, because
+      // the later `response.function_call_arguments.done` event is not
+      // guaranteed to echo the tool name.
+      case 'response.output_item.added': {
+        const item = asRecord(event.item);
+        if (item.type === 'function_call') {
+          const callId = asString(item.call_id);
+          const name = asString(item.name);
+          if (callId && name) this.toolCallNames.set(callId, name);
+        }
+        return;
+      }
+
+      // Streamed function-call arguments. GA emits a `.delta` stream
+      // then a single `.done` carrying the complete `arguments` JSON
+      // string — we dispatch on `.done` and ignore the deltas.
+      //
+      // > Event names (`response.function_call_arguments.delta` /
+      // > `.done`) and the `{ call_id, name, arguments }` fields follow
+      // > the OpenAI Realtime function-calling protocol per the plan §3.
+      // > Verify against current OpenAI docs before the live smoke test
+      // > (same discipline as `response.output_audio.delta` in v0.9.52).
+      case 'response.function_call_arguments.delta':
+        return;
+      case 'response.function_call_arguments.done': {
+        this.dispatchToolCall(event);
+        return;
+      }
+
       case 'error': {
         const errObj = (event.error && typeof event.error === 'object')
           ? event.error as Record<string, unknown>
@@ -459,6 +592,87 @@ export class RealtimeVoiceBridge {
     }
   }
 
+  // ─── Function calling ─────────────────────────────────
+
+  /**
+   * Parse a `response.function_call_arguments.done` event and dispatch
+   * the tool call. Resolves `name` from the event or the map captured
+   * on `response.output_item.added`; parses `arguments` (a JSON string)
+   * defensively. Always answers the model — an unknown name, missing
+   * executor, or oversized fan-out each gets a model-readable output
+   * rather than being dropped (a dropped `call_id` wedges the model,
+   * which waits forever for its `function_call_output`).
+   */
+  private dispatchToolCall(event: Record<string, unknown>): void {
+    const callId = asString(event.call_id);
+    if (!callId) return; // cannot answer a call with no id — nothing to key on
+    const name = asString(event.name) || this.toolCallNames.get(callId) || '';
+
+    if (this.inFlightToolCalls.has(callId)) return; // duplicate `.done` — ignore
+
+    if (!name) {
+      this.answerToolCall(callId, 'Tool call ignored — no tool name was provided.');
+      return;
+    }
+    if (!this.toolExecutor) {
+      this.answerToolCall(callId, `No tools are available on this call, so "${name}" cannot run.`);
+      return;
+    }
+    if (this.inFlightToolCalls.size >= MAX_IN_FLIGHT_TOOL_CALLS) {
+      this.answerToolCall(callId, `Too many tool calls are already in flight; "${name}" was refused.`);
+      return;
+    }
+
+    const args = parseToolArguments(event.arguments);
+    this.inFlightToolCalls.add(callId);
+    this.emitTranscript('system', `Tool call: ${name}`, { callId, arguments: args });
+    void this.runToolCall({ callId, name, arguments: args });
+  }
+
+  /** Execute one tool call, racing the executor against the safety-net timeout. */
+  private async runToolCall(call: RealtimeToolCall): Promise<void> {
+    let output: string;
+    try {
+      const result = await withTimeout(
+        Promise.resolve(this.toolExecutor!.execute(call)),
+        this.maxToolCallMs,
+      );
+      output = result.output;
+    } catch (err) {
+      // The executor itself never rejects (createToolExecutor catches),
+      // so reaching here means the safety-net timeout fired — the tool
+      // hung. Give the model something it can gracefully recover from.
+      output = `The "${call.name}" tool did not finish in time (${errorText(err)}). `
+        + 'Tell the caller you could not complete that just now and will follow up.';
+    }
+    this.inFlightToolCalls.delete(call.callId);
+    this.toolCallNames.delete(call.callId);
+    // The call may have ended while the tool ran (caller hung up). The
+    // OpenAI socket is gone — sending a result would throw; and an
+    // unanswered query is exactly what arms callback-on-disconnect.
+    if (this.ended) return;
+    this.emitTranscript('system', `Tool result: ${truncate(output, 240)}`, { callId: call.callId });
+    this.answerToolCall(call.callId, output);
+  }
+
+  /**
+   * Send a tool result back to OpenAI: a `function_call_output`
+   * conversation item, then `response.create` so the model resumes
+   * speaking with the result in hand.
+   *
+   * > `conversation.item.create` with `{ type: 'function_call_output',
+   * > call_id, output }` followed by `response.create` is the OpenAI
+   * > Realtime function-calling return path per the plan §3. Verify
+   * > against current OpenAI docs before the live smoke test.
+   */
+  private answerToolCall(callId: string, output: string): void {
+    this.safeSend(this.openai, {
+      type: 'conversation.item.create',
+      item: { type: 'function_call_output', call_id: callId, output },
+    });
+    this.safeSend(this.openai, { type: 'response.create' });
+  }
+
   // ─── Teardown ─────────────────────────────────────────
 
   /**
@@ -474,11 +688,21 @@ export class RealtimeVoiceBridge {
         text: `Dropped ${this.droppedFrames} oversized/invalid audio frame(s) during the call.`,
       });
     }
+    // Tool calls still running at teardown — the call dropped mid-tool.
+    // Surface it on the transcript; `onEnd.pendingToolCalls` is the
+    // signal the API layer uses to arm callback-on-disconnect (plan §7).
+    const pendingToolCalls = this.inFlightToolCalls.size;
+    if (pendingToolCalls > 0) {
+      this.onTranscript?.({
+        source: 'system',
+        text: `Call ended with ${pendingToolCalls} tool call(s) still pending (e.g. an unanswered operator query).`,
+      });
+    }
     // Best-effort `bye` to 46elks, then close both sides.
     try { this.elks.send(buildElksByeMessage() as unknown as Record<string, unknown>); } catch { /* ignore */ }
     try { this.elks.close(); } catch { /* ignore */ }
     try { this.openai.close(); } catch { /* ignore */ }
-    this.onEnd?.({ reason });
+    this.onEnd?.({ reason, pendingToolCalls });
   }
 
   // ─── Internals ────────────────────────────────────────
@@ -517,4 +741,53 @@ function errorText(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
   return 'unknown error';
+}
+
+/** Coerce a value to a plain object, or `{}` for anything else. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+/** Coerce a value to a trimmed string, or `''` for a non-string. */
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/** Truncate a string for transcript lines, adding an ellipsis if cut. */
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+/**
+ * Parse the `arguments` field of a function-call event — a JSON string
+ * per the OpenAI Realtime protocol. Returns `{}` for anything that is
+ * not a JSON object, so a buggy/hostile payload can never inject a
+ * non-object into a tool handler.
+ */
+function parseToolArguments(raw: unknown): Record<string, unknown> {
+  const text = asString(raw);
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Race a promise against a timeout. Rejects with a timeout error if the
+ * promise has not settled within `ms`; the pending timer is always
+ * cleared so it cannot keep the event loop alive.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`tool call exceeded ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
 }

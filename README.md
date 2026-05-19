@@ -33,7 +33,19 @@
 
 ---
 
-### ✨ What's new in 0.9.52
+### ✨ What's new in 0.9.53
+
+Realtime voice tools + a Telegram channel.
+
+- **The voice agent can now use tools mid-call.** The OpenAI Realtime session declares `session.tools`; `RealtimeVoiceBridge` dispatches the model's function calls through an injected `ToolExecutor`, returns `function_call_output`, and keeps the phone line warm during slow tools with a safety-net timeout + an in-flight call cap.
+- **`ask_operator` — human-in-the-loop on a live call.** The agent records an operator query on the mission, notifies the operator (channel-agnostic; default email), polls up to ~5 min, and resumes with the answer. If the caller hangs up while a query is pending, the mission is flagged for **callback-on-disconnect** — once the operator answers, it re-dials with a continuity task.
+- **Lookup tools.** `web_search` (keyless DuckDuckGo, results fenced as untrusted content), `recall_memory` (the agent's universal memory), `get_datetime`. Plus agent-key-scoped operator-query API endpoints.
+- **Telegram channel.** A user registers a Telegram bot token, links a chat, and can message their AgenticMail agent — and get replies — over Telegram. The inbound webhook authenticates with a constant-time secret-token compare; it also carries `ask_operator` notifications and approvals.
+- **Security.** web_search output is fenced as untrusted before it reaches the model; operator email replies are verified against `operatorEmail`; Telegram bot tokens are encrypted at rest and redacted from logs; new SQL is parameterized.
+
+996 tests pass; full build green. The live OpenAI ⇄ 46elks call path and live Telegram delivery still need an operator smoke-test before the npm publish.
+
+### ✨ Earlier — 0.9.52
 
 Realtime voice + OpenClaw memory.
 
@@ -254,6 +266,13 @@ That's a real multi-agent thread captured in the REPL — the host kicked off on
 - **Mission-tracked** — the bridge resolves the connection to its phone mission by 46elks `callid`, authenticates the connection token, and persists the conversation transcript to the mission
 - **Hardened** — per-frame audio size cap, bounded pre-connect buffer, fail-closed connection auth, terminal-state guard
 - **Opt-in** — set `OPENAI_API_KEY` to enable; without it, phone missions still place and track calls (call-control only)
+- **Tools on the call** — the Realtime session can call functions mid-call: `ask_operator` (human-in-the-loop — pause, ask the operator, resume, or call back on disconnect), `web_search`, `recall_memory`, `get_datetime`
+
+### Telegram Channel
+- **Chat with your agents over Telegram** — register a Telegram bot token, link a chat, and message your AgenticMail agent (and get replies) from Telegram
+- **Inbound webhook** — authenticated with a constant-time `X-Telegram-Bot-Api-Secret-Token` compare; uniform 403 on mismatch
+- **Operator channel** — carries `ask_operator` notifications and approvals, so a phone agent can reach you on Telegram mid-call
+- **Secrets protected** — bot tokens encrypted at rest, redacted from every log line and error
 
 ### Persistent Agent Memory
 - **Long-term, evolving knowledge** — each agent has a categorised memory (knowledge, preference, correction, skill, reflection, …) that survives across every conversation

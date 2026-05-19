@@ -26,6 +26,7 @@ import { createFeatureRoutes } from './routes/features.js';
 import { createTaskRoutes } from './routes/tasks.js';
 import { createSmsRoutes, createSmsWebhookRoutes } from './routes/sms.js';
 import { createPhoneRoutes, createPhoneWebhookRoutes } from './routes/phone.js';
+import { createTelegramRoutes, createTelegramWebhookRoutes } from './routes/telegram.js';
 import { createStorageRoutes } from './routes/storage.js';
 import { createMemoryRoutes } from './routes/memory.js';
 import { createSystemEventRoutes } from './routes/system-events.js';
@@ -213,13 +214,17 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createHealthRoutes(stalwart));
 
   // Inbound email webhook (uses its own secret-based auth, before bearer auth)
-  app.use('/api/agenticmail', createInboundRoutes(accountManager, config, gatewayManager));
+  app.use('/api/agenticmail', createInboundRoutes(accountManager, config, db, gatewayManager));
 
   // Inbound SMS provider webhooks (use provider-specific secrets, before bearer auth)
   app.use('/api/agenticmail', createSmsWebhookRoutes(db, config));
 
   // Phone provider webhooks (use provider-specific secrets, before bearer auth)
   app.use('/api/agenticmail', createPhoneWebhookRoutes(db, config));
+
+  // Inbound Telegram webhook (authenticates with the per-agent
+  // X-Telegram-Bot-Api-Secret-Token header, before bearer auth)
+  app.use('/api/agenticmail', createTelegramWebhookRoutes(db, config));
 
   // Integration bootstrap routes — mounted BEFORE bearer auth so a fresh
   // AI agent (Claude Code, etc.) can self-install without having to first
@@ -254,6 +259,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createTaskRoutes(db, accountManager, config));
   app.use('/api/agenticmail', createSmsRoutes(db, accountManager, config, gatewayManager));
   app.use('/api/agenticmail', createPhoneRoutes(db, config));
+  app.use('/api/agenticmail', createTelegramRoutes(db, config));
   app.use('/api/agenticmail', createMemoryRoutes(db as any));
   app.use('/api/agenticmail', createStorageRoutes(db as any, accountManager, config));
   app.use('/api/agenticmail', createSystemEventRoutes());

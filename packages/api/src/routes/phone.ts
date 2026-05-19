@@ -246,6 +246,68 @@ export function createPhoneRoutes(
     }
   });
 
+  // ─── Operator-query endpoints (ask_operator, plan §5) ───────────
+  //
+  // Channel-agnostic: the bridge's `ask_operator` tool records a query
+  // on the mission and polls it; ANY channel can answer it through the
+  // POST endpoint below. The agenticmail product ships the email
+  // notifier + this HTTP surface; a host (e.g. Fola's Telegram bridge)
+  // can watch the GET endpoint and POST the operator's reply here.
+  // Both endpoints are agent-key scoped — an agent only ever sees and
+  // answers its own missions' queries.
+
+  router.get('/calls/:id/operator-queries', (req: Request, res: Response) => {
+    try {
+      const agent = getAgent(req, res);
+      if (!agent) return;
+
+      const mission = phoneManager.getMission(req.params.id, agent.id);
+      if (!mission) return res.status(404).json({ error: 'Phone mission not found' });
+      res.json({
+        missionId: mission.id,
+        operatorQueries: phoneManager.listOperatorQueries(mission.id, agent.id),
+        callbackPending: mission.metadata.callbackPending === true,
+      });
+    } catch (err) {
+      sendPhoneError(res, err);
+    }
+  });
+
+  router.post('/calls/:id/operator-queries/:queryId/answer', async (req: Request, res: Response) => {
+    try {
+      const agent = getAgent(req, res);
+      if (!agent) return;
+
+      const answer = requestString(req.body?.answer);
+      if (!answer) return res.status(400).json({ error: 'answer is required' });
+
+      const result = phoneManager.answerOperatorQuery(
+        req.params.id, req.params.queryId, answer, { via: 'api', agentId: agent.id },
+      );
+      if (!result) return res.status(404).json({ error: 'Operator query not found' });
+
+      // The answer may unblock a callback-on-disconnect (plan §7). This
+      // is best-effort: a failed callback dial (e.g. a rate limit) must
+      // not fail the answer submission itself — the answer is recorded.
+      let callback: { triggered: boolean; missionId?: string; error?: string } = { triggered: false };
+      try {
+        const fired = await phoneManager.triggerCallback(req.params.id);
+        if (fired) callback = { triggered: true, missionId: fired.callbackMission.id };
+      } catch (err) {
+        callback = { triggered: false, error: (err as Error)?.message ?? String(err) };
+      }
+
+      res.json({
+        success: true,
+        alreadyAnswered: result.alreadyAnswered,
+        query: result.query,
+        callback,
+      });
+    } catch (err) {
+      sendPhoneError(res, err);
+    }
+  });
+
   router.post('/calls/:id/cancel', (req: Request, res: Response) => {
     try {
       const agent = getAgent(req, res);

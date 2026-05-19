@@ -8,6 +8,15 @@ import {
   DEFAULT_REALTIME_VOICE,
   type RealtimeBridgePort,
 } from '../phone/realtime-bridge.js';
+import {
+  ASK_OPERATOR_TOOL,
+  GET_DATETIME_TOOL,
+  type RealtimeToolCall,
+  type ToolExecutor,
+} from '../phone/realtime-tools.js';
+
+/** Flush pending microtasks + timers so an async tool dispatch settles. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 /** A fake bridge port that records every message + whether it was closed. */
 class FakePort implements RealtimeBridgePort {
@@ -231,5 +240,147 @@ describe('RealtimeVoiceBridge — teardown', () => {
     bridge.handleOpenAIClose();
     expect(bridge.isEnded).toBe(true);
     expect(ends).toEqual(['openai-closed']);
+  });
+});
+
+describe('buildRealtimeSessionConfig — tools', () => {
+  it('declares session.tools + tool_choice and folds in hold-UX guidance', () => {
+    const cfg = buildRealtimeSessionConfig({ task: 'Book a table', tools: [ASK_OPERATOR_TOOL] }) as any;
+    expect(cfg.session.tools).toHaveLength(1);
+    expect(cfg.session.tools[0].name).toBe('ask_operator');
+    expect(cfg.session.tool_choice).toBe('auto');
+    // Tool-use guidance is appended to the composed instructions.
+    expect(cfg.session.instructions).toContain('Tools you can use');
+    expect(cfg.session.instructions).toContain('hold');
+  });
+
+  it('omits session.tools entirely when no tools are passed', () => {
+    const cfg = buildRealtimeSessionConfig({ task: 'Just chat' }) as any;
+    expect(cfg.session.tools).toBeUndefined();
+    expect(cfg.session.tool_choice).toBeUndefined();
+  });
+
+  it('honours a tool_choice override and an explicit instructions string', () => {
+    const cfg = buildRealtimeSessionConfig({
+      task: 't', tools: [GET_DATETIME_TOOL], toolChoice: 'required', instructions: 'Be terse.',
+    }) as any;
+    expect(cfg.session.tool_choice).toBe('required');
+    // An explicit instructions string is taken verbatim — no guidance folded in.
+    expect(cfg.session.instructions).toBe('Be terse.');
+  });
+});
+
+describe('RealtimeVoiceBridge — function calling', () => {
+  /** A tool executor that records calls and resolves a fixed output. */
+  function fakeExecutor(output = 'tool done'): { executor: ToolExecutor; calls: RealtimeToolCall[] } {
+    const calls: RealtimeToolCall[] = [];
+    return {
+      calls,
+      executor: { execute: async (call) => { calls.push(call); return { output }; } },
+    };
+  }
+
+  function functionCallEvents(callId: string, name: string, args: string) {
+    return [
+      { type: 'response.output_item.added', item: { type: 'function_call', call_id: callId, name } },
+      { type: 'response.function_call_arguments.done', call_id: callId, arguments: args },
+    ];
+  }
+
+  it('dispatches a function call and returns function_call_output + response.create', async () => {
+    const { executor, calls } = fakeExecutor('Reserved 8pm for two.');
+    const { bridge, openai } = makeBridge({ toolExecutor: executor });
+    bridge.handleElksMessage(helloFrame());
+    bridge.handleOpenAIOpen();
+
+    for (const event of functionCallEvents('fc1', 'ask_operator', '{"question":"is 8pm ok?"}')) {
+      bridge.handleOpenAIMessage(event);
+    }
+    await flush();
+
+    expect(calls[0]).toEqual({ callId: 'fc1', name: 'ask_operator', arguments: { question: 'is 8pm ok?' } });
+    const created = openai.ofKind('conversation.item.create')[0] as any;
+    expect(created.item).toEqual({
+      type: 'function_call_output', call_id: 'fc1', output: 'Reserved 8pm for two.',
+    });
+    expect(openai.ofKind('response.create')).toHaveLength(1);
+  });
+
+  it('parses a malformed arguments string to an empty object rather than crashing', async () => {
+    const { executor, calls } = fakeExecutor();
+    const { bridge } = makeBridge({ toolExecutor: executor });
+    bridge.handleElksMessage(helloFrame());
+    bridge.handleOpenAIOpen();
+    for (const event of functionCallEvents('fc1', 'get_datetime', 'not-json')) {
+      bridge.handleOpenAIMessage(event);
+    }
+    await flush();
+    expect(calls[0].arguments).toEqual({});
+  });
+
+  it('answers a function call with a refusal when no executor is wired', async () => {
+    const { bridge, openai } = makeBridge(); // no toolExecutor
+    bridge.handleElksMessage(helloFrame());
+    bridge.handleOpenAIOpen();
+    for (const event of functionCallEvents('fc1', 'web_search', '{}')) {
+      bridge.handleOpenAIMessage(event);
+    }
+    await flush();
+    const created = openai.ofKind('conversation.item.create')[0] as any;
+    expect(created.item.call_id).toBe('fc1');
+    expect(String(created.item.output)).toContain('No tools');
+  });
+
+  it('falls back gracefully when a tool exceeds the safety-net timeout', async () => {
+    // An executor whose promise never settles — the bridge timeout must fire.
+    const executor: ToolExecutor = { execute: () => new Promise(() => { /* never */ }) };
+    const { bridge, openai } = makeBridge({ toolExecutor: executor, maxToolCallMs: 20 });
+    bridge.handleElksMessage(helloFrame());
+    bridge.handleOpenAIOpen();
+    for (const event of functionCallEvents('fc1', 'ask_operator', '{}')) {
+      bridge.handleOpenAIMessage(event);
+    }
+    // Wait past the 20ms safety-net timeout so the fallback output is sent.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const created = openai.ofKind('conversation.item.create')[0] as any;
+    expect(created.item.call_id).toBe('fc1');
+    expect(String(created.item.output)).toMatch(/did not finish/i);
+  });
+
+  it('surfaces in-flight tool calls to onEnd for callback-on-disconnect', async () => {
+    const executor: ToolExecutor = { execute: () => new Promise(() => { /* never settles */ }) };
+    const summaries: { reason: string; pendingToolCalls: number }[] = [];
+    const { bridge } = makeBridge({ toolExecutor: executor, onEnd: (s) => summaries.push(s) });
+    bridge.handleElksMessage(helloFrame());
+    bridge.handleOpenAIOpen();
+    for (const event of functionCallEvents('fc1', 'ask_operator', '{}')) {
+      bridge.handleOpenAIMessage(event);
+    }
+    await flush();
+    expect(bridge.pendingToolCalls).toBe(1);
+
+    bridge.handleElksMessage({ t: 'bye', reason: 'caller hung up' });
+    expect(summaries[0]).toEqual({ reason: 'elks-bye', pendingToolCalls: 1 });
+  });
+
+  it('drops a tool result that resolves after the call has ended', async () => {
+    let resolve: (value: { output: string }) => void = () => {};
+    const executor: ToolExecutor = {
+      execute: () => new Promise((r) => { resolve = r; }),
+    };
+    const { bridge, openai } = makeBridge({ toolExecutor: executor });
+    bridge.handleElksMessage(helloFrame());
+    bridge.handleOpenAIOpen();
+    for (const event of functionCallEvents('fc1', 'ask_operator', '{}')) {
+      bridge.handleOpenAIMessage(event);
+    }
+    await flush();
+
+    bridge.end('elks-bye');
+    const sentBefore = openai.sent.length;
+    resolve({ output: 'late answer' }); // tool finishes after teardown
+    await flush();
+    // Nothing more is sent to OpenAI after the bridge ended.
+    expect(openai.sent).toHaveLength(sentBefore);
   });
 });

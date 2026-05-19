@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
-import { createTestDatabase, type AgenticMailConfig } from '@agenticmail/core';
+import { createTestDatabase, PhoneManager, type AgenticMailConfig } from '@agenticmail/core';
 import { createPhoneRoutes, createPhoneWebhookRoutes } from '../routes/phone.js';
 
 // Webhook secret must clear the 24-char entropy floor (#43-H8).
@@ -213,6 +213,94 @@ describe('phone routes', () => {
       body: JSON.stringify({ callid: 'call123' }),
     });
     expect(hangup.body.mission.status).toBe('failed');
+
+    db.close();
+  });
+
+  it('lists and answers operator queries (ask_operator endpoints)', async () => {
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+    await setupTransport(baseUrl);
+    const started = await request(baseUrl, '/calls/start', {
+      method: 'POST',
+      body: JSON.stringify({ to: '+436641234567', task: 'Reserve dinner', policy, dryRun: true }),
+    });
+    const missionId = started.body.mission.id;
+
+    // The bridge records the query at runtime; seed one against the same DB.
+    const manager = new PhoneManager(db as any, config.masterKey);
+    const { query } = manager.addOperatorQuery(missionId, { question: 'Is 8pm acceptable?' });
+
+    const list = await request(baseUrl, `/calls/${missionId}/operator-queries`);
+    expect(list.status).toBe(200);
+    expect(list.body.operatorQueries).toHaveLength(1);
+    expect(list.body.operatorQueries[0].question).toBe('Is 8pm acceptable?');
+    expect(list.body.callbackPending).toBe(false);
+
+    const answer = await request(baseUrl, `/calls/${missionId}/operator-queries/${query.id}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer: 'Yes, 8pm is fine' }),
+    });
+    expect(answer.status).toBe(200);
+    expect(answer.body.alreadyAnswered).toBe(false);
+    expect(answer.body.query.answer).toBe('Yes, 8pm is fine');
+    expect(answer.body.callback.triggered).toBe(false); // not callback-pending
+
+    // The list now reflects the answer.
+    const list2 = await request(baseUrl, `/calls/${missionId}/operator-queries`);
+    expect(list2.body.operatorQueries[0].answer).toBe('Yes, 8pm is fine');
+
+    // An empty answer is rejected.
+    const empty = await request(baseUrl, `/calls/${missionId}/operator-queries/${query.id}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer: '' }),
+    });
+    expect(empty.status).toBe(400);
+
+    // An unknown query id returns 404.
+    const missing = await request(baseUrl, `/calls/${missionId}/operator-queries/oq_nope/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer: 'whatever' }),
+    });
+    expect(missing.status).toBe(404);
+
+    db.close();
+  });
+
+  it('answering a callback-pending query triggers a callback dial (plan §7)', async () => {
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+    await setupTransport(baseUrl);
+    const started = await request(baseUrl, '/calls/start', {
+      method: 'POST',
+      body: JSON.stringify({ to: '+436641234567', task: 'Reserve dinner', policy, dryRun: true }),
+    });
+    const missionId = started.body.mission.id;
+
+    const manager = new PhoneManager(db as any, config.masterKey);
+    const { query } = manager.addOperatorQuery(missionId, { question: 'Confirm the booking?' });
+    manager.flagCallbackPending(missionId); // the call dropped while unanswered
+
+    // The callback dials 46elks; the test client itself uses fetch, so the
+    // stub routes 46elks calls to a fake and passes everything else through.
+    const realFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (url: any, init: any) => (
+      String(url).includes('46elks.com')
+        ? new Response(JSON.stringify({ id: 'callback-call' }), { status: 200 })
+        : realFetch(url, init)
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const answer = await request(baseUrl, `/calls/${missionId}/operator-queries/${query.id}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer: 'Yes, go ahead and confirm it' }),
+    });
+    vi.unstubAllGlobals();
+
+    expect(answer.status).toBe(200);
+    expect(answer.body.callback.triggered).toBe(true);
+    expect(answer.body.callback.missionId).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('46elks.com'))).toBe(true);
 
     db.close();
   });

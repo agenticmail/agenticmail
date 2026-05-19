@@ -29,16 +29,36 @@ import { WebSocketServer, WebSocket } from 'ws';
 import {
   PhoneManager,
   AgentMemoryManager,
+  MailSender,
   RealtimeVoiceBridge,
   buildRealtimeSessionConfig,
   buildOpenAIRealtimeUrl,
   DEFAULT_REALTIME_MODEL,
   parseElksRealtimeMessage,
+  createToolExecutor,
+  getDatetime,
+  recallMemory,
+  webSearch,
+  pollForOperatorAnswer,
+  operatorQuerySubject,
+  TelegramManager,
+  sendTelegramMessage,
+  formatOperatorQueryTelegramMessage,
+  OPERATOR_QUERY_TIMEOUT_SENTINEL,
+  ASK_OPERATOR_TOOL,
+  WEB_SEARCH_TOOL,
+  RECALL_MEMORY_TOOL,
+  GET_DATETIME_TOOL,
   type AgenticMailConfig,
   type RealtimeBridgePort,
+  type RealtimeToolDefinition,
+  type RealtimeToolHandler,
+  type ToolExecutor,
   type PhoneCallMission,
   type PhoneMissionTranscriptEntry,
 } from '@agenticmail/core';
+
+type Db = ReturnType<typeof import('@agenticmail/core').getDatabase>;
 
 /** Path the 46elks websocket number's `websocket_url` should point at. */
 export const REALTIME_WS_PATH = '/api/agenticmail/calls/realtime';
@@ -47,8 +67,6 @@ export const REALTIME_WS_PATH = '/api/agenticmail/calls/realtime';
 const HELLO_TIMEOUT_MS = 15_000;
 /** OpenAI socket must open within this window or the call is failed. */
 const OPENAI_CONNECT_TIMEOUT_MS = 15_000;
-
-type Db = ReturnType<typeof import('@agenticmail/core').getDatabase>;
 
 /** Constant-time string compare that never throws on length mismatch. */
 function safeEqual(a: string, b: string): boolean {
@@ -80,7 +98,7 @@ export function createRealtimeVoiceServer(db: Db, config: AgenticMailConfig): Re
   const memory = new AgentMemoryManager(db as any);
 
   wss.on('connection', (elksWs: WebSocket, req: IncomingMessage) => {
-    handleConnection(elksWs, req, { config, phoneManager, memory }).catch((err) => {
+    handleConnection(elksWs, req, { config, phoneManager, memory, db }).catch((err) => {
       console.error('[realtime-voice] connection handler failed:', (err as Error)?.message ?? err);
       try { elksWs.close(); } catch { /* ignore */ }
     });
@@ -103,6 +121,7 @@ interface ConnectionDeps {
   config: AgenticMailConfig;
   phoneManager: PhoneManager;
   memory: AgentMemoryManager;
+  db: Db;
 }
 
 /**
@@ -116,7 +135,7 @@ async function handleConnection(
   req: IncomingMessage,
   deps: ConnectionDeps,
 ): Promise<void> {
-  const { config, phoneManager, memory } = deps;
+  const { config, phoneManager, memory, db } = deps;
 
   // The static token on the websocket_url query string. 46elks sends no
   // auth of its own, so this — plus an unguessable URL path — is the
@@ -210,10 +229,23 @@ async function handleConnection(
     }
 
     const model = DEFAULT_REALTIME_MODEL;
+
+    // Build this connection's tool layer (v0.9.53). `tools` is declared
+    // on the OpenAI session; `executor` dispatches the model's calls to
+    // real implementations (ask_operator, web_search, recall_memory,
+    // get_datetime). The executor's `ask_operator` poll needs to abort
+    // if the call drops — `isCallEnded` lets it see the bridge state.
+    const tools = buildVoiceTools();
+    const executor = createVoiceToolExecutor({
+      mission, phoneManager, memory, config, db,
+      isCallEnded: () => bridge?.isEnded ?? false,
+    });
+
     const sessionConfig = buildRealtimeSessionConfig({
       task: mission.task,
       memoryContext,
       model,
+      tools,
     });
 
     const openaiWs = new WebSocket(buildOpenAIRealtimeUrl(model), {
@@ -227,8 +259,9 @@ async function handleConnection(
       elks: portFor(elksWs),
       openai: portFor(openaiWs),
       sessionConfig,
+      toolExecutor: executor,
       onTranscript: (e) => record({ at: new Date().toISOString(), source: e.source, text: e.text, metadata: e.metadata }),
-      onEnd: ({ reason }) => {
+      onEnd: ({ reason, pendingToolCalls }) => {
         record({ at: new Date().toISOString(), source: 'system', text: `Realtime voice bridge ended (${reason}).` });
         // Persist the whole transcript + mark the mission completed
         // (the conversation actually happened). recordRealtimeActivity
@@ -237,6 +270,18 @@ async function handleConnection(
           phoneManager.recordRealtimeActivity(mission!.id, transcript.splice(0), 'completed');
         } catch (err) {
           console.error('[realtime-voice] transcript persist failed:', (err as Error)?.message ?? err);
+        }
+        // Callback-on-disconnect (plan §7): the call dropped with a tool
+        // call (an unanswered ask_operator query) still in flight. Flag
+        // the mission so the answer endpoint dials the caller back once
+        // the operator responds. flagCallbackPending re-checks for an
+        // actually-unanswered query, so this is safe to call broadly.
+        if (pendingToolCalls > 0) {
+          try {
+            phoneManager.flagCallbackPending(mission!.id);
+          } catch (err) {
+            console.error('[realtime-voice] callback flag failed:', (err as Error)?.message ?? err);
+          }
         }
       },
     });
@@ -279,4 +324,189 @@ function portFor(ws: WebSocket): RealtimeBridgePort {
 
 function systemEntry(text: string): PhoneMissionTranscriptEntry {
   return { at: new Date().toISOString(), source: 'system', text };
+}
+
+// ─── Realtime voice tools (v0.9.53) ─────────────────────
+
+/**
+ * The Phase 1+2 tool set declared on a realtime voice session. All four
+ * are always available: `web_search` uses keyless DuckDuckGo (plan
+ * §13.1), so there is no configuration that can make a tool unfulfillable.
+ */
+function buildVoiceTools(): RealtimeToolDefinition[] {
+  return [
+    ASK_OPERATOR_TOOL,
+    RECALL_MEMORY_TOOL,
+    GET_DATETIME_TOOL,
+    WEB_SEARCH_TOOL,
+  ];
+}
+
+interface VoiceToolExecutorParams {
+  mission: PhoneCallMission;
+  phoneManager: PhoneManager;
+  memory: AgentMemoryManager;
+  config: AgenticMailConfig;
+  db: Db;
+  /** True once the call has ended — aborts a pending ask_operator poll. */
+  isCallEnded: () => boolean;
+}
+
+/**
+ * Build the per-connection {@link ToolExecutor} — wires each declared
+ * tool to its real implementation. Every handler is soft-failing
+ * (`createToolExecutor` catches throws), so the worst case a tool can
+ * produce is a model-readable error string, never a wedged call.
+ */
+function createVoiceToolExecutor(params: VoiceToolExecutorParams): ToolExecutor {
+  const { mission, phoneManager, memory, config, db, isCallEnded } = params;
+
+  const askOperator: RealtimeToolHandler = async (args) => {
+    const question = typeof args.question === 'string' ? args.question : '';
+    const callContext = typeof args.call_context === 'string' ? args.call_context : undefined;
+    const urgency = args.urgency === 'high' ? 'high' : 'normal';
+
+    let queryId: string;
+    try {
+      const { query } = phoneManager.addOperatorQuery(mission.id, { question, callContext, urgency });
+      queryId = query.id;
+    } catch (err) {
+      console.warn('[realtime-voice] could not record operator query:', (err as Error)?.message ?? err);
+      return 'I could not record that question for my operator just now. '
+        + 'Tell the caller you will follow up another way.';
+    }
+
+    // Notify the operator out-of-band (email — the channel-agnostic
+    // default, plan §5). Fire-and-forget: a slow / failing SMTP must not
+    // delay the poll, and the query is answerable via the API endpoint
+    // regardless of whether the email got through.
+    void notifyOperator({ mission, config, db, queryId, question, callContext, urgency })
+      .catch((err) => console.warn('[realtime-voice] operator notification failed:', (err as Error)?.message ?? err));
+
+    // Telegram is a first-class operator channel too (plan §13.5). Same
+    // fire-and-forget contract as the email notifier: an unconfigured or
+    // failing Telegram path must not delay the poll — the query is
+    // answerable from any channel regardless.
+    void notifyOperatorViaTelegram({ mission, config, db, queryId, question, callContext, urgency })
+      .catch((err) => console.warn('[realtime-voice] telegram operator notification failed:', (err as Error)?.message ?? err));
+
+    // Block, polling the query record, until the operator answers or the
+    // hard timeout elapses. Abort early if the call drops — the now-
+    // unanswered query is what arms callback-on-disconnect (plan §7).
+    const answer = await pollForOperatorAnswer(
+      () => phoneManager.getOperatorQuery(mission.id, queryId)?.answer ?? null,
+      { signal: { get aborted() { return isCallEnded(); } } },
+    );
+    return answer ?? OPERATOR_QUERY_TIMEOUT_SENTINEL;
+  };
+
+  return createToolExecutor({
+    ask_operator: askOperator,
+    recall_memory: (args) => recallMemory(
+      memory, mission.agentId, typeof args.query === 'string' ? args.query : '',
+    ),
+    get_datetime: (args) => getDatetime({
+      timezone: typeof args.timezone === 'string' ? args.timezone : undefined,
+    }),
+    web_search: (args) => webSearch(typeof args.query === 'string' ? args.query : ''),
+  });
+}
+
+interface NotifyOperatorParams {
+  mission: PhoneCallMission;
+  config: AgenticMailConfig;
+  db: Db;
+  queryId: string;
+  question: string;
+  callContext?: string;
+  urgency: string;
+}
+
+/**
+ * Email the operator that the voice agent needs an answer mid-call
+ * (plan §5 — the channel-agnostic default notifier). The query id is
+ * embedded in the subject so the operator can simply *reply*; the
+ * inbound mail hook (`routes/inbound.ts`) parses that reply back into
+ * the query record.
+ *
+ * Best-effort: with no `operatorEmail`, no agent password, or an SMTP
+ * failure this just returns — the query is still recorded, still
+ * polled, and still answerable through the HTTP endpoint.
+ *
+ * Testing boundary: like the live OpenAI ⇄ 46elks path, the actual SMTP
+ * send is not exercised in CI. The pieces it composes ARE unit-tested
+ * (`operatorQuerySubject`, the operator-query manager methods, the
+ * answer endpoint, and `parseOperatorQueryReply`).
+ */
+async function notifyOperator(params: NotifyOperatorParams): Promise<void> {
+  const operatorEmail = params.config.operatorEmail?.trim();
+  if (!operatorEmail) return; // no notification channel configured
+
+  const row = params.db.prepare(
+    'SELECT email, stalwart_principal, metadata FROM agents WHERE id = ?',
+  ).get(params.mission.agentId) as
+    { email: string; stalwart_principal: string; metadata: string } | undefined;
+  if (!row) return;
+
+  let password = '';
+  try { password = String(JSON.parse(row.metadata || '{}')?._password ?? ''); } catch { /* no password */ }
+  if (!password) return;
+
+  const sender = new MailSender({
+    host: params.config.smtp.host,
+    port: params.config.smtp.port,
+    email: row.email,
+    password,
+    authUser: row.stalwart_principal || row.email,
+  });
+  try {
+    await sender.send({
+      to: operatorEmail,
+      subject: operatorQuerySubject(params.queryId, params.callContext),
+      text: [
+        `Your voice agent needs an answer to continue a live phone call`
+          + `${params.urgency === 'high' ? ' (URGENT)' : ''}.`,
+        '',
+        `Question: ${params.question}`,
+        ...(params.callContext ? ['', `Call context: ${params.callContext}`] : []),
+        '',
+        'Reply to this email with your answer — keep the subject line intact so the reply',
+        'can be matched back to the call. The agent will hold the line for a few minutes.',
+        '',
+        `(Mission ${params.mission.id} · query ${params.queryId})`,
+      ].join('\n'),
+    });
+  } finally {
+    sender.close();
+  }
+}
+
+/**
+ * Notify the operator over Telegram that the voice agent needs an
+ * answer (plan §13.5 — Telegram as a first-class `ask_operator` channel,
+ * complementing the email default in {@link notifyOperator}). The
+ * operator can answer or approve straight from the Telegram chat; that
+ * reply is routed back through the Telegram webhook to the SAME
+ * operator-query record this notification references.
+ *
+ * Best-effort: no Telegram config, no linked operator chat, or a send
+ * failure just returns — the query is still recorded, still polled, and
+ * still answerable from any channel (email / HTTP / Telegram).
+ */
+async function notifyOperatorViaTelegram(params: NotifyOperatorParams): Promise<void> {
+  const telegramManager = new TelegramManager(params.db as any, params.config.masterKey);
+  const cfg = telegramManager.getConfig(params.mission.agentId);
+  if (!cfg?.enabled || !cfg.operatorChatId || !cfg.botToken) return;
+
+  await sendTelegramMessage(
+    cfg.botToken,
+    cfg.operatorChatId,
+    formatOperatorQueryTelegramMessage({
+      queryId: params.queryId,
+      question: params.question,
+      callContext: params.callContext,
+      urgency: params.urgency,
+      missionId: params.mission.id,
+    }),
+  );
 }

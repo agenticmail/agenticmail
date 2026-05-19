@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.53] - 2026-05-20
+
+### Added — realtime voice tools + Telegram channel
+
+The realtime voice agent goes from a *talker* to a *tool-using agent*,
+and AgenticMail gets a Telegram channel.
+
+- **Realtime voice tool layer** (`@agenticmail/core`) — the OpenAI
+  Realtime session can now call functions mid-call.
+  `buildRealtimeSessionConfig()` accepts a `tools` array (declared as
+  `session.tools` + `tool_choice`); `RealtimeVoiceBridge` dispatches
+  the model's function calls through an injected `ToolExecutor`,
+  returns `function_call_output`, and keeps the line warm during slow
+  tools with a safety-net timeout and an in-flight call cap.
+- **`ask_operator`** — human-in-the-loop. The agent records an
+  operator query on the mission, notifies the operator (channel-
+  agnostic; default email), polls up to a ~5 min timeout, and resumes
+  the call with the answer. If the caller hangs up while a query is
+  pending, the mission is flagged for **callback-on-disconnect** — an
+  answer later re-dials with a continuity task.
+- **Lookup tools** — `web_search` (keyless DuckDuckGo; results fenced
+  as untrusted content), `recall_memory` (the agent's universal
+  memory), `get_datetime`. `search_email` schema is defined but not
+  wired.
+- **Operator-query API** — `GET/POST /calls/:id/operator-queries…`,
+  agent-key scoped; answers accepted from any channel.
+- **Telegram channel** (`@agenticmail/core` + `@agenticmail/api`) — a
+  user registers a Telegram bot token, links a chat, and can message
+  their AgenticMail agent and get replies over Telegram. Inbound
+  webhook authenticates with a constant-time secret-token compare;
+  it also carries `ask_operator` notifications + approvals.
+
+### Security
+
+- web_search output is fenced with an explicit untrusted-content
+  marker before it reaches the model (prompt-injection mitigation).
+- Operator email replies are verified against `operatorEmail` (From-
+  address check) before an answer is accepted — fail-closed.
+- Telegram bot tokens are encrypted at rest and redacted from every
+  log line and error; the inbound webhook returns a uniform 403.
+- All new SQL is parameterized; tool-call dispatch is fan-out capped.
+
+996 tests pass (up from 906); full monorepo build green. The live
+OpenAI ⇄ 46elks call path and live Telegram delivery still require an
+operator smoke-test before the npm publish.
+
 ## [0.9.52] - 2026-05-20
 
 ### Added — realtime voice + OpenClaw memory

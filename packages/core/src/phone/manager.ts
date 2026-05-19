@@ -5,6 +5,7 @@ import { normalizePhoneNumber } from '../sms/manager.js';
 import {
   PHONE_MISSION_STATES,
   PHONE_SERVER_MAX_CALL_DURATION_SECONDS,
+  PHONE_TASK_MAX_LENGTH,
   validatePhoneMissionStart,
   validatePhoneTransportProfile,
   type OpenClawPhoneMissionPolicy,
@@ -71,6 +72,31 @@ export interface PhoneMissionTranscriptEntry {
   metadata?: Record<string, unknown>;
 }
 
+export type OperatorQueryUrgency = 'normal' | 'high';
+
+/**
+ * A question the voice agent put to its human operator mid-call via the
+ * `ask_operator` tool (plan §4 / §5). Persisted on the mission under
+ * `metadata.operatorQueries[]` and exposed by the operator-query API
+ * endpoints. The bridge's `ask_operator` tool blocks polling this
+ * record until `answer` is set or the hard timeout elapses.
+ */
+export interface PhoneOperatorQuery {
+  /** `oq_<uuid>` — unique across all missions. */
+  id: string;
+  /** The question, sanitised + length-bounded. */
+  question: string;
+  /** One-line context on the call, if the agent supplied it. */
+  callContext?: string;
+  urgency: OperatorQueryUrgency;
+  askedAt: string;
+  /** The operator's answer — set once, never overwritten (idempotent). */
+  answer?: string;
+  answeredAt?: string;
+  /** Channel the answer arrived on (e.g. `api`, `email`). */
+  answeredVia?: string;
+}
+
 export interface PhoneCallMission {
   id: string;
   agentId: string;
@@ -110,6 +136,20 @@ export interface PhoneWebhookResult {
 
 const PHONE_SECRET_FIELDS = ['password', 'webhookSecret'] as const;
 const MAX_PHONE_WEBHOOK_EVENT_KEYS = 50;
+
+/**
+ * Bounds on operator-query free text. The `question` rides into the
+ * notification + a `function_call` output; the `answer` rides back into
+ * the model and (on a callback) into the session instructions. Both are
+ * attacker-influenceable (question from the model, answer from whoever
+ * hits the answer endpoint), so strip control characters and bound the
+ * length — same discipline as the mission `task` (#42-H2).
+ */
+const OPERATOR_QUERY_QUESTION_MAX_LENGTH = 2000;
+const OPERATOR_QUERY_ANSWER_MAX_LENGTH = 4000;
+const OPERATOR_QUERY_CONTEXT_MAX_LENGTH = 500;
+/** Cap on operator-query records kept per mission. */
+const MAX_OPERATOR_QUERIES = 50;
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -208,6 +248,61 @@ function hasProcessedWebhookEvent(mission: PhoneCallMission, eventKey: string): 
 
 function appendProcessedWebhookEvent(mission: PhoneCallMission, eventKey: string): string[] {
   return [...processedWebhookEventKeys(mission), eventKey].slice(-MAX_PHONE_WEBHOOK_EVENT_KEYS);
+}
+
+/**
+ * Strip control characters (keep tab/newline) and bound the length of
+ * an operator-query free-text field. Mirrors the mission-`task`
+ * sanitisation (#42-H2) — these strings flow into model output and, on
+ * a callback, into session instructions, so a control-laced or
+ * unbounded string must not ride through.
+ */
+function sanitizeOperatorText(value: unknown, maxLength: number): string {
+  const raw = typeof value === 'string' ? value : '';
+  return raw
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
+/** Read the well-formed operator-query records off a mission. */
+function readOperatorQueries(mission: PhoneCallMission): PhoneOperatorQuery[] {
+  const value = mission.metadata.operatorQueries;
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is PhoneOperatorQuery => (
+    Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+    && typeof (item as PhoneOperatorQuery).id === 'string'
+    && typeof (item as PhoneOperatorQuery).question === 'string'
+  ));
+}
+
+/** Escape SQL `LIKE` metacharacters so a value is matched literally. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
+/**
+ * Compose the continuation `task` for a callback-on-disconnect (plan
+ * §7): the original objective, a note that the call was cut off, and
+ * the operator's answer the agent was waiting for. Bounded to
+ * {@link PHONE_TASK_MAX_LENGTH} so it always clears mission validation.
+ */
+function buildCallbackTask(originalTask: string, query: PhoneOperatorQuery): string {
+  const continuity = [
+    '# Call continuity',
+    'You were already on this call and paused to check something with your operator. The call was '
+    + 'disconnected before you had the answer, so you are now calling the person back. Open by '
+    + 'acknowledging it — e.g. "Sorry we got cut off — I have that answer for you now."',
+    '',
+    `Your operator's answer to "${query.question}" is: ${query.answer ?? ''}`,
+    '',
+    'Use that answer to finish the original task below.',
+    '',
+    '# Original task',
+  ].join('\n');
+  // Reserve room for the continuity block; trim the original task if needed.
+  const room = Math.max(0, PHONE_TASK_MAX_LENGTH - continuity.length - 1);
+  return `${continuity}\n${originalTask.slice(0, room)}`.slice(0, PHONE_TASK_MAX_LENGTH);
 }
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -679,6 +774,208 @@ export class PhoneManager {
       ? mission.status
       : (status ?? mission.status);
     return this.updateMissionStatus(mission.id, nextStatus, {}, entries);
+  }
+
+  // ─── Operator queries (ask_operator) ──────────────────
+
+  /**
+   * Record an operator query against a mission — the first step of the
+   * `ask_operator` tool (plan §4). Returns the persisted query; the
+   * bridge then polls {@link getOperatorQuery} for an answer. Throws on
+   * an unknown mission or an empty question.
+   */
+  addOperatorQuery(
+    missionId: string,
+    input: { question: string; callContext?: string; urgency?: string },
+  ): { mission: PhoneCallMission; query: PhoneOperatorQuery } {
+    const mission = this.getMission(missionId);
+    if (!mission) throw new Error('Phone mission not found');
+
+    const question = sanitizeOperatorText(input.question, OPERATOR_QUERY_QUESTION_MAX_LENGTH);
+    if (!question) throw new Error('Operator query question is required');
+    const callContext = sanitizeOperatorText(input.callContext, OPERATOR_QUERY_CONTEXT_MAX_LENGTH);
+
+    const query: PhoneOperatorQuery = {
+      id: `oq_${randomUUID()}`,
+      question,
+      ...(callContext ? { callContext } : {}),
+      urgency: input.urgency === 'high' ? 'high' : 'normal',
+      askedAt: new Date().toISOString(),
+    };
+    const queries = [...readOperatorQueries(mission), query].slice(-MAX_OPERATOR_QUERIES);
+    const updated = this.updateMissionStatus(mission.id, mission.status, {
+      operatorQueries: queries,
+    }, [{
+      at: query.askedAt,
+      source: 'agent',
+      text: `Asked the operator: ${question}`,
+      metadata: { queryId: query.id, urgency: query.urgency },
+    }]);
+    return { mission: updated, query };
+  }
+
+  /** List the operator queries recorded on a mission. */
+  listOperatorQueries(missionId: string, agentId?: string): PhoneOperatorQuery[] {
+    const mission = this.getMission(missionId, agentId);
+    return mission ? readOperatorQueries(mission) : [];
+  }
+
+  /** Read one operator query, or null if the mission/query is unknown. */
+  getOperatorQuery(missionId: string, queryId: string, agentId?: string): PhoneOperatorQuery | null {
+    const mission = this.getMission(missionId, agentId);
+    if (!mission) return null;
+    return readOperatorQueries(mission).find((query) => query.id === queryId) ?? null;
+  }
+
+  /**
+   * Resolve a mission + query by the query id alone — used by the
+   * inbound email-reply hook, which only has the id parsed out of the
+   * reply subject. A LIKE prefilter (id escaped so its `_`/`-` are
+   * literal) narrows the scan; the match is then verified exactly.
+   */
+  findMissionByOperatorQueryId(
+    queryId: string,
+  ): { mission: PhoneCallMission; query: PhoneOperatorQuery } | null {
+    const id = asString(queryId);
+    if (!id) return null;
+    const rows = this.db.prepare(
+      "SELECT * FROM phone_missions WHERE metadata_json LIKE ? ESCAPE '\\'",
+    ).all(`%${escapeLike(id)}%`) as any[];
+    for (const row of rows) {
+      const mission = rowToMission(row);
+      const query = readOperatorQueries(mission).find((item) => item.id === id);
+      if (query) return { mission, query };
+    }
+    return null;
+  }
+
+  /**
+   * Record the operator's answer to a query. Idempotent — the first
+   * answer wins; a later answer for the same query returns the existing
+   * record unchanged with `alreadyAnswered: true`, so a duplicate
+   * (e.g. an email reply AND an API POST) cannot fight. Returns null if
+   * the mission/query is unknown; throws on an empty answer.
+   */
+  answerOperatorQuery(
+    missionId: string,
+    queryId: string,
+    answer: string,
+    options: { via?: string; agentId?: string } = {},
+  ): { mission: PhoneCallMission; query: PhoneOperatorQuery; alreadyAnswered: boolean } | null {
+    const mission = this.getMission(missionId, options.agentId);
+    if (!mission) return null;
+    const queries = readOperatorQueries(mission);
+    const index = queries.findIndex((query) => query.id === queryId);
+    if (index < 0) return null;
+    if (queries[index].answer) {
+      return { mission, query: queries[index], alreadyAnswered: true };
+    }
+
+    const cleanAnswer = sanitizeOperatorText(answer, OPERATOR_QUERY_ANSWER_MAX_LENGTH);
+    if (!cleanAnswer) throw new Error('Operator answer is required');
+
+    const answered: PhoneOperatorQuery = {
+      ...queries[index],
+      answer: cleanAnswer,
+      answeredAt: new Date().toISOString(),
+      answeredVia: sanitizeOperatorText(options.via, 40) || 'api',
+    };
+    const nextQueries = [...queries];
+    nextQueries[index] = answered;
+    const updated = this.updateMissionStatus(mission.id, mission.status, {
+      operatorQueries: nextQueries,
+    }, [{
+      at: answered.answeredAt!,
+      source: 'operator',
+      text: `Operator answered: ${cleanAnswer}`,
+      metadata: { queryId, via: answered.answeredVia },
+    }]);
+    return { mission: updated, query: answered, alreadyAnswered: false };
+  }
+
+  // ─── Callback on disconnect (plan §7) ─────────────────
+
+  /**
+   * Flag a mission for callback-on-disconnect: the call dropped while
+   * an operator query was still unanswered, so once the operator
+   * answers the API should dial the caller back. Returns the mission
+   * unchanged (not flagged) if every query is already answered; null if
+   * the mission is unknown.
+   */
+  flagCallbackPending(missionId: string): PhoneCallMission | null {
+    const mission = this.getMission(missionId);
+    if (!mission) return null;
+    if (!readOperatorQueries(mission).some((query) => !query.answer)) return mission;
+    return this.updateMissionStatus(mission.id, mission.status, {
+      callbackPending: true,
+    }, [{
+      at: new Date().toISOString(),
+      source: 'system',
+      text: 'Call ended with an unanswered operator query — a callback is pending the operator answer.',
+    }]);
+  }
+
+  /** Missions currently flagged for callback-on-disconnect. */
+  findCallbackPendingMissions(agentId?: string): PhoneCallMission[] {
+    const rows = (agentId
+      ? this.db.prepare("SELECT * FROM phone_missions WHERE agent_id = ? AND metadata_json LIKE '%callbackPending%'").all(agentId)
+      : this.db.prepare("SELECT * FROM phone_missions WHERE metadata_json LIKE '%callbackPending%'").all()) as any[];
+    return rows.map(rowToMission).filter((mission) => mission.metadata.callbackPending === true);
+  }
+
+  /**
+   * Trigger a callback (plan §7) when a callback-pending mission now has
+   * an answered query: re-dial the same number with a continuation task
+   * carrying the operator's answer. Returns the (updated) original
+   * mission + the new callback mission, or null if no callback is due.
+   *
+   * `callbackPending` is cleared BEFORE dialing so a concurrent second
+   * answer cannot double-dial; if the dial throws it is restored so the
+   * callback is not silently lost, and the error is rethrown.
+   */
+  async triggerCallback(
+    missionId: string,
+    options: StartPhoneCallOptions = {},
+  ): Promise<{ mission: PhoneCallMission; callbackMission: PhoneCallMission } | null> {
+    const mission = this.getMission(missionId);
+    if (!mission || mission.metadata.callbackPending !== true) return null;
+    const answered = readOperatorQueries(mission).filter((query) => query.answer);
+    if (answered.length === 0) return null;
+    const latest = answered[answered.length - 1];
+
+    // Clear the flag first — a concurrent answer must not double-dial.
+    this.updateMissionStatus(mission.id, mission.status, {
+      callbackPending: false,
+      callbackTriggeredAt: new Date().toISOString(),
+    }, [{
+      at: new Date().toISOString(),
+      source: 'system',
+      text: 'Operator answered a pending query — dialing the caller back.',
+    }]);
+
+    try {
+      const result = await this.startMission(mission.agentId, {
+        to: mission.to,
+        task: buildCallbackTask(mission.task, latest),
+        policy: mission.policy,
+      }, options);
+      const linked = this.updateMissionStatus(mission.id, mission.status, {
+        callbackMissionId: result.mission.id,
+      }, []);
+      return { mission: linked, callbackMission: result.mission };
+    } catch (err) {
+      // Dial failed — restore the flag so the callback can be retried.
+      const message = (err as Error)?.message ?? String(err);
+      this.updateMissionStatus(mission.id, mission.status, {
+        callbackPending: true,
+        callbackError: message,
+      }, [{
+        at: new Date().toISOString(),
+        source: 'system',
+        text: `Callback dial failed (${message}) — it remains pending.`,
+      }]);
+      throw err;
+    }
   }
 
   private build46ElksCallRequest(config: PhoneTransportConfig, mission: PhoneCallMission): { url: string; body: Record<string, string> } {

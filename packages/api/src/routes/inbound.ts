@@ -3,10 +3,16 @@ import { randomUUID } from 'node:crypto';
 import {
   parseEmail,
   MailSender,
+  PhoneManager,
+  parseOperatorQueryReply,
+  isOperatorReplySender,
+  getDatabase,
   type AccountManager,
   type AgenticMailConfig,
   type GatewayManager,
 } from '@agenticmail/core';
+
+type Db = ReturnType<typeof getDatabase>;
 
 // Generate a random secret if none provided. Never fall back to a hardcoded value.
 const INBOUND_SECRET = process.env.AGENTICMAIL_INBOUND_SECRET || (() => {
@@ -22,8 +28,15 @@ const DEBUG = () => !!process.env.AGENTICMAIL_DEBUG;
  * Authenticates via X-Inbound-Secret header (not bearer token).
  * Delivers the email to the recipient's local Stalwart mailbox.
  */
-export function createInboundRoutes(accountManager: AccountManager, config: AgenticMailConfig, gatewayManager?: GatewayManager): Router {
+export function createInboundRoutes(
+  accountManager: AccountManager,
+  config: AgenticMailConfig,
+  db: Db,
+  gatewayManager?: GatewayManager,
+): Router {
   const router = Router();
+  // Used by the operator-query email-reply hook (plan §5) — see below.
+  const phoneManager = new PhoneManager(db as any, config.masterKey);
 
   router.post('/mail/inbound', async (req, res, next) => {
     try {
@@ -61,6 +74,52 @@ export function createInboundRoutes(accountManager: AccountManager, config: Agen
       // Decode the raw email from base64 and parse it
       const rawBuffer = Buffer.from(rawEmail, 'base64');
       const parsed = await parseEmail(rawBuffer);
+
+      // ─── Operator-query email-reply hook (v0.9.53, plan §5) ──────
+      //
+      // The realtime voice `ask_operator` tool emails the operator a
+      // question tagged with the query id in the subject. When the
+      // operator replies, that reply lands here — parse the id + answer
+      // out and route it into the matching phone-mission query, which
+      // unblocks the waiting voice agent (and may trigger a callback if
+      // the call already dropped, plan §7). The email is STILL delivered
+      // to the agent's mailbox below — the reply is a real message.
+      try {
+        const opReply = parseOperatorQueryReply({
+          subject: parsed.subject || subject || '',
+          text: parsed.text || '',
+        });
+        if (opReply) {
+          // Fail-closed sender check (v0.9.53 security review): the query
+          // id in the subject is an unguessable capability token, but it
+          // travels in plaintext subjects (quoting, forwarding, relay/
+          // provider logs). So an emailed answer is only honoured when its
+          // From address matches the configured operator — consistent
+          // with plan §5 (the operator is the one who replies). Ultimate
+          // strength still depends on inbound SPF/DKIM rejecting a spoofed
+          // From; this closes the casual-leak path.
+          const replyFrom = parsed.from?.[0]?.address || (typeof from === 'string' ? from : '');
+          if (!isOperatorReplySender(replyFrom, config.operatorEmail)) {
+            console.warn(
+              `[Inbound] operator-query reply for ${opReply.queryId} rejected — `
+              + `sender "${replyFrom || '(unknown)'}" is not the configured operator`,
+            );
+          } else {
+            const found = phoneManager.findMissionByOperatorQueryId(opReply.queryId);
+            if (found) {
+              phoneManager.answerOperatorQuery(found.mission.id, opReply.queryId, opReply.answer, { via: 'email' });
+              // Best-effort callback — must not block / fail inbound delivery.
+              void phoneManager.triggerCallback(found.mission.id).catch((err) => {
+                console.warn('[Inbound] operator-query callback failed:', (err as Error)?.message ?? err);
+              });
+              if (DEBUG()) console.log(`[Inbound] Operator answered query ${opReply.queryId} via email reply`);
+            }
+          }
+        }
+      } catch (err) {
+        // The hook is additive — never let it break normal delivery.
+        console.warn('[Inbound] operator-query reply hook failed:', (err as Error)?.message ?? err);
+      }
 
       // Deduplicate: skip if already delivered
       const originalMessageId = parsed.messageId;
