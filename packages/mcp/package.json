@@ -2,7 +2,7 @@
   "name": "@agenticmail/mcp",
   "version": "0.9.14",
   "mcpName": "io.github.agenticmail/mcp",
-  "description": "MCP server for AgenticMail — give any AI client real email and SMS capabilities",
+  "description": "MCP server for AgenticMail — give any AI client real email, SMS, and phone call-control capabilities",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

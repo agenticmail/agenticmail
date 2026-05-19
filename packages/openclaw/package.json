@@ -1,7 +1,7 @@
 {
   "name": "@agenticmail/openclaw",
   "version": "0.5.64",
-  "description": "OpenClaw plugin for AgenticMail — email, SMS, and phone number access for OpenClaw agents",
+  "description": "OpenClaw plugin for AgenticMail — email, SMS, and phone call-control for OpenClaw agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
