@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.51] - 2026-05-19
+
+### Added — universal per-agent memory
+
+Every agent now has a persistent, evolving memory: categorised,
+confidence-decaying, BM25F-searchable knowledge that survives across
+every conversation — the way a human employee learns on the job.
+Ported from the AgenticMail Enterprise memory engine and adapted for
+the open-source single-tenant package (multi-tenant org concepts
+removed — memory is personal to each agent; `node:sqlite`-backed).
+
+- **`AgentMemoryManager`** (`@agenticmail/core`) — CRUD, text recall,
+  9 memory categories, importance levels, confidence that decays for
+  unaccessed entries, access tracking, pruning, and
+  `generateMemoryContext()` which ranks + renders memory as a markdown
+  block for prompt injection. Backed by a zero-dependency BM25F search
+  index and an `agent_memory` table.
+- **Memory API** — `/memory` (set / list / search / get / delete),
+  `/memory/reflect`, `/memory/context`, `/memory/stats`. Every
+  endpoint is scoped to the authenticated agent; an agent can only
+  ever read or write its own memory.
+- **MCP tools** — `memory`, `memory_reflect`, `memory_context`,
+  `memory_stats` so any MCP client can give its agent durable memory.
+- **Agent-deletion cleanup** — deleting an agent purges its
+  `agent_memory` rows; no orphaned memory is left behind.
+
 ## [0.9.50] - 2026-05-19
 
 ### Added — phone call-control + realtime voice (#41–#46)
