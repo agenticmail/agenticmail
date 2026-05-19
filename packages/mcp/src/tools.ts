@@ -1197,6 +1197,83 @@ export const toolDefinitions = [
       required: ['from', 'body'],
     },
   },
+  {
+    name: 'phone_transport_setup',
+    description: 'Configure the phone call-control transport for this agent. This stores provider credentials and webhook settings; it does not start a call.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        provider: { type: 'string', enum: ['46elks'], description: 'Phone provider. Currently 46elks is supported for call-control missions.' },
+        phoneNumber: { type: 'string', description: 'Owned caller phone number in E.164 format, e.g. +43123456789' },
+        username: { type: 'string', description: '46elks API username' },
+        password: { type: 'string', description: '46elks API password' },
+        webhookBaseUrl: { type: 'string', description: 'Public HTTPS base URL for AgenticMail phone webhooks' },
+        webhookSecret: { type: 'string', description: 'Shared secret included on provider webhook URLs' },
+        apiUrl: { type: 'string', description: 'Optional 46elks API base URL override' },
+        capabilities: { type: 'array', items: { type: 'string' }, description: 'Transport capabilities, e.g. ["call_control"] or ["call_control","realtime_media"]' },
+        supportedRegions: { type: 'array', items: { type: 'string' }, description: 'Supported region scopes: AT, DE, EU, WORLD' },
+      },
+      required: ['phoneNumber', 'username', 'password', 'webhookBaseUrl', 'webhookSecret'],
+    },
+  },
+  {
+    name: 'phone_capabilities',
+    description: 'Show the configured phone provider, caller number, supported regions, and whether realtime media is available.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'call_phone',
+    description: 'Start a tracked outbound phone mission. This is call-control only unless the configured transport reports realtime_media; risky decisions must be encoded in policy and may require the operator.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        to: { type: 'string', description: 'Target phone number in E.164 format' },
+        task: { type: 'string', description: 'Concrete call objective, e.g. reserve a table for two at 19:30' },
+        policy: { type: 'object', description: 'OpenClaw phone mission policy: regionAllowlist, duration/cost/attempt limits, recording/transcript flags, confirmPolicy, alternativePolicy' },
+        voiceRuntimeRef: { type: 'string', description: 'Optional external voice runtime/session reference for future realtime integration' },
+        dryRun: { type: 'boolean', description: 'When true, store the mission without calling the provider' },
+      },
+      required: ['to', 'task', 'policy'],
+    },
+  },
+  {
+    name: 'call_status',
+    description: 'Get one phone mission by id, or list recent phone missions when id is omitted.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Phone mission id' },
+        status: { type: 'string', description: 'Optional status filter when listing missions' },
+        limit: { type: 'number', description: 'Max missions when listing (default: 20, max: 100)' },
+        offset: { type: 'number', description: 'Skip missions when listing' },
+      },
+    },
+  },
+  {
+    name: 'call_transcript',
+    description: 'Read the transcript entries recorded for a phone mission.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Phone mission id' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'call_cancel',
+    description: 'Cancel a tracked phone mission in AgenticMail. Provider-side hangup is not guaranteed in this call-control slice.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Phone mission id' },
+      },
+      required: ['id'],
+    },
+  },
   // ─── Meta-tools for tiered tool loading ────────────────────────────
   // These exist so a Claude Code subagent (or any host that wants to keep
   // its spawn context small) can load this MCP server with only a handful
@@ -3034,6 +3111,63 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         from: args.from,
         body: args.body,
       });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'phone_transport_setup': {
+      const result = await apiRequest('POST', '/phone/transport/setup', {
+        provider: args.provider ?? '46elks',
+        phoneNumber: args.phoneNumber,
+        username: args.username,
+        password: args.password,
+        webhookBaseUrl: args.webhookBaseUrl,
+        webhookSecret: args.webhookSecret,
+        apiUrl: args.apiUrl,
+        capabilities: args.capabilities,
+        supportedRegions: args.supportedRegions,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'phone_capabilities': {
+      const result = await apiRequest('GET', '/phone/capabilities');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'call_phone': {
+      const result = await apiRequest('POST', '/calls/start', {
+        to: args.to,
+        task: args.task,
+        policy: args.policy,
+        voiceRuntimeRef: args.voiceRuntimeRef,
+        dryRun: args.dryRun,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'call_status': {
+      if (args.id) {
+        const result = await apiRequest('GET', `/calls/${encodeURIComponent(String(args.id))}`);
+        return JSON.stringify(result, null, 2);
+      }
+      const query = new URLSearchParams();
+      if (args.status) query.set('status', String(args.status));
+      if (args.limit) query.set('limit', String(args.limit));
+      if (args.offset) query.set('offset', String(args.offset));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/calls${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'call_transcript': {
+      if (!args.id) throw new Error('id is required');
+      const result = await apiRequest('GET', `/calls/${encodeURIComponent(String(args.id))}/transcript`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'call_cancel': {
+      if (!args.id) throw new Error('id is required');
+      const result = await apiRequest('POST', `/calls/${encodeURIComponent(String(args.id))}/cancel`);
       return JSON.stringify(result, null, 2);
     }
 

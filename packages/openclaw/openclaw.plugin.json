@@ -1,9 +1,9 @@
 {
   "id": "openclaw",
   "name": "agenticmail",
-  "version": "0.5.61",
+  "version": "0.5.63",
   "displayName": "🎀 AgenticMail",
-  "description": "🎀 AgenticMail — 63 tools for email, SMS, storage & multi-agent coordination",
+  "description": "🎀 AgenticMail — 69 tools for email, SMS, phone, storage & multi-agent coordination",
   "author": "agenticmail",
   "license": "MIT",
   "homepage": "https://github.com/agenticmail/agenticmail",
@@ -115,6 +115,12 @@
     "agenticmail_sms_record",
     "agenticmail_sms_parse_email",
     "agenticmail_sms_config",
+    "agenticmail_phone_transport_setup",
+    "agenticmail_phone_capabilities",
+    "agenticmail_call_phone",
+    "agenticmail_call_status",
+    "agenticmail_call_transcript",
+    "agenticmail_call_cancel",
     "agenticmail_storage"
   ],
   "requires": {

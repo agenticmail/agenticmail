@@ -145,6 +145,16 @@ export const TOOL_SETS = {
     'sms_config',
   ],
 
+  /** Phone call-control missions. */
+  phone: [
+    'phone_transport_setup',
+    'phone_capabilities',
+    'call_phone',
+    'call_status',
+    'call_transcript',
+    'call_cancel',
+  ],
+
   /** Account admin (master-key territory — create/delete accounts, cleanup). */
   account_admin: [
     'create_account',
@@ -191,6 +201,7 @@ export const SET_DESCRIPTIONS: Record<ToolSetName, string> = {
   agent_coord: 'Beyond-basic coordination — push wait, task lifecycle (claim/submit), check_messages',
   contacts: 'Address book and your own metadata',
   sms: 'SMS / voice — send/read/setup/parse/record',
+  phone: 'Phone call-control — setup/capabilities/start/status/transcript/cancel',
   account_admin: 'Account admin — create/delete/stop/resume agents, cleanup (master key required)',
   storage: 'File storage for an agent',
   setup: 'Mail-server onboarding wizards (one-time setup)',

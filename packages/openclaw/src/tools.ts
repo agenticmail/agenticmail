@@ -2476,4 +2476,121 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });
+
+  reg('agenticmail_phone_transport_setup', {
+    description: 'Configure the phone call-control transport for this agent. This stores provider credentials and webhook settings; it does not start a call.',
+    parameters: {
+      provider: { type: 'string', description: 'Phone provider. Currently "46elks" is supported.' },
+      phoneNumber: { type: 'string', required: true, description: 'Owned caller phone number in E.164 format, e.g. +43123456789' },
+      username: { type: 'string', required: true, description: '46elks API username' },
+      password: { type: 'string', required: true, description: '46elks API password' },
+      webhookBaseUrl: { type: 'string', required: true, description: 'Public HTTPS base URL for AgenticMail phone webhooks' },
+      webhookSecret: { type: 'string', required: true, description: 'Shared secret included on provider webhook URLs' },
+      apiUrl: { type: 'string', description: 'Optional 46elks API base URL override' },
+      capabilities: { type: 'array', description: 'Transport capabilities, e.g. ["call_control"] or ["call_control","realtime_media"]' },
+      supportedRegions: { type: 'array', description: 'Supported region scopes: AT, DE, EU, WORLD' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/phone/transport/setup', {
+          provider: params.provider ?? '46elks',
+          phoneNumber: params.phoneNumber,
+          username: params.username,
+          password: params.password,
+          webhookBaseUrl: params.webhookBaseUrl,
+          webhookSecret: params.webhookSecret,
+          apiUrl: params.apiUrl,
+          capabilities: params.capabilities,
+          supportedRegions: params.supportedRegions,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_phone_capabilities', {
+    description: 'Show the configured phone provider, caller number, supported regions, and whether realtime media is available.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/phone/capabilities');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_call_phone', {
+    description: 'Start a tracked outbound phone mission. This is call-control only unless the configured transport reports realtime_media; risky decisions must be encoded in policy and may require the operator.',
+    parameters: {
+      to: { type: 'string', required: true, description: 'Target phone number in E.164 format' },
+      task: { type: 'string', required: true, description: 'Concrete call objective, e.g. reserve a table for two at 19:30' },
+      policy: { type: 'object', required: true, description: 'OpenClaw phone mission policy: regionAllowlist, duration/cost/attempt limits, recording/transcript flags, confirmPolicy, alternativePolicy' },
+      voiceRuntimeRef: { type: 'string', description: 'Optional external voice runtime/session reference for future realtime integration' },
+      dryRun: { type: 'boolean', description: 'When true, store the mission without calling the provider' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/calls/start', {
+          to: params.to,
+          task: params.task,
+          policy: params.policy,
+          voiceRuntimeRef: params.voiceRuntimeRef,
+          dryRun: params.dryRun,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_call_status', {
+    description: 'Get one phone mission by id, or list recent phone missions when id is omitted.',
+    parameters: {
+      id: { type: 'string', description: 'Phone mission id' },
+      status: { type: 'string', description: 'Optional status filter when listing missions' },
+      limit: { type: 'number', description: 'Max missions when listing (default: 20, max: 100)' },
+      offset: { type: 'number', description: 'Skip missions when listing' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (params.id) {
+          return await apiRequest(c, 'GET', `/calls/${encodeURIComponent(params.id)}`);
+        }
+        const query = new URLSearchParams();
+        if (params.status) query.set('status', params.status);
+        if (params.limit) query.set('limit', String(params.limit));
+        if (params.offset) query.set('offset', String(params.offset));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/calls${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_call_transcript', {
+    description: 'Read the transcript entries recorded for a phone mission.',
+    parameters: {
+      id: { type: 'string', required: true, description: 'Phone mission id' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.id) return { success: false, error: 'id is required' };
+        return await apiRequest(c, 'GET', `/calls/${encodeURIComponent(params.id)}/transcript`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_call_cancel', {
+    description: 'Cancel a tracked phone mission in AgenticMail. Provider-side hangup is not guaranteed in this call-control slice.',
+    parameters: {
+      id: { type: 'string', required: true, description: 'Phone mission id' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.id) return { success: false, error: 'id is required' };
+        return await apiRequest(c, 'POST', `/calls/${encodeURIComponent(params.id)}/cancel`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
 }
