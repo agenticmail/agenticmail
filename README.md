@@ -33,7 +33,27 @@
 
 ---
 
-### ✨ What's new in 0.9.1
+### ✨ What's new in 0.9.52
+
+Realtime voice + OpenClaw memory.
+
+- **Realtime voice bridge.** A phone mission can now hold a live conversation. `RealtimeVoiceBridge` (`@agenticmail/core`) wires an OpenAI Realtime (`gpt-realtime`) session to a 46elks realtime-media WebSocket: caller audio (PCM16 @ 24 kHz) is relayed to OpenAI, synthesised speech comes back as `response.output_audio.delta` and is relayed to 46elks, server-side VAD handles turn-taking, and caller barge-in fires a 46elks `interrupt`. 46elks streams a call to the new `/api/agenticmail/calls/realtime` WebSocket endpoint, which matches the connection to its mission by 46elks `callid` and runs the bridge. Set `OPENAI_API_KEY` (env or `config.json`) to enable it.
+- **Memory in the voice session.** Before the call starts, the agent's persistent memory is rendered with `generateMemoryContext()` and folded into the Realtime session `instructions` — the model is told to treat it as its *own* long-term knowledge, so the call is continuous with everything the agent has learned elsewhere.
+- **OpenClaw memory tools.** `agenticmail_memory`, `agenticmail_memory_reflect`, `agenticmail_memory_context`, and `agenticmail_memory_stats` bring the universal per-agent memory to OpenClaw agents — 69 → 73 tools.
+- **Bridge hardening.** Per-frame audio size cap (an oversized frame is dropped, never forwarded), bounded pre-connect buffer, fail-closed connection auth (timing-safe token compare; no unknown-mission-vs-wrong-token oracle), and a terminal-state guard so a late event can't resurrect a finished mission.
+
+The end-to-end voice path needs a live `OPENAI_API_KEY` and a provisioned 46elks websocket number — the bridge logic, memory injection, and the WebSocket upgrade/auth glue are unit-tested with mocked sockets, but the live call must be smoke-tested by the operator.
+
+### ✨ Earlier — 0.9.51
+
+The universal memory release. Every agent now has a persistent, evolving memory — categorised, confidence-decaying, BM25F-searchable knowledge that survives across every conversation, the way a human employee learns on the job.
+
+- **`AgentMemoryManager`** (`@agenticmail/core`) — CRUD, text recall, 9 memory categories, importance levels, confidence that decays for unaccessed entries, access tracking, pruning, and `generateMemoryContext()` which ranks + renders memory as a markdown block for prompt injection. Backed by a zero-dependency BM25F search index and an `agent_memory` table. Ported from the AgenticMail Enterprise memory engine, org-stripped — memory is personal to each agent.
+- **Memory API** — `/memory` (set / list / search / get / delete), `/memory/reflect`, `/memory/context`, `/memory/stats`. Every endpoint is scoped to the authenticated agent; an agent can only ever read or write its own memory.
+- **MCP tools** — `memory`, `memory_reflect`, `memory_context`, `memory_stats` so any MCP client can give its agent durable memory.
+- **Agent-deletion cleanup** — deleting an agent purges its `agent_memory` rows; no orphaned memory is left behind.
+
+### ✨ Earlier — 0.9.1
 
 The visibility release — closes every "what just happened?" gap from 0.9.0.
 
@@ -134,8 +154,10 @@ AI agents need to communicate with the real world. Email is the universal commun
 - **Security guardrails** — outbound scanning prevents agents from leaking API keys, passwords, or PII. Blocked emails require human approval.
 - **Agent collaboration** — agents can email each other, assign tasks, and make synchronous RPC calls.
 - **SMS / Phone number access** — integrate Google Voice or 46elks for SMS receive/send, verification code extraction, and phone number access for AI agents.
+- **Realtime voice calls** — bridge a phone mission to an OpenAI Realtime (`gpt-realtime`) session so an agent can hold a live two-way conversation, with its persistent memory folded into the call.
+- **Persistent agent memory** — every agent has a categorised, confidence-decaying, searchable long-term memory that survives across conversations and is injected into prompts and voice sessions.
 - **Smart orchestration** — `call_agent` replaces basic sub-agent spawning with auto mode detection, dynamic timeouts, runtime tool discovery, and async execution for long-running tasks.
-- **Tool integrations** — 62 MCP tools for any AI client, 63 OpenClaw tools, and a 44-command interactive shell.
+- **Tool integrations** — 80+ MCP tools for any AI client, 73 OpenClaw tools, and a 44-command interactive shell.
 - **Self-updating** — `agenticmail update` checks npm, verifies OpenClaw compatibility, and updates both packages automatically.
 
 ---
@@ -225,6 +247,22 @@ That's a real multi-agent thread captured in the REPL — the host kicked off on
 - **Send SMS** — direct provider API send when configured, or Google Voice web automation instructions for legacy configs
 - **Smart setup wizard** — validates Gmail/GV email matching, warns about mismatches, collects separate credentials when needed
 
+### Realtime Voice Calls
+- **Live two-way conversation** — `RealtimeVoiceBridge` bridges a phone mission to an OpenAI Realtime (`gpt-realtime`) session so an agent can actually talk on the call, not just place it
+- **46elks realtime media** — 46elks streams the call audio to the `/api/agenticmail/calls/realtime` WebSocket endpoint; PCM16 @ 24 kHz both ways, server-side VAD for turn-taking, caller barge-in relayed as a 46elks `interrupt`
+- **Memory in the call** — the agent's persistent memory is rendered and folded into the Realtime session instructions, so the model speaks with full continuity, as if it had always known those things
+- **Mission-tracked** — the bridge resolves the connection to its phone mission by 46elks `callid`, authenticates the connection token, and persists the conversation transcript to the mission
+- **Hardened** — per-frame audio size cap, bounded pre-connect buffer, fail-closed connection auth, terminal-state guard
+- **Opt-in** — set `OPENAI_API_KEY` to enable; without it, phone missions still place and track calls (call-control only)
+
+### Persistent Agent Memory
+- **Long-term, evolving knowledge** — each agent has a categorised memory (knowledge, preference, correction, skill, reflection, …) that survives across every conversation
+- **Confidence + decay** — entries carry a confidence score that decays for unaccessed knowledge; `critical` entries never decay; low-confidence and expired entries are pruned
+- **BM25F search** — a zero-dependency full-text index ranks recall by relevance, importance, recency, and access count
+- **Prompt + voice injection** — `generateMemoryContext()` renders a ranked markdown block for injection into agent prompts and realtime voice sessions
+- **Private per agent** — every memory endpoint is scoped to the authenticated agent; deleting an agent purges its memory
+- **Everywhere** — `/memory*` REST endpoints, MCP tools (`memory`, `memory_reflect`, `memory_context`, `memory_stats`), and OpenClaw tools (`agenticmail_memory*`)
+
 ### Smart Orchestration (call_agent)
 - **Auto mode detection** — reads task complexity, picks light/standard/full mode automatically
 - **Dynamic timeouts** — 60s for quick tasks, 5+ minutes for deep research, 1 hour for async
@@ -233,8 +271,8 @@ That's a real multi-agent thread captured in the REPL — the host kicked off on
 - **Structured RPC** — sub-agents return JSON, not raw text
 
 ### Integrations
-- **MCP server** — 62 tools for any MCP-compatible AI client
-- **OpenClaw plugin** — 63 tools with skill definition and system prompt guidelines
+- **MCP server** — 80+ tools for any MCP-compatible AI client
+- **OpenClaw plugin** — 73 tools with skill definition and system prompt guidelines
 - **REST API** — 75+ endpoints, OpenAPI-style, Bearer token auth
 - **SSE events** — real-time inbox notifications via Server-Sent Events
 - **Interactive CLI** — 44 shell commands with arrow key navigation, body previews, retry logic
@@ -248,9 +286,9 @@ That's a real multi-agent thread captured in the REPL — the host kicked off on
                   ┌──────────────────────────────────────────────────┐
                   │                    AgenticMail                    │
                   │                                                  │
- AI Client ─MCP─> │  @agenticmail/mcp    (62 tools, stdio transport) │
+ AI Client ─MCP─> │  @agenticmail/mcp   (80+ tools, stdio transport) │
                   │       │                                          │
- OpenClaw ─────>  │  @agenticmail/openclaw  (63 tools, plugin)       │
+ OpenClaw ─────>  │  @agenticmail/openclaw  (73 tools, plugin)       │
                   │       │                                          │
  HTTP clients──>  │       ▼                                          │
                   │  @agenticmail/api     (Express, 75+ endpoints)   │
@@ -582,7 +620,7 @@ This is a TypeScript monorepo. Seven packages, each shipped to npm independently
 | [`@agenticmail/mcp`](./packages/mcp) | MCP server with 60+ tools for any MCP-compatible AI client | `npm i -g @agenticmail/mcp` |
 | [`@agenticmail/claudecode`](./packages/claudecode) | Anthropic Claude Code integration — registers MCP server + native subagents + lifecycle hooks + dispatcher daemon | `npm i -g @agenticmail/claudecode` |
 | [`@agenticmail/codex`](./packages/codex) | OpenAI Codex CLI integration — same architecture as `@agenticmail/claudecode`, adapted to Codex's TOML config and `spawn_agent` tool | `npm i -g @agenticmail/codex` |
-| [`@agenticmail/openclaw`](./packages/openclaw) | OpenClaw plugin with 63 tools and skill definition | `openclaw plugin install agenticmail` |
+| [`@agenticmail/openclaw`](./packages/openclaw) | OpenClaw plugin with 73 tools and skill definition | `openclaw plugin install agenticmail` |
 
 **Plugin folders** (host marketplace manifests, separate from npm packages):
 
@@ -654,7 +692,7 @@ See the [API package README](./packages/api) for complete endpoint documentation
 
 ## MCP Integration
 
-The MCP server exposes 62 tools to any MCP-compatible AI client via stdio transport.
+The MCP server exposes 80+ tools to any MCP-compatible AI client via stdio transport.
 
 ### Setup
 
@@ -926,6 +964,11 @@ AGENTICMAIL_API_PORT=3829                   # API server port (default: 3829 —
 AGENTICMAIL_API_HOST=127.0.0.1              # API bind host (default: 127.0.0.1; loopback only)
 AGENTICMAIL_DATA_DIR=~/.agenticmail         # Data directory for SQLite DB and config
 
+# === Realtime Voice (optional) ===
+OPENAI_API_KEY=sk-...                       # Enables the realtime voice bridge — bridges a
+                                            # phone mission to an OpenAI Realtime session.
+                                            # Without it, calls are call-control only.
+
 # === Gateway: Relay Mode ===
 RELAY_PROVIDER=gmail                        # gmail or outlook
 RELAY_EMAIL=you@gmail.com                   # Your email address
@@ -1022,11 +1065,11 @@ agenticmail/
 │   ├── mcp/               # @agenticmail/mcp
 │   │   └── src/
 │   │       ├── index.ts   # MCP server entry (stdio transport)
-│   │       ├── tools.ts   # 63 tool definitions and handlers
+│   │       ├── tools.ts   # 80+ tool definitions and handlers
 │   │       └── resources.ts
 │   └── openclaw/          # @agenticmail/openclaw
 │       ├── index.ts       # Plugin entry, system prompt
-│       ├── src/tools.ts   # 63 tool definitions and handlers
+│       ├── src/tools.ts   # 73 tool definitions and handlers
 │       └── skill/         # SKILL.md, reference docs, scripts
 ├── docker-compose.yml     # Stalwart mail server
 ├── .env.example           # Environment variable template

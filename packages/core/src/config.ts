@@ -64,6 +64,15 @@ export interface AgenticMailConfig {
    * system event (visible in the web UI) but no email is sent.
    */
   operatorEmail?: string;
+  /**
+   * OpenAI API key — used only by the realtime voice bridge to open an
+   * OpenAI Realtime (`gpt-realtime`) session for live phone calls. When
+   * unset, phone missions still place and track calls (call-control),
+   * but a 46elks realtime-media WebSocket cannot be bridged to a
+   * conversational model. Read from the `OPENAI_API_KEY` env var or
+   * `config.json`. Optional — no other feature depends on it.
+   */
+  openaiApiKey?: string;
   masterKey: string;
   dataDir: string;
 }
@@ -122,6 +131,10 @@ export function resolveConfig(overrides?: Partial<AgenticMailConfig>): AgenticMa
     masterKey: env.AGENTICMAIL_MASTER_KEY ?? DEFAULT_CONFIG.masterKey,
     dataDir: env.AGENTICMAIL_DATA_DIR?.replace(/^~(?=\/|$)/, homedir()) ?? DEFAULT_CONFIG.dataDir,
   };
+
+  // OpenAI key for the realtime voice bridge — env-only by default; a
+  // value in config.json (merged below) takes precedence if present.
+  if (env.OPENAI_API_KEY) config.openaiApiKey = env.OPENAI_API_KEY;
 
   // Merge file-based config if it exists (deep merge to preserve nested objects)
   const configPath = join(config.dataDir, 'config.json');

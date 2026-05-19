@@ -17,6 +17,24 @@ export type {
   ElksRealtimeOutboundMessage,
 } from './realtime.js';
 export {
+  OPENAI_REALTIME_URL,
+  DEFAULT_REALTIME_MODEL,
+  DEFAULT_REALTIME_VOICE,
+  REALTIME_AUDIO_SAMPLE_RATE,
+  REALTIME_MAX_AUDIO_FRAME_BASE64,
+  RealtimeVoiceBridge,
+  buildOpenAIRealtimeUrl,
+  buildRealtimeInstructions,
+  buildRealtimeSessionConfig,
+} from './realtime-bridge.js';
+export type {
+  RealtimeBridgePort,
+  RealtimeBridgeTranscriptEntry,
+  RealtimeInstructionOptions,
+  RealtimeSessionConfigOptions,
+  RealtimeVoiceBridgeOptions,
+} from './realtime-bridge.js';
+export {
   PhoneManager,
   PhoneWebhookAuthError,
   PhoneRateLimitError,

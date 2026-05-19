@@ -5,6 +5,7 @@ import { closeCaches } from './routes/mail.js';
 import { closeAllWatchers } from './routes/events.js';
 import { closeAllSystemEventListeners } from './routes/system-events.js';
 import { startScheduledSender } from './routes/features.js';
+import { createRealtimeVoiceServer, REALTIME_WS_PATH } from './realtime-ws.js';
 
 // Pre-resolve dynamically-loaded integration packages (e.g. @agenticmail/claudecode)
 // BEFORE the app is constructed, so their Express routes get mounted in the
@@ -78,6 +79,9 @@ const server = app.listen(port, host, async () => {
   console.log(`  🚀 API: http://${displayHost}:${port}`);
   console.log(`  ❤️  Health: http://${displayHost}:${port}/api/agenticmail/health`);
   console.log(`  📖 About: http://${displayHost}:${port}/api/agenticmail/about`);
+  if (context.config.openaiApiKey) {
+    console.log(`  📞 Realtime voice: ws://${displayHost}:${port}${REALTIME_WS_PATH}`);
+  }
 
   // Start scheduled email sender
   scheduledTimer = startScheduledSender(context.db, context.accountManager, context.config, context.gatewayManager);
@@ -91,6 +95,22 @@ const server = app.listen(port, host, async () => {
     }
   } catch (err) {
     console.error('   Gateway resume failed:', err);
+  }
+});
+
+// Realtime voice WebSocket — 46elks streams live call audio here and it
+// is bridged to an OpenAI Realtime session (see realtime-ws.ts). Mounted
+// on the HTTP server's `upgrade` event so it shares the API port; any
+// upgrade for a non-matching path is destroyed rather than left hanging.
+const realtimeVoice = createRealtimeVoiceServer(context.db, context.config);
+server.on('upgrade', (req, socket, head) => {
+  try {
+    if (!realtimeVoice.tryHandleUpgrade(req, socket, head)) {
+      socket.destroy();
+    }
+  } catch (err) {
+    console.error('[AgenticMail] WebSocket upgrade failed:', (err as Error)?.message ?? err);
+    try { socket.destroy(); } catch { /* ignore */ }
   }
 });
 
@@ -110,6 +130,7 @@ async function shutdown() {
   shuttingDown = true;
   console.log('\nShutting down...');
   if (scheduledTimer) { try { clearInterval(scheduledTimer); } catch { /* ignore */ } }
+  try { realtimeVoice.close(); } catch { /* ignore */ }
   try { await closeAllWatchers(); } catch { /* ignore */ }
   try { closeAllSystemEventListeners(); } catch { /* ignore */ }
   try { await closeCaches(); } catch { /* ignore */ }

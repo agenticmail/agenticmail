@@ -2593,4 +2593,111 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });
+
+  // ─── Persistent agent memory ───────────────────────────────────────
+  // Long-term, evolving knowledge that survives across every conversation
+  // — the same universal memory the MCP `memory*` tools expose and that a
+  // realtime voice/phone session injects, so an OpenClaw agent acts with
+  // full continuity. Private per agent; scoped to the calling mailbox.
+
+  reg('agenticmail_memory', {
+    description: 'Your persistent, long-term memory — knowledge that survives across every conversation, like a human employee learning on the job. action="set" remembers something durable (a preference, a fact, a correction, a learned skill); "search" recalls by topic; "list" browses; "get" reads one entry; "delete" forgets. Memory is private to you and persists unless it decays from disuse or you delete it. Store things you would want to still know weeks from now — not transient task state.',
+    parameters: {
+      action: { type: 'string', required: true, description: 'set | get | search | list | delete' },
+      content: { type: 'string', description: 'set: the thing to remember (plain text)' },
+      title: { type: 'string', description: 'set: a short title/label (optional — derived from content if omitted)' },
+      category: { type: 'string', description: 'set: knowledge, interaction_pattern, preference, correction, skill, context, reflection, session_learning, or system_notice (default: context)' },
+      importance: { type: 'string', description: 'set: critical, high, normal, or low (default: normal). critical entries never decay.' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'set: optional tags' },
+      query: { type: 'string', description: 'search: the topic to recall' },
+      id: { type: 'string', description: 'get | delete: the memory entry id' },
+      limit: { type: 'number', description: 'search | list: max entries to return (default: 50)' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const action = String(params.action || '');
+        if (action === 'set') {
+          if (!params.content) return { success: false, error: 'content is required for action "set"' };
+          return await apiRequest(c, 'POST', '/memory', {
+            content: params.content,
+            title: params.title,
+            category: params.category,
+            importance: params.importance,
+            tags: params.tags,
+          });
+        }
+        if (action === 'get') {
+          if (!params.id) return { success: false, error: 'id is required for action "get"' };
+          return await apiRequest(c, 'GET', `/memory/${encodeURIComponent(String(params.id))}`);
+        }
+        if (action === 'delete') {
+          if (!params.id) return { success: false, error: 'id is required for action "delete"' };
+          return await apiRequest(c, 'DELETE', `/memory/${encodeURIComponent(String(params.id))}`);
+        }
+        if (action === 'search' || action === 'list') {
+          const query = new URLSearchParams();
+          if (action === 'search') {
+            if (!params.query) return { success: false, error: 'query is required for action "search"' };
+            query.set('query', String(params.query));
+          }
+          if (params.category) query.set('category', String(params.category));
+          if (params.importance) query.set('importance', String(params.importance));
+          if (params.limit) query.set('limit', String(params.limit));
+          const suffix = query.toString() ? `?${query.toString()}` : '';
+          return await apiRequest(c, 'GET', `/memory${suffix}`);
+        }
+        return { success: false, error: 'Invalid action. Use: set | get | search | list | delete' };
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_memory_reflect', {
+    description: 'Record a self-reflection into your persistent memory — an insight or lesson you want to carry forward (stored as a high-confidence `reflection` entry). Use this at the end of a task or conversation to capture what you learned.',
+    parameters: {
+      content: { type: 'string', required: true, description: 'The reflection / insight to remember' },
+      title: { type: 'string', description: 'Optional short title' },
+      importance: { type: 'string', description: 'critical, high, normal, or low (default: normal)' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.content) return { success: false, error: 'content is required' };
+        return await apiRequest(c, 'POST', '/memory/reflect', {
+          content: params.content,
+          title: params.title,
+          importance: params.importance,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_memory_context', {
+    description: 'Get a ranked markdown digest of your most relevant persistent memory — what you would want loaded into your working context right now. Optionally pass a `query` to bias the digest toward a topic. This is the same memory block a realtime voice/phone session injects so you act with full continuity.',
+    parameters: {
+      query: { type: 'string', description: 'Optional topic to focus the digest on' },
+      maxTokens: { type: 'number', description: 'Approximate size budget (default: 1500)' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        if (params.query) query.set('query', String(params.query));
+        if (params.maxTokens) query.set('maxTokens', String(params.maxTokens));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/memory/context${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_memory_stats', {
+    description: 'Get aggregate statistics about your persistent memory — total entries, breakdown by category / importance / source, and average confidence.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/memory/stats');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
 }

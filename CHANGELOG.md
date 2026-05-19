@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.52] - 2026-05-20
+
+### Added — realtime voice + OpenClaw memory
+
+Two features ship together: agents can now hold a live phone
+conversation with their memory in scope, and OpenClaw agents get the
+same persistent memory the MCP surface already had.
+
+- **Realtime voice bridge** (`@agenticmail/core`) — `RealtimeVoiceBridge`
+  wires an OpenAI Realtime (`gpt-realtime`) session to a 46elks
+  realtime-media WebSocket so a phone mission can actually *converse*.
+  Caller audio (PCM16 @ 24 kHz) is relayed to OpenAI as
+  `input_audio_buffer.append`; synthesised speech comes back as
+  `response.output_audio.delta` and is relayed to 46elks; server-side
+  VAD handles turn-taking and caller barge-in triggers a 46elks
+  `interrupt`. The bridge is transport-agnostic and fully unit-tested.
+- **Memory in the voice session** — before the call starts, the
+  agent's persistent memory is rendered with `generateMemoryContext()`
+  and folded into the Realtime session `instructions`. The model is
+  told to treat it as its *own* long-term knowledge, so the call is
+  continuous with everything the agent has learned elsewhere.
+- **Realtime voice WebSocket endpoint** (`@agenticmail/api`) — 46elks
+  streams a call to `/api/agenticmail/calls/realtime`; the endpoint
+  matches the connection to its phone mission by 46elks `callid`,
+  authenticates the static `websocket_url` token against the agent's
+  phone-transport secret, opens the OpenAI session, and runs the
+  bridge. Transcript is persisted to the mission.
+- **OpenClaw memory tools** — `agenticmail_memory`,
+  `agenticmail_memory_reflect`, `agenticmail_memory_context`,
+  `agenticmail_memory_stats` bring the universal per-agent memory
+  (shipped in 0.9.51) to OpenClaw agents — 69 → 73 tools.
+- **Config** — `OPENAI_API_KEY` (env or `config.json`) enables the
+  realtime voice bridge. Optional; no other feature depends on it.
+
+### Security — realtime bridge hardening
+
+- **Per-frame audio size cap** — a single audio frame over ~256 KiB of
+  base64 (far above any real realtime frame) is dropped, never
+  forwarded, in either direction. A buggy or hostile peer cannot push
+  an unbounded allocation through the bridge.
+- **Bounded pre-connect buffer** — caller audio that arrives while the
+  OpenAI socket is still opening is buffered to a hard cap, then
+  flushed; it cannot grow without limit.
+- **Fail-closed connection auth** — a realtime WebSocket whose mission
+  cannot be resolved, or whose token does not match the agent's
+  phone-transport secret (timing-safe compare), is simply closed. No
+  distinction is leaked between an unknown mission and a wrong token.
+- **Terminal-state guard** — a late realtime event cannot resurrect a
+  mission that already reached completed/failed/cancelled.
+
+### Testing boundary
+
+The bridge logic, session-config/memory injection, and the WebSocket
+upgrade/auth glue are covered by unit tests (mocked sockets). The full
+end-to-end path needs a live `OPENAI_API_KEY` and a provisioned 46elks
+websocket number, so the live call itself must be smoke-tested by the
+operator before relying on it in production.
+
 ## [0.9.51] - 2026-05-19
 
 ### Added — universal per-agent memory

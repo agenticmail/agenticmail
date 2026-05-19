@@ -645,6 +645,42 @@ export class PhoneManager {
     }]);
   }
 
+  /**
+   * Resolve a mission by the provider's call id (the 46elks `callid`).
+   * The realtime voice bridge uses this to match an inbound 46elks
+   * realtime-media WebSocket — whose `hello` frame carries `callid` —
+   * back to the mission that placed the call, so the right agent's
+   * memory and task can be loaded into the OpenAI Realtime session.
+   */
+  findMissionByProviderCallId(providerCallId: string, agentId?: string): PhoneCallMission | null {
+    if (!providerCallId) return null;
+    const row = agentId
+      ? this.db.prepare('SELECT * FROM phone_missions WHERE provider_call_id = ? AND agent_id = ?').get(providerCallId, agentId)
+      : this.db.prepare('SELECT * FROM phone_missions WHERE provider_call_id = ?').get(providerCallId);
+    return row ? rowToMission(row) : null;
+  }
+
+  /**
+   * Append transcript entries produced by the realtime voice bridge and
+   * optionally transition the mission status. A mission already in a
+   * terminal state keeps that state — a late bridge event must not
+   * resurrect a completed/failed/cancelled mission (mirrors the
+   * terminal-state guard on the webhook handlers). No-op if the mission
+   * no longer exists.
+   */
+  recordRealtimeActivity(
+    missionId: string,
+    entries: PhoneMissionTranscriptEntry[],
+    status?: PhoneMissionState,
+  ): PhoneCallMission | null {
+    const mission = this.getMission(missionId);
+    if (!mission) return null;
+    const nextStatus = TERMINAL_MISSION_STATES.includes(mission.status)
+      ? mission.status
+      : (status ?? mission.status);
+    return this.updateMissionStatus(mission.id, nextStatus, {}, entries);
+  }
+
   private build46ElksCallRequest(config: PhoneTransportConfig, mission: PhoneCallMission): { url: string; body: Record<string, string> } {
     // Duration ceiling (#43-H6) — clamp the carrier call `timeout` to the
     // server hard cap (1h), not 24h. validatePhoneMissionPolicy already

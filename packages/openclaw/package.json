@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/openclaw",
-  "version": "0.5.64",
+  "version": "0.5.65",
   "description": "OpenClaw plugin for AgenticMail — email, SMS, and phone call-control for OpenClaw agents",
   "type": "module",
   "main": "dist/index.js",
@@ -34,7 +34,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agenticmail/core": "^0.9.14"
+    "@agenticmail/core": "^0.9.16"
   },
   "devDependencies": {
     "tsup": "^8.4.0",

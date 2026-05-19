@@ -108,6 +108,15 @@ export type {
 // Phone Mission Policy
 export {
   ELKS_REALTIME_AUDIO_FORMATS,
+  OPENAI_REALTIME_URL,
+  DEFAULT_REALTIME_MODEL,
+  DEFAULT_REALTIME_VOICE,
+  REALTIME_AUDIO_SAMPLE_RATE,
+  REALTIME_MAX_AUDIO_FRAME_BASE64,
+  RealtimeVoiceBridge,
+  buildOpenAIRealtimeUrl,
+  buildRealtimeInstructions,
+  buildRealtimeSessionConfig,
   PhoneManager,
   PhoneWebhookAuthError,
   PhoneRateLimitError,
@@ -166,6 +175,11 @@ export type {
   StartPhoneMissionInput,
   TelephonyTransportCapability,
   ValidatedPhoneMissionStart,
+  RealtimeBridgePort,
+  RealtimeBridgeTranscriptEntry,
+  RealtimeInstructionOptions,
+  RealtimeSessionConfigOptions,
+  RealtimeVoiceBridgeOptions,
 } from './phone/index.js';
 
 // Telemetry
