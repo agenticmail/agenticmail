@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.50] - 2026-05-19
+
+### Added — phone call-control + realtime voice (#41–#46)
+
+A new capability series from @benediktkraus: AI agents can place and
+control real outbound phone calls via 46elks, plus realtime-voice
+protocol primitives. ~9,600 lines across six PRs, reviewed by a
+two-agent audit (security + hardening) before merge — no backdoors,
+no exfiltration, no hardcoded secrets.
+
+- **#41** — OpenClaw bridge mail can wake a host session.
+- **#42** — phone mission policy primitives (region allowlist,
+  confirm-policy, fail-closed validation).
+- **#43** — phone call-control mission API + 46elks integration.
+- **#44** — phone call-control MCP + OpenClaw tool surface.
+- **#45** — webhook replay/idempotency dedup.
+- **#46** — 46elks realtime voice protocol parse/build helpers.
+
+### Security — call-control hardening folded in on merge
+
+The call-control surface places real, billed phone calls, so the
+abuse/cost controls flagged by the review were wired to enforcement
+before release:
+
+- **Rate + concurrency limits** on `/calls/start` — 5 calls/minute,
+  30/hour per agent, max 3 concurrently-active missions (HTTP 429
+  when exceeded). Dry runs are exempt.
+- **Server-side policy ceilings** the caller cannot raise —
+  `maxCallDurationSeconds ≤ 3600`, `maxCostPerMission ≤ 5`,
+  `maxAttempts ≤ 3`. A caller policy may be stricter, never looser.
+- **Per-mission webhook token** — the 46elks webhook URL carries an
+  HMAC-SHA256(secret, missionId) token instead of the raw shared
+  secret. A leaked URL exposes one mission, not all, and the secret
+  stays out of access logs.
+- **Uniform webhook 403** — an unknown mission and a wrong token
+  return an identical 403 + body, closing the 404-vs-403 enumeration
+  oracle.
+- **Webhook-secret entropy floor** — agent-supplied secrets must be
+  at least 24 characters.
+- **Fail-closed** — a thrown provider request transitions the mission
+  to `failed` instead of leaving it stuck in `dialing`; the
+  voice-start webhook can no longer resurrect a terminal mission;
+  the carrier call timeout is capped at 1h.
+- The free-text call `task` is control-character-stripped and
+  length-capped at 2000.
+
 ## [0.9.49] - 2026-05-19
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/mcp",
-  "version": "0.9.13",
+  "version": "0.9.14",
   "mcpName": "io.github.agenticmail/mcp",
   "description": "MCP server for AgenticMail — give any AI client real email and SMS capabilities",
   "type": "module",
@@ -30,7 +30,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "zod": "^3.24.0",
-    "@agenticmail/core": "^0.9.13"
+    "@agenticmail/core": "^0.9.14"
   },
   "devDependencies": {
     "tsup": "^8.4.0",
