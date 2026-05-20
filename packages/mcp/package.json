@@ -1,6 +1,6 @@
 {
   "name": "@agenticmail/mcp",
-  "version": "0.9.22",
+  "version": "0.9.23",
   "mcpName": "io.github.agenticmail/mcp",
   "description": "MCP server for AgenticMail — give any AI client real email, SMS, and phone call-control capabilities",
   "type": "module",
