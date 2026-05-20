@@ -1,6 +1,6 @@
 # AgenticMail OpenClaw Plugin — Tool Reference
 
-> **63 tools** available via the OpenClaw plugin (`@agenticmail/openclaw`)
+> **87 tools** available via the OpenClaw plugin (`@agenticmail/openclaw`)
 
 ---
 
@@ -213,6 +213,86 @@ Parse an SMS from a forwarded Google Voice email. Use this when you receive an e
 
 ### `agenticmail_sms_config`
 Get the current SMS/phone number configuration for this agent. Secrets are redacted.
+
+## Phone Call-Control
+
+### `agenticmail_phone_transport_setup`
+Configure the phone call-control transport for this agent. Supports 46elks and Twilio credentials, caller number, webhook base URL, webhook secret, transport capabilities, and supported regions.
+
+### `agenticmail_phone_capabilities`
+Show the configured phone provider, caller number, supported regions, and whether realtime media is available.
+
+### `agenticmail_call_phone`
+Start a tracked outbound phone mission. Requires a target phone number, concrete task, and strict policy with duration, region, cost, attempts, transcript, recording, operator-confirm, and alternative-time limits.
+
+### `agenticmail_call_status`
+Get one phone mission by ID, or list recent phone missions when no ID is provided.
+
+### `agenticmail_call_transcript`
+Read the transcript entries recorded for a phone mission.
+
+### `agenticmail_call_cancel`
+Cancel a tracked phone mission in AgenticMail.
+
+## Telegram Operator Channel
+
+### `agenticmail_telegram_setup`
+Configure Telegram for this agent with a bot token, operator chat, allowed chats, and poll or webhook delivery mode.
+
+### `agenticmail_telegram_config`
+Get the current Telegram channel configuration with credentials redacted.
+
+### `agenticmail_telegram_send`
+Send a Telegram message from this agent's bot to a chat.
+
+### `agenticmail_telegram_messages`
+List stored Telegram messages for this agent.
+
+### `agenticmail_telegram_poll`
+Pull and process Telegram updates in poll mode, including operator replies to live questions.
+
+## Media
+
+### `agenticmail_media_capabilities`
+Show available media providers and feature flags.
+
+### `agenticmail_media_tts`
+Generate speech audio from text.
+
+### `agenticmail_media_tts_voices`
+List available text-to-speech voices.
+
+### `agenticmail_media_image_edit`
+Edit or generate images through configured media providers.
+
+### `agenticmail_media_video_edit`
+Edit video assets through configured media providers.
+
+### `agenticmail_media_audio_edit`
+Edit audio assets through configured media providers.
+
+### `agenticmail_media_info`
+Probe media metadata such as duration, dimensions, codecs, and streams.
+
+### `agenticmail_media_video_understand`
+Analyze video content where provider support is configured.
+
+### `agenticmail_media_voice_clone`
+Create a voice clone where provider support and policy allow it.
+
+## Memory
+
+### `agenticmail_memory`
+Set, search, get, and delete durable memory entries.
+
+### `agenticmail_memory_reflect`
+Store reflective memory from a finished interaction.
+
+### `agenticmail_memory_context`
+Retrieve relevant memory context for a task or call.
+
+### `agenticmail_memory_stats`
+Inspect memory-store usage and status.
 
 ## Database Storage
 

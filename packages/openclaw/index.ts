@@ -13,6 +13,7 @@ import { setTelemetryVersion } from '@agenticmail/core';
 
 /** Default minimum timeout (seconds) for sub-agents that have email capability */
 export const DEFAULT_SUBAGENT_MIN_TIMEOUT_SECONDS = 600; // 10 minutes
+export const DEFAULT_AGENTICMAIL_API_URL = 'http://127.0.0.1:3829';
 
 export function resolveSpawnMinTimeoutSeconds(config: Record<string, unknown> | undefined): number {
   const raw = config?.spawnMinTimeoutSeconds;
@@ -243,7 +244,7 @@ function activate(api: any): void {
 
   const ctx: ToolContext = {
     config: {
-      apiUrl: pluginConfig.apiUrl ?? 'http://127.0.0.1:3100',
+      apiUrl: pluginConfig.apiUrl ?? DEFAULT_AGENTICMAIL_API_URL,
       apiKey: pluginConfig.apiKey ?? '',
       masterKey: pluginConfig.masterKey,
     },
