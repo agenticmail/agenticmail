@@ -21,6 +21,7 @@ import {
 import { interactiveShell } from './shell.js';
 import { collectFields, SetupError, type SetupField } from './setup-utils.js';
 import { validateAnthropicToken, identifyTokenKind } from './anthropic-token.js';
+import { loadAgentPersona, personaPathFor } from '@agenticmail/core';
 
 /**
  * Prompt for text input. Creates a temporary readline per call
@@ -1123,6 +1124,147 @@ async function cmdSetupEmail() {
  * (or the live bridge re-reads it on its next message). The
  * dispatcher picks it up at next restart.
  */
+/**
+ * `agenticmail persona [--agent <name>] [--edit]`
+ *
+ * View or edit an agent's persona ("soul file"). Persona files live
+ * at ~/.agenticmail/agents/<name>/persona.md and feed identity into
+ * the voice runtime, the email worker, and the Telegram bridge so the
+ * agent stays the same person across every channel.
+ *
+ * Defaults to the operator's first / host agent when --agent is
+ * omitted — that's the one whose persona reaches the human on the
+ * phone and on Telegram. The persona file is auto-created on first
+ * read with a sensible identity preamble (see buildDefaultPersona);
+ * this command just gives the operator an explicit way to read /
+ * tweak / regenerate it without remembering the path.
+ *
+ *   agenticmail persona                          # print default agent's persona
+ *   agenticmail persona --agent alice            # print alice's persona
+ *   agenticmail persona --edit                   # open in $EDITOR (then exit)
+ *   agenticmail persona --path                   # print the file path only
+ *   agenticmail persona --reset                  # overwrite with the default
+ */
+async function cmdPersona() {
+  const args = process.argv.slice(3);
+  const flag = (name: string): string | undefined => {
+    const eq = `--${name}=`;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === `--${name}` && i + 1 < args.length) return args[i + 1];
+      if (args[i].startsWith(eq)) return args[i].slice(eq.length);
+    }
+    return undefined;
+  };
+  const has = (name: string) => args.includes(`--${name}`);
+
+  if (has('help') || args.includes('-h')) {
+    log('');
+    log(`  ${c.pinkBg(' 🎀 agenticmail persona ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail persona [--agent <name>] [--edit|--path|--reset]`);
+    log('');
+    log(`  View or edit an agent's persona file (~/.agenticmail/agents/<name>/persona.md).`);
+    log(`  The persona is loaded by the voice runtime, the Telegram bridge, and the email`);
+    log(`  worker so the agent has the same identity across every channel.`);
+    log('');
+    log(`  ${c.bold('Flags:')}`);
+    log(`    --agent <name>   ${c.dim('Which agent (default: the host agent)')}`);
+    log(`    --edit           ${c.dim('Open in $EDITOR (then exit)')}`);
+    log(`    --path           ${c.dim('Print the file path only (for scripting)')}`);
+    log(`    --reset          ${c.dim('Overwrite with the default persona (loses local edits)')}`);
+    log('');
+    return;
+  }
+
+  // Resolve the agent name. Explicit --agent wins. Otherwise pick the
+  // "host" agent — same logic the realtime path uses: first row in
+  // the agents table is conventionally the operator's primary agent.
+  let agentName = (flag('agent') || '').trim();
+  if (!agentName) {
+    const configPath = join(homedir(), '.agenticmail', 'config.json');
+    if (existsSync(configPath)) {
+      try {
+        const config = JSON.parse(readFileSync(configPath, 'utf-8')) as SetupConfig;
+        // Read the first agent's name straight from the DB. We could
+        // go through HTTP, but persona is a local-only operation;
+        // hitting the sqlite file directly avoids needing the API up.
+        const Database = await import('node:sqlite').then((m) => (m as any).DatabaseSync);
+        const dbPath = join(config.dataDir, 'agenticmail.db');
+        if (existsSync(dbPath) && Database) {
+          const db = new Database(dbPath, { readOnly: true });
+          try {
+            const row = db.prepare('SELECT name FROM agents ORDER BY created_at ASC LIMIT 1').get();
+            if (row?.name) agentName = String(row.name);
+          } finally { db.close?.(); }
+        }
+      } catch { /* fall through to prompt */ }
+    }
+  }
+  if (!agentName) {
+    fail('No agent name available — pass --agent <name> or run `agenticmail setup` first.');
+    process.exit(1);
+  }
+
+  const path = personaPathFor(agentName);
+
+  if (has('path')) {
+    process.stdout.write(path + '\n');
+    return;
+  }
+
+  if (has('reset')) {
+    // Re-mint by deleting the file and asking loadAgentPersona to
+    // recreate it. Deliberate two-step so a future change to the
+    // default seed is picked up on reset.
+    try {
+      const { unlinkSync: unlink } = await import('node:fs');
+      if (existsSync(path)) unlink(path);
+    } catch { /* best effort */ }
+    const fresh = loadAgentPersona(agentName);
+    ok(`Persona for ${c.cyan(agentName)} reset to default.`);
+    log(`  ${c.dim(path)}`);
+    log('');
+    log(fresh);
+    log('');
+    return;
+  }
+
+  // Ensure the file exists (auto-creates on first load) before
+  // printing or editing — saves the operator a 'file not found'
+  // surprise on a fresh install.
+  const current = loadAgentPersona(agentName);
+
+  if (has('edit')) {
+    const editor = process.env.EDITOR || process.env.VISUAL || 'vi';
+    log(`Opening ${c.dim(path)} in ${c.cyan(editor)}…`);
+    const { spawnSync } = await import('node:child_process');
+    const result = spawnSync(editor, [path], { stdio: 'inherit' });
+    if (result.status !== 0) {
+      fail(`Editor exited with code ${result.status}.`);
+      process.exit(result.status ?? 1);
+    }
+    const updated = loadAgentPersona(agentName);
+    if (updated.trim() === current.trim()) {
+      info('No changes detected.');
+    } else {
+      ok(`Persona for ${c.cyan(agentName)} updated.`);
+      info('The voice runtime + bridge pick this up on the NEXT call / session — no restart needed.');
+    }
+    return;
+  }
+
+  // Default action: print the persona, with the path header so the
+  // operator can pipe it to a file or grep it.
+  log('');
+  log(`  ${c.bold('Persona for')} ${c.cyan(agentName)}`);
+  log(`  ${c.dim(path)}`);
+  log('');
+  log(current);
+  log('');
+  info(`Edit with: ${c.green('agenticmail persona --edit' + (flag('agent') ? ` --agent ${agentName}` : ''))}`);
+  log('');
+}
+
 async function cmdSetupAnthropic() {
   const args = process.argv.slice(3);
   const flag = (name: string): string | undefined => {
@@ -5508,6 +5650,11 @@ switch (process.argv[2]) {
   case 'setup-token':
   case 'anthropic':
     cmdSetupAnthropic().catch(err => { console.error(err); process.exit(1); });
+    break;
+  case 'persona':
+  case 'identity':
+  case 'soul':
+    cmdPersona().catch(err => { console.error(err); process.exit(1); });
     break;
   case 'tunnel':
     cmdTunnel().catch(err => { console.error(err); process.exit(1); });

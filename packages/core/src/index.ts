@@ -468,3 +468,15 @@ export type {
   Skill, SkillCategory, SkillContext, SkillTactic, SkillExitStrategy,
   SkillSummary, SkillValidationError,
 } from './skills/index.js';
+
+// v0.9.85 — per-agent persona ("soul file") system. Same agent
+// identity across voice, telegram, and email; auto-created with a
+// sensible default on first read; freely editable by the operator.
+export {
+  AGENT_STATE_ROOT,
+  PERSONA_FILENAME,
+  buildDefaultPersona,
+  loadAgentPersona,
+  personaPathFor,
+  saveAgentPersona,
+} from './persona/index.js';

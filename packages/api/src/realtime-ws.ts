@@ -78,6 +78,7 @@ import {
   resolveExtensionPolicy,
   resolveCallbackPolicy,
   PHONE_SERVER_MAX_CALL_DURATION_SECONDS,
+  loadAgentPersona,
   type AgenticMailConfig,
   type RealtimeBridgePort,
   type RealtimeToolDefinition,
@@ -427,6 +428,24 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
     console.warn('[realtime-voice] memory context unavailable:', (err as Error)?.message ?? err);
   }
 
+  // v0.9.85 — load the agent's persona ("soul file") so the voice
+  // model has a real identity instead of falling back to the generic
+  // "I'm an assistant" default. Auto-creates ~/.agenticmail/agents/
+  // <name>/persona.md with a sensible seed on first read. The agent's
+  // display name is pulled from the DB; if absent we fall back to the
+  // agent id (rare — bootstrap always sets a name).
+  let agentName = '';
+  let agentPersona = '';
+  try {
+    const row = db.prepare('SELECT name FROM agents WHERE id = ?').get(mission.agentId) as { name?: string } | undefined;
+    agentName = (row?.name || '').trim();
+    if (agentName) {
+      agentPersona = loadAgentPersona(agentName);
+    }
+  } catch (err) {
+    console.warn('[realtime-voice] persona load failed:', (err as Error)?.message ?? err);
+  }
+
   // Build this connection's tool layer. `tools` is declared on the
   // OpenAI session; `executor` dispatches the model's calls to real
   // implementations. The executor's `ask_operator` poll needs to abort
@@ -462,6 +481,11 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
     sessionConfig: buildRealtimeSessionConfig({
       task: mission.task,
       memoryContext,
+      // v0.9.85 — agent identity. agentName drops in "Your name is X"
+      // line; persona overrides the generic DEFAULT_PERSONA. Empty
+      // strings fall through to the bridge's defaults (the legacy path).
+      agentName: agentName || undefined,
+      persona: agentPersona || undefined,
       model,
       tools,
       // v0.9.81 — fold the time-budget preamble into the instructions so
@@ -500,6 +524,10 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
         text: `Realtime voice bridge ended (${reason}).`,
         metadata: endedByTimeBudget ? { endedByTimeBudget: true } : undefined,
       });
+      // Snapshot the transcript BEFORE persistRealtimeActivity drains
+      // it — we need the agent's last few turns to compose the
+      // end-of-call Telegram summary below.
+      const finalTranscript = [...transcript];
       try {
         phoneManager.recordRealtimeActivity(mission.id, transcript.splice(0), 'completed');
       } catch (err) {
@@ -515,6 +543,22 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
           console.error('[realtime-voice] callback flag failed:', (err as Error)?.message ?? err);
         }
       }
+      // v0.9.85 — DM the operator a summary of how the call went.
+      // Without this, the operator's only feedback was the dispatcher
+      // saying "dialing now"; once the agent hung up they never heard
+      // a word about what happened. Best-effort: no telegram config /
+      // no operator chat ⇒ silently skipped. The mission itself is
+      // still persisted to the DB regardless.
+      void notifyCallEnded({
+        mission,
+        config,
+        db,
+        reason,
+        endedByTimeBudget: !!endedByTimeBudget,
+        pendingToolCalls,
+        callbackArmed: bridge.isCallbackArmed,
+        transcript: finalTranscript,
+      }).catch((err) => console.warn('[realtime-voice] end-of-call notify failed:', (err as Error)?.message ?? err));
     },
   });
 
@@ -853,4 +897,93 @@ async function notifyOperatorViaTelegram(params: NotifyOperatorParams): Promise<
       missionId: params.mission.id,
     }),
   );
+}
+
+interface NotifyCallEndedParams {
+  mission: PhoneCallMission;
+  config: AgenticMailConfig;
+  db: Db;
+  reason: string;
+  endedByTimeBudget: boolean;
+  pendingToolCalls: number;
+  callbackArmed: boolean;
+  transcript: PhoneMissionTranscriptEntry[];
+}
+
+/**
+ * v0.9.85 — end-of-call digest. Fires once when the realtime voice
+ * bridge ends, regardless of why. Lets the operator know on Telegram:
+ *
+ *   - That the call ended (and how — agent hung up, time budget,
+ *     human hung up, dropped mid-tool)
+ *   - What the original task was
+ *   - The agent's last few utterances (the call's actual conclusion)
+ *   - Any caller utterances right at the end (so the operator can
+ *     read "outcome from the human's side" in their own words)
+ *   - Whether a callback was scheduled (so the operator isn't
+ *     surprised when the phone rings again later)
+ *   - The mission id, for digging deeper in the web UI
+ *
+ * Best-effort: no telegram config on the agent ⇒ silent skip. We
+ * deliberately don't try to fall back to email — the call result is
+ * not a sensitive credential, and Telegram is the operator's "right
+ * now" channel; email is too slow for a phone-call follow-up.
+ *
+ * Format is plain text (no Markdown styling) because
+ * `sendTelegramMessage` strips Markdown anyway.
+ */
+async function notifyCallEnded(params: NotifyCallEndedParams): Promise<void> {
+  const telegramManager = new TelegramManager(params.db as any, params.config.masterKey);
+  const cfg = telegramManager.getConfig(params.mission.agentId);
+  if (!cfg?.enabled || !cfg.operatorChatId || !cfg.botToken) return;
+
+  // Classify the reason into a one-line headline the operator can
+  // read in the notification preview. `endedByTimeBudget` wins, then
+  // 'agent-requested' (means the agent itself hung up), then
+  // carrier-bye (human hung up), then anything else.
+  let headline = '📞 Call ended';
+  if (params.endedByTimeBudget) headline = '⏰ Call ended — time budget reached';
+  else if (params.reason === 'agent-requested') headline = '✅ Call ended — agent wrapped up';
+  else if (/twilio-bye|elks-bye/.test(params.reason)) headline = '📞 Call ended — other party hung up';
+  else if (params.reason === 'openai-closed') headline = '⚠️ Call ended — voice runtime disconnected';
+
+  // Pull the last N agent utterances + the last 2 caller utterances.
+  // These are the most signal-rich "what happened" rows for the
+  // operator — opening pleasantries are noise.
+  const agentTurns = params.transcript.filter((e) => e.source === 'agent').slice(-3);
+  const callerTurns = params.transcript.filter((e) => e.source === 'provider').slice(-2);
+
+  const lines: string[] = [headline];
+  lines.push('');
+  lines.push(`Number: ${params.mission.to}`);
+  lines.push(`Task: ${truncateLine(params.mission.task, 200)}`);
+  if (params.callbackArmed) {
+    lines.push('');
+    lines.push('🔁 A callback was scheduled — you\'ll get another notification when it dials.');
+  }
+  if (params.pendingToolCalls > 0 && !params.callbackArmed) {
+    lines.push('');
+    lines.push(`⚠️ The call dropped while ${params.pendingToolCalls} tool call(s) were still in flight — likely an unanswered operator query.`);
+  }
+  if (agentTurns.length > 0) {
+    lines.push('');
+    lines.push('Agent\'s closing turns:');
+    for (const t of agentTurns) lines.push(`• ${truncateLine(t.text, 280)}`);
+  }
+  if (callerTurns.length > 0) {
+    lines.push('');
+    lines.push('Caller\'s last words:');
+    for (const t of callerTurns) lines.push(`• ${truncateLine(t.text, 280)}`);
+  }
+  lines.push('');
+  lines.push(`Mission: ${params.mission.id}`);
+
+  await sendTelegramMessage(cfg.botToken, cfg.operatorChatId, lines.join('\n'));
+}
+
+/** Compress whitespace + truncate for chat-friendly display. */
+function truncateLine(text: string, max: number): string {
+  const single = text.replace(/\s+/g, ' ').trim();
+  if (single.length <= max) return single;
+  return single.slice(0, max - 1) + '…';
 }
