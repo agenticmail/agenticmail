@@ -11,6 +11,18 @@ export { ServiceManager, type ServiceStatus } from './service.js';
 
 export interface SetupConfig {
   masterKey: string;
+  /**
+   * Shared secret the inbound-email webhook authenticates against
+   * (`X-Inbound-Secret` header). Auto-minted at setup time and
+   * persisted alongside `masterKey` so every API restart reuses the
+   * same value — without this, the API generated a fresh secret on
+   * every cold start and printed a noisy warning to the operator.
+   *
+   * Optional in the type for backward compatibility with existing
+   * on-disk configs; {@link SetupManager.initConfig} lazy-mints it
+   * into older configs the first time it loads them.
+   */
+  inboundSecret?: string;
   stalwart: {
     url: string;
     adminUser: string;
@@ -106,7 +118,27 @@ export class SetupManager {
     // If config already exists, load it and regenerate Docker files
     if (existsSync(configPath)) {
       try {
-        const existing = JSON.parse(readFileSync(configPath, 'utf-8'));
+        const existing = JSON.parse(readFileSync(configPath, 'utf-8')) as SetupConfig;
+        // v0.9.84 — lazy-mint inboundSecret into pre-existing configs
+        // that predate this field. Without this, every API restart on
+        // a brand-new-install machine churned out a fresh random
+        // secret + "set this env var" warning. We mint once, persist
+        // back, and the .env file gets the same value so subsequent
+        // `agenticmail start` runs reuse it.
+        let needsRewrite = false;
+        if (!existing.inboundSecret) {
+          existing.inboundSecret = `inb_${randomBytes(24).toString('hex')}`;
+          needsRewrite = true;
+        }
+        if (needsRewrite) {
+          writeFileSync(configPath, JSON.stringify(existing, null, 2));
+          chmodSync(configPath, 0o600);
+          // Append the inbound line to .env so `agenticmail start`
+          // (which sources .env, not config.json) sees it on the next
+          // boot. We append rather than rewrite to avoid clobbering
+          // user-added lines.
+          this.ensureEnvHasInboundSecret(envPath, existing.inboundSecret);
+        }
         this.generateDockerFiles(existing);
         return { configPath, envPath, config: existing, isNew: false };
       } catch { /* fall through to create new */ }
@@ -119,9 +151,11 @@ export class SetupManager {
 
     const masterKey = `mk_${randomBytes(24).toString('hex')}`;
     const stalwartPassword = randomBytes(16).toString('hex');
+    const inboundSecret = `inb_${randomBytes(24).toString('hex')}`;
 
     const config: SetupConfig = {
       masterKey,
+      inboundSecret,
       stalwart: {
         url: 'http://localhost:8080',
         adminUser: 'admin',
@@ -143,6 +177,7 @@ STALWART_ADMIN_PASSWORD=${stalwartPassword}
 STALWART_URL=http://localhost:8080
 
 AGENTICMAIL_MASTER_KEY=${masterKey}
+AGENTICMAIL_INBOUND_SECRET=${inboundSecret}
 AGENTICMAIL_API_PORT=3829
 AGENTICMAIL_DATA_DIR=${dataDir}
 
@@ -159,6 +194,24 @@ IMAP_PORT=143
     this.generateDockerFiles(config);
 
     return { configPath, envPath, config, isNew: true };
+  }
+
+  /**
+   * Append `AGENTICMAIL_INBOUND_SECRET=...` to .env if the file does
+   * not already contain that key. Used by the lazy-mint path to make
+   * sure existing installs pick up the new secret on next boot
+   * without clobbering anything the operator added.
+   */
+  private ensureEnvHasInboundSecret(envPath: string, secret: string): void {
+    if (!existsSync(envPath)) return;  // no .env yet — config.json drives this install
+    try {
+      const current = readFileSync(envPath, 'utf-8');
+      if (/^AGENTICMAIL_INBOUND_SECRET=/m.test(current)) return; // already set
+      const updated = current + (current.endsWith('\n') ? '' : '\n')
+        + `AGENTICMAIL_INBOUND_SECRET=${secret}\n`;
+      writeFileSync(envPath, updated);
+      chmodSync(envPath, 0o600);
+    } catch { /* best effort */ }
   }
 
   /**

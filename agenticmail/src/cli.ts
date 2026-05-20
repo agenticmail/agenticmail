@@ -352,7 +352,7 @@ function resolveApiEntry(): string {
  * Build env vars from config so the forked API can bootstrap without a .env in cwd.
  */
 function configToEnv(config: SetupConfig): Record<string, string> {
-  return {
+  const env: Record<string, string> = {
     ...process.env as Record<string, string>,
     AGENTICMAIL_DATA_DIR: config.dataDir,
     AGENTICMAIL_MASTER_KEY: config.masterKey,
@@ -366,6 +366,17 @@ function configToEnv(config: SetupConfig): Record<string, string> {
     IMAP_HOST: config.imap.host,
     IMAP_PORT: String(config.imap.port),
   };
+  // v0.9.84 — feed the persistent inbound secret to the spawned API
+  // process. SetupManager.initConfig() lazy-mints this into config.json
+  // for installs that predate the field, so a config we just loaded
+  // is guaranteed to have it on the new path. Only set the env var
+  // when it's present so a manually-edited config without the field
+  // still falls through to the API's old self-mint-with-warning path
+  // instead of getting an empty-string secret.
+  if (config.inboundSecret) {
+    env.AGENTICMAIL_INBOUND_SECRET = config.inboundSecret;
+  }
+  return env;
 }
 
 /**
