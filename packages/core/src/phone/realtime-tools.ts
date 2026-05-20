@@ -295,6 +295,96 @@ export const LOAD_SKILL_TOOL: RealtimeToolDefinition = {
   },
 };
 
+/**
+ * v0.9.81 — time-budget self-awareness. The voice model on a live call
+ * needs to know HOW LONG IT HAS, get reminded as that window closes,
+ * and have a graceful exit when it runs out. This tool returns a
+ * snapshot the model can read at any point. Cheap: pure function over
+ * bridge state, returns in microseconds.
+ */
+export const GET_CALL_STATUS_TOOL: RealtimeToolDefinition = {
+  type: 'function',
+  name: 'get_call_status',
+  description:
+    'Check how much time you have left on this call and whether you can request more time or schedule a '
+    + 'callback. Use this whenever you are unsure if there is room to keep going. Returns: '
+    + 'secondsRemaining, soft deadline timestamp, extensions used/remaining/availableSeconds, callbackAvailable.',
+  parameters: {
+    type: 'object',
+    properties: {},
+  },
+};
+
+/**
+ * v0.9.81 — ask for more time on the current call. Auto-approved up to
+ * the per-call extension policy (per-request cap, per-call request cap,
+ * total seconds cap). On partial / refused grants the message field
+ * explains exactly what the agent has left so it can adapt rather than
+ * retry-loop.
+ */
+export const EXTEND_CALL_TIME_TOOL: RealtimeToolDefinition = {
+  type: 'function',
+  name: 'extend_call_time',
+  description:
+    'Request more time on this call. Auto-approved within your call\'s extension policy — you do not '
+    + 'need to ask the operator. Use this BEFORE your time runs out. If the grant is partial or refused '
+    + 'the response tells you exactly what you have left; do not retry-loop.',
+  parameters: {
+    type: 'object',
+    properties: {
+      seconds: {
+        type: 'number',
+        description: 'How many MORE seconds you need. Positive integer. The server caps each grant.',
+      },
+      reason: {
+        type: 'string',
+        description: 'One short line on why — kept on the mission transcript for review.',
+      },
+    },
+    required: ['seconds'],
+  },
+};
+
+/**
+ * v0.9.81 — arrange an automatic callback when you cannot finish in
+ * this session (time, context, conversation needs a break, etc.). The
+ * bridge captures the agent's summary + a transcript digest now; the
+ * scheduler dials back at `delaySeconds` with full context loaded into
+ * the next call's task. Each call can schedule AT MOST ONE callback,
+ * and only within the mission's callbackPolicy.
+ */
+export const SCHEDULE_CALLBACK_TOOL: RealtimeToolDefinition = {
+  type: 'function',
+  name: 'schedule_callback',
+  description:
+    'Arrange an auto-callback to this same number at a later time. Use this when you cannot finish in '
+    + 'the time available, or when the caller needs a break, or when context dictates a follow-up '
+    + '("call me after 5pm", "try again tomorrow"). The next call picks up with your summary + the '
+    + 'transcript so far automatically — say goodbye and the system handles re-dialing. Only ONE '
+    + 'callback can be scheduled per call; choose carefully.',
+  parameters: {
+    type: 'object',
+    properties: {
+      delay_seconds: {
+        type: 'number',
+        description: 'How many seconds from now to call back. Minimum 30, maximum 604800 (7 days). '
+          + 'Use larger delays generously — "tomorrow morning" is ~57600s.',
+      },
+      reason: {
+        type: 'string',
+        description: 'One short line for the audit trail — e.g. "ran out of time before confirming the booking" or "caller asked me to ring back after 5pm".',
+      },
+      summary_for_next_call: {
+        type: 'string',
+        description: 'What the next call agent MUST know to pick up where you left off — facts you '
+          + 'collected, the caller\'s name, what was agreed, what is still open. Be concrete; this is '
+          + 'all the next agent has from your call.',
+      },
+    },
+    required: ['delay_seconds', 'summary_for_next_call'],
+  },
+};
+
 /** Every tool defined in this module, keyed by name. */
 export const REALTIME_TOOL_DEFINITIONS: Record<string, RealtimeToolDefinition> = {
   ask_operator: ASK_OPERATOR_TOOL,
@@ -304,6 +394,9 @@ export const REALTIME_TOOL_DEFINITIONS: Record<string, RealtimeToolDefinition> =
   search_email: SEARCH_EMAIL_TOOL,
   search_skills: SEARCH_SKILLS_TOOL,
   load_skill: LOAD_SKILL_TOOL,
+  get_call_status: GET_CALL_STATUS_TOOL,
+  extend_call_time: EXTEND_CALL_TIME_TOOL,
+  schedule_callback: SCHEDULE_CALLBACK_TOOL,
 };
 
 // ─── Tool-use guidance for the session instructions ─────
@@ -356,6 +449,34 @@ export function buildRealtimeToolGuidance(tools: readonly RealtimeToolDefinition
       + 'A skill\'s rendered playbook is now part of your instructions for the rest of the call. '
       + 'You can load a second skill if a new situation comes up — but the model keeps a max of '
       + 'two loaded; a third load drops the oldest. Pick skills deliberately.',
+    );
+  }
+  if (names.has('get_call_status') || names.has('extend_call_time') || names.has('schedule_callback')) {
+    lines.push(
+      '# Managing your time on this call',
+      'You have a fixed time budget. The system will quietly remind you when you have about 2 minutes '
+      + 'left and again at about 30 seconds left — pace your conversation so you can wrap up cleanly.',
+      '',
+      'If you need more time to finish the job:',
+      '- Call extend_call_time({ seconds: 120, reason: "..." }) BEFORE you run out. Requests are auto-'
+      + 'approved within the call\'s extension policy — you do not need to ask the operator. The '
+      + 'response tells you exactly how much you got and how much extension budget remains.',
+      '',
+      'If you cannot finish in time, the caller wants you to call back later, OR you sense the '
+      + 'conversation has hit a natural pause that needs a follow-up:',
+      '- Call schedule_callback({ delay_seconds: <when>, reason: "...", summary_for_next_call: "..." }) '
+      + 'BEFORE you sign off. The summary you pass becomes the next call\'s starting context — be '
+      + 'concrete: caller\'s name, what was agreed, what\'s still open, any commitments you made.',
+      '- Then politely close: "Thanks for your time — I\'ll call you back at <when>." The system dials '
+      + 'back automatically with your summary + the conversation so far loaded for the next agent.',
+      '- You can ONLY schedule one callback per call. Choose deliberately.',
+      '',
+      'You can check the current status (time left, extensions used, callback availability) at any '
+      + 'moment with get_call_status — but do not fixate; keep the call moving.',
+      '',
+      'When in doubt — out of time, out of extensions, the caller is uncertain — preferred order is: '
+      + 'wrap up gracefully → schedule_callback → sign off. Never go silent or invent excuses; the '
+      + 'right move is always a clean handoff to a future call.',
     );
   }
   return lines.join('\n');

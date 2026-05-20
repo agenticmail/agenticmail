@@ -43,6 +43,51 @@ export const PHONE_SERVER_MAX_ATTEMPTS = 3;
 /** Hard cap on the free-text `task` fed to the voice runtime. */
 export const PHONE_TASK_MAX_LENGTH = 2000;
 
+/**
+ * Server-side ceilings for the extension policy. Like the duration /
+ * cost caps above, these are the financial blast-radius bound — a
+ * caller can ask for a stricter extension policy but never a looser
+ * one. The defaults err on the side of "give the agent a fighting
+ * chance to finish a real call" without letting it sit on the line
+ * forever: 2 minutes per request × 2 requests max = +4 minutes total
+ * default, capped at +5 minutes by the server even if the caller's
+ * policy is more generous. The TOTAL also can't push the call past
+ * PHONE_SERVER_MAX_CALL_DURATION_SECONDS — that ceiling still wins.
+ */
+export const PHONE_SERVER_MAX_EXTENSION_SECONDS_PER_REQUEST = 300;   // 5 min
+export const PHONE_SERVER_MAX_EXTENSION_REQUESTS_PER_CALL = 4;
+export const PHONE_SERVER_MAX_TOTAL_EXTENSION_SECONDS = 600;         // 10 min
+
+/** Default per-call extension envelope when the caller doesn't set one. */
+export const DEFAULT_EXTENSION_POLICY: PhoneExtensionPolicy = {
+  maxSecondsPerRequest: 120,    // 2 minutes
+  maxRequestsPerCall: 2,
+  maxTotalExtensionSeconds: 300, // 5 minutes
+};
+
+/**
+ * Server-side ceiling on how deep a callback chain can go. Each call
+ * counts; a brand-new mission is depth 0, its callback is depth 1, the
+ * callback's callback is depth 2. Prevents an agent + bot operator on
+ * the other end from getting stuck in an infinite re-dial loop.
+ */
+export const PHONE_SERVER_MAX_CALLBACK_CHAIN = 3;
+
+/** Default callback envelope when the caller doesn't set one. */
+export const DEFAULT_CALLBACK_POLICY: PhoneCallbackPolicy = {
+  allowAutoCallback: true,
+  maxCallbackChain: 2,
+};
+
+/**
+ * Floor + ceiling on how far into the future a `schedule_callback` may
+ * defer. Lower bound prevents instant re-dial loops (give the human a
+ * breath); upper bound bounds the staging window so a scheduled
+ * callback can't sit in the DB forever.
+ */
+export const PHONE_CALLBACK_MIN_DELAY_SECONDS = 30;
+export const PHONE_CALLBACK_MAX_DELAY_SECONDS = 7 * 24 * 60 * 60;   // 7 days
+
 export interface PhoneConfirmPolicy {
   paymentDetails: 'never';
   contractCommitment: 'never';
@@ -55,6 +100,50 @@ export interface PhoneAlternativePolicy {
   maxTimeShiftMinutes: number;
 }
 
+/**
+ * How aggressively the voice agent is allowed to ask for more time on a
+ * live call. Three independently-enforced caps:
+ *
+ *   - maxSecondsPerRequest: ceiling on a SINGLE `extend_call_time` call.
+ *     The agent can ask for less; it cannot ask for more.
+ *   - maxRequestsPerCall: how many times it may invoke the tool at all.
+ *     Once exhausted, further requests are denied even if there is
+ *     budget left in the total ceiling.
+ *   - maxTotalExtensionSeconds: TOTAL extra seconds across all granted
+ *     requests for this single call. A safety net under
+ *     `maxRequestsPerCall × maxSecondsPerRequest` in case the math
+ *     drifts. The call cannot run past
+ *     PHONE_SERVER_MAX_CALL_DURATION_SECONDS regardless of this.
+ *
+ * Auto-approved within these bounds — the agent does NOT need to bother
+ * the operator for routine "5 more minutes" requests. The whole point
+ * is to keep the agent agentic without making it ask permission every
+ * time it needs more line time to finish the job it was sent to do.
+ */
+export interface PhoneExtensionPolicy {
+  maxSecondsPerRequest: number;
+  maxRequestsPerCall: number;
+  maxTotalExtensionSeconds: number;
+}
+
+/**
+ * Whether (and how) the agent may schedule an automatic callback when
+ * it can't finish the call in time, hits a context limit, gets cut off,
+ * or just wants to follow up later.
+ *
+ *   - allowAutoCallback: master switch. False disables `schedule_callback`
+ *     entirely (the tool is still callable but it returns a denial).
+ *   - maxCallbackChain: how many re-dials can chain off this mission.
+ *     0 means "no callbacks at all" (equivalent to allowAutoCallback=false
+ *     for this purpose); 1 means one callback is permitted but the
+ *     callback itself cannot schedule another; 2 means two hops are
+ *     allowed; etc. Bounded by PHONE_SERVER_MAX_CALLBACK_CHAIN.
+ */
+export interface PhoneCallbackPolicy {
+  allowAutoCallback: boolean;
+  maxCallbackChain: number;
+}
+
 export interface OpenClawPhoneMissionPolicy {
   policyVersion: 1;
   regionAllowlist: PhoneRegionScope[];
@@ -65,6 +154,17 @@ export interface OpenClawPhoneMissionPolicy {
   recordingEnabled: boolean;
   confirmPolicy: PhoneConfirmPolicy;
   alternativePolicy: PhoneAlternativePolicy;
+  /**
+   * NEW in v0.9.81 — extension envelope. Optional for backward
+   * compatibility; falls back to {@link DEFAULT_EXTENSION_POLICY} when
+   * the caller omits it.
+   */
+  extensionPolicy?: PhoneExtensionPolicy;
+  /**
+   * NEW in v0.9.81 — callback envelope. Optional; falls back to
+   * {@link DEFAULT_CALLBACK_POLICY} when omitted.
+   */
+  callbackPolicy?: PhoneCallbackPolicy;
 }
 
 export interface StartPhoneMissionInput {
@@ -213,6 +313,100 @@ function validateAlternativePolicy(value: unknown): PhoneMissionValidationIssue[
   return [];
 }
 
+/**
+ * Validate an OPTIONAL extensionPolicy block. Missing entirely is fine —
+ * the caller gets {@link DEFAULT_EXTENSION_POLICY}. If supplied, the
+ * three fields must all be present + sensible; any rejection causes
+ * mission validation to fail (defaults DO NOT silently paper over a
+ * malformed caller value).
+ */
+function validateExtensionPolicy(value: unknown): PhoneMissionValidationIssue[] {
+  if (value === undefined) return [];
+  if (!isRecord(value)) {
+    return [issue('invalid-extension-policy', 'policy.extensionPolicy', 'extensionPolicy must be an object')];
+  }
+  const issues: PhoneMissionValidationIssue[] = [];
+  const perReq = readPositiveInteger(value.maxSecondsPerRequest);
+  if (perReq === null) {
+    issues.push(issue(
+      'invalid-extension-per-request',
+      'policy.extensionPolicy.maxSecondsPerRequest',
+      'maxSecondsPerRequest must be a positive integer',
+    ));
+  }
+  const requests = readPositiveInteger(value.maxRequestsPerCall);
+  if (requests === null) {
+    issues.push(issue(
+      'invalid-extension-requests',
+      'policy.extensionPolicy.maxRequestsPerCall',
+      'maxRequestsPerCall must be a positive integer',
+    ));
+  }
+  const total = readPositiveInteger(value.maxTotalExtensionSeconds);
+  if (total === null) {
+    issues.push(issue(
+      'invalid-extension-total',
+      'policy.extensionPolicy.maxTotalExtensionSeconds',
+      'maxTotalExtensionSeconds must be a positive integer',
+    ));
+  }
+  return issues;
+}
+
+/**
+ * Validate an OPTIONAL callbackPolicy block. Same semantics as
+ * extensionPolicy — missing is fine + defaulted; malformed is an error.
+ * maxCallbackChain = 0 is permitted (it disables chaining), so this
+ * uses readNonNegativeNumber + integer check, not readPositiveInteger.
+ */
+function validateCallbackPolicy(value: unknown): PhoneMissionValidationIssue[] {
+  if (value === undefined) return [];
+  if (!isRecord(value)) {
+    return [issue('invalid-callback-policy', 'policy.callbackPolicy', 'callbackPolicy must be an object')];
+  }
+  const issues: PhoneMissionValidationIssue[] = [];
+  if (readBoolean(value.allowAutoCallback) === null) {
+    issues.push(issue(
+      'invalid-callback-allow',
+      'policy.callbackPolicy.allowAutoCallback',
+      'allowAutoCallback must be boolean',
+    ));
+  }
+  const chain = readNonNegativeNumber(value.maxCallbackChain);
+  if (chain === null || !Number.isInteger(chain)) {
+    issues.push(issue(
+      'invalid-callback-chain',
+      'policy.callbackPolicy.maxCallbackChain',
+      'maxCallbackChain must be a non-negative integer',
+    ));
+  }
+  return issues;
+}
+
+/**
+ * Resolve the effective extension policy: caller's value (if any),
+ * clamped DOWN to the server ceiling on each field. The server cap
+ * always wins — a caller asking for `maxSecondsPerRequest: 999_999`
+ * gets {@link PHONE_SERVER_MAX_EXTENSION_SECONDS_PER_REQUEST}.
+ */
+export function resolveExtensionPolicy(input: PhoneExtensionPolicy | undefined): PhoneExtensionPolicy {
+  const src = input ?? DEFAULT_EXTENSION_POLICY;
+  return {
+    maxSecondsPerRequest: Math.min(src.maxSecondsPerRequest, PHONE_SERVER_MAX_EXTENSION_SECONDS_PER_REQUEST),
+    maxRequestsPerCall: Math.min(src.maxRequestsPerCall, PHONE_SERVER_MAX_EXTENSION_REQUESTS_PER_CALL),
+    maxTotalExtensionSeconds: Math.min(src.maxTotalExtensionSeconds, PHONE_SERVER_MAX_TOTAL_EXTENSION_SECONDS),
+  };
+}
+
+/** Resolve the effective callback policy with server-ceiling clamping. */
+export function resolveCallbackPolicy(input: PhoneCallbackPolicy | undefined): PhoneCallbackPolicy {
+  const src = input ?? DEFAULT_CALLBACK_POLICY;
+  return {
+    allowAutoCallback: src.allowAutoCallback,
+    maxCallbackChain: Math.min(src.maxCallbackChain, PHONE_SERVER_MAX_CALLBACK_CHAIN),
+  };
+}
+
 export function validatePhoneMissionPolicy(policy: unknown): PhoneMissionValidationResult {
   const issues: PhoneMissionValidationIssue[] = [];
   if (!isRecord(policy)) {
@@ -255,6 +449,8 @@ export function validatePhoneMissionPolicy(policy: unknown): PhoneMissionValidat
 
   issues.push(...validateConfirmPolicy(policy.confirmPolicy));
   issues.push(...validateAlternativePolicy(policy.alternativePolicy));
+  issues.push(...validateExtensionPolicy(policy.extensionPolicy));
+  issues.push(...validateCallbackPolicy(policy.callbackPolicy));
 
   if (issues.length > 0) return { ok: false, issues };
 
@@ -275,6 +471,13 @@ export function validatePhoneMissionPolicy(policy: unknown): PhoneMissionValidat
       alternativePolicy: {
         maxTimeShiftMinutes: (policy.alternativePolicy as { maxTimeShiftMinutes: number }).maxTimeShiftMinutes,
       },
+      // The extension + callback policies are optional in the caller's
+      // input but we ALWAYS materialise them in the resolved policy so
+      // every downstream consumer (the bridge, the scheduler, the
+      // manager) can read a concrete value without juggling undefined.
+      // Caller-omitted → DEFAULT_*. Caller-set → clamped to server caps.
+      extensionPolicy: resolveExtensionPolicy(policy.extensionPolicy as PhoneExtensionPolicy | undefined),
+      callbackPolicy: resolveCallbackPolicy(policy.callbackPolicy as PhoneCallbackPolicy | undefined),
     },
     issues: [],
   };

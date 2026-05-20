@@ -71,6 +71,12 @@ import {
   GET_DATETIME_TOOL,
   SEARCH_SKILLS_TOOL,
   LOAD_SKILL_TOOL,
+  GET_CALL_STATUS_TOOL,
+  EXTEND_CALL_TIME_TOOL,
+  SCHEDULE_CALLBACK_TOOL,
+  resolveExtensionPolicy,
+  resolveCallbackPolicy,
+  PHONE_SERVER_MAX_CALL_DURATION_SECONDS,
   type AgenticMailConfig,
   type RealtimeBridgePort,
   type RealtimeToolDefinition,
@@ -425,9 +431,20 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
   // implementations. The executor's `ask_operator` poll needs to abort
   // if the call drops — `isCallEnded` lets it see the bridge state.
   const tools = buildVoiceTools();
+  // Resolve the per-call budget envelopes so we can hand them to BOTH
+  // the session config (instructions get the "you have N minutes" line)
+  // and the bridge (which enforces the timer + extension caps). The
+  // resolve functions clamp to server ceilings and default if missing.
+  const extensionPolicy = resolveExtensionPolicy(mission.policy.extensionPolicy);
+  const callbackPolicy = resolveCallbackPolicy(mission.policy.callbackPolicy);
+  const callBudgetSeconds = Math.min(
+    mission.policy.maxCallDurationSeconds,
+    PHONE_SERVER_MAX_CALL_DURATION_SECONDS,
+  );
   const executor = createVoiceToolExecutor({
     mission, phoneManager, memory, config, db,
     isCallEnded: () => getBridge()?.isEnded ?? false,
+    getBridge,
   });
 
   const transcript: PhoneMissionTranscriptEntry[] = [];
@@ -446,20 +463,51 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
       memoryContext,
       model,
       tools,
+      // v0.9.81 — fold the time-budget preamble into the instructions so
+      // the agent reads "you have ~N minutes" + the extend / callback
+      // tips alongside the rest of its persona / tool guidance.
+      callBudget: {
+        seconds: callBudgetSeconds,
+        extensionEnabled: extensionPolicy.maxRequestsPerCall > 0,
+        callbackEnabled: callbackPolicy.allowAutoCallback && callbackPolicy.maxCallbackChain > 0,
+      },
       // Carrier-driven audio format — no transcoding end to end.
       // 46elks → audio/pcm @ 24 kHz; Twilio → audio/pcmu @ 8 kHz.
       audioFormat: transport.openaiAudioFormat,
     }),
     toolExecutor: executor,
+    // v0.9.81 — soft-deadline timer, extension envelope, scheduled
+    // callback callback. The bridge enforces the soft cap; the
+    // mission's `maxCallDurationSeconds` is still the hard ceiling
+    // imposed by the carrier.
+    callBudgetSeconds,
+    extensionPolicy,
+    callbackPolicy,
+    onCallbackScheduled: (req) => {
+      try {
+        phoneManager.armScheduledCallback(mission.id, req);
+      } catch (err) {
+        console.error('[realtime-voice] scheduled callback persist failed:', (err as Error)?.message ?? err);
+        throw err;  // rethrow so the bridge can refuse the tool call cleanly
+      }
+    },
     onTranscript: (e) => record({ at: new Date().toISOString(), source: e.source, text: e.text, metadata: e.metadata }),
-    onEnd: ({ reason, pendingToolCalls }) => {
-      record({ at: new Date().toISOString(), source: 'system', text: `Realtime voice bridge ended (${reason}).` });
+    onEnd: ({ reason, pendingToolCalls, endedByTimeBudget }) => {
+      record({
+        at: new Date().toISOString(),
+        source: 'system',
+        text: `Realtime voice bridge ended (${reason}).`,
+        metadata: endedByTimeBudget ? { endedByTimeBudget: true } : undefined,
+      });
       try {
         phoneManager.recordRealtimeActivity(mission.id, transcript.splice(0), 'completed');
       } catch (err) {
         console.error('[realtime-voice] transcript persist failed:', (err as Error)?.message ?? err);
       }
-      if (pendingToolCalls > 0) {
+      // Skip the legacy operator-query callback flag when the agent
+      // has already scheduled its OWN callback. The two paths would
+      // otherwise dial twice for the same call.
+      if (pendingToolCalls > 0 && !bridge.isCallbackArmed) {
         try {
           phoneManager.flagCallbackPending(mission.id);
         } catch (err) {
@@ -519,6 +567,12 @@ function buildVoiceTools(): RealtimeToolDefinition[] {
     WEB_SEARCH_TOOL,
     SEARCH_SKILLS_TOOL,
     LOAD_SKILL_TOOL,
+    // v0.9.81 — time-budget self-awareness tools. Always exposed when
+    // the bridge has a soft budget configured (always, in practice;
+    // every mission has a maxCallDurationSeconds).
+    GET_CALL_STATUS_TOOL,
+    EXTEND_CALL_TIME_TOOL,
+    SCHEDULE_CALLBACK_TOOL,
   ];
 }
 
@@ -530,6 +584,13 @@ interface VoiceToolExecutorParams {
   db: Db;
   /** True once the call has ended — aborts a pending ask_operator poll. */
   isCallEnded: () => boolean;
+  /**
+   * Late-bound bridge accessor — the bridge isn't constructed until
+   * AFTER this executor (the executor is one of the bridge's options),
+   * so the time-budget tools resolve it lazily via this closure. May
+   * return null briefly during construction; handlers guard for that.
+   */
+  getBridge: () => RealtimeVoiceBridge | null;
 }
 
 /**
@@ -539,7 +600,7 @@ interface VoiceToolExecutorParams {
  * produce is a model-readable error string, never a wedged call.
  */
 function createVoiceToolExecutor(params: VoiceToolExecutorParams): ToolExecutor {
-  const { mission, phoneManager, memory, config, db, isCallEnded } = params;
+  const { mission, phoneManager, memory, config, db, isCallEnded, getBridge } = params;
 
   const askOperator: RealtimeToolHandler = async (args) => {
     const question = typeof args.question === 'string' ? args.question : '';
@@ -642,6 +703,55 @@ function createVoiceToolExecutor(params: VoiceToolExecutorParams): ToolExecutor 
         };
       }
       return { ok: false, message: result.message };
+    },
+
+    // ─── v0.9.81 time-budget self-awareness tools ───────────────────
+    //
+    // get_call_status: cheap status snapshot. Pure read off bridge state;
+    //   the model can call it whenever to decide whether to keep going.
+    // extend_call_time: ask for more time, auto-approved within policy.
+    // schedule_callback: arrange an auto-redial with prior-call context.
+    //
+    // All three are bridge-bound — they need the live bridge instance,
+    // not just DB state. We resolve via `getBridge()` so the closure
+    // always sees the current bridge (the executor is built BEFORE the
+    // bridge exists, so the reference must be late-bound).
+
+    get_call_status: () => {
+      const bridge = getBridge();
+      if (!bridge) return { error: 'Bridge not available — call status unavailable.' };
+      return bridge.getCallStatus();
+    },
+
+    extend_call_time: (args) => {
+      const bridge = getBridge();
+      if (!bridge) return { error: 'Bridge not available — cannot extend a call that has no live session.' };
+      const seconds = typeof args.seconds === 'number' ? args.seconds : Number(args.seconds);
+      const reason = typeof args.reason === 'string' ? args.reason : undefined;
+      if (!Number.isFinite(seconds) || seconds <= 0) {
+        return { error: 'extend_call_time requires a positive integer `seconds`.' };
+      }
+      const result = bridge.extendCallTime(Math.floor(seconds), reason);
+      return result;
+    },
+
+    schedule_callback: (args) => {
+      const bridge = getBridge();
+      if (!bridge) return { error: 'Bridge not available — cannot schedule a callback off a non-live call.' };
+      const delaySeconds = typeof args.delay_seconds === 'number' ? args.delay_seconds : Number(args.delay_seconds);
+      const reason = typeof args.reason === 'string' ? args.reason : '';
+      const summary = typeof args.summary_for_next_call === 'string' ? args.summary_for_next_call : '';
+      if (!Number.isFinite(delaySeconds) || delaySeconds <= 0) {
+        return { error: 'schedule_callback requires a positive `delay_seconds`.' };
+      }
+      if (!summary.trim()) {
+        return { error: 'schedule_callback requires a non-empty `summary_for_next_call`.' };
+      }
+      return bridge.scheduleCallback({
+        delaySeconds: Math.floor(delaySeconds),
+        reason,
+        summary,
+      });
     },
   });
 }

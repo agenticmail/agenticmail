@@ -145,6 +145,25 @@ export interface RealtimeInstructionOptions {
    * automatically by `buildRealtimeSessionConfig()` when tools are set.
    */
   toolGuidance?: string;
+  /**
+   * v0.9.81 — when set, the agent gets an explicit "you have N minutes"
+   * preamble so it can pace the conversation. Pulled into the
+   * instructions even when the bridge itself isn't enforcing a soft
+   * deadline (e.g. for downstream voice runtimes that consume the
+   * same instructions string).
+   */
+  callBudget?: {
+    /** Total budget for this call in seconds. */
+    seconds: number;
+    /**
+     * True when extend_call_time + schedule_callback are wired to the
+     * session. Toggles a separate "if you need more time" hint into
+     * the preamble. False ⇒ the agent should manage strictly within
+     * its budget.
+     */
+    extensionEnabled: boolean;
+    callbackEnabled: boolean;
+  };
 }
 
 const DEFAULT_PERSONA =
@@ -178,6 +197,35 @@ export function buildRealtimeInstructions(opts: RealtimeInstructionOptions): str
       + 'accumulated over time. Treat it as your own experience and act on it naturally. Do not read '
       + 'it aloud or mention that it is "memory"; simply know it.\n\n'
       + memory,
+    );
+  }
+
+  // v0.9.81 — time budget preamble. Drop in BEFORE tool guidance so
+  // the agent reads "you have ~10 min" before learning the extend /
+  // callback tools that act on that budget.
+  const budget = opts.callBudget;
+  if (budget && budget.seconds > 0) {
+    const mins = Math.round(budget.seconds / 60);
+    const human = mins >= 1 ? `about ${mins} minute(s)` : `${budget.seconds} seconds`;
+    const tips: string[] = [];
+    if (budget.extensionEnabled) {
+      tips.push(
+        'If you need more time, call extend_call_time({ seconds, reason }) BEFORE you run out. '
+        + 'Auto-approved within the call\'s extension policy.',
+      );
+    }
+    if (budget.callbackEnabled) {
+      tips.push(
+        'If you cannot finish in time, the caller wants you to ring back later, or the conversation '
+        + 'naturally pauses for a follow-up, call schedule_callback({ delay_seconds, reason, '
+        + 'summary_for_next_call }) BEFORE signing off. The next call automatically picks up with '
+        + 'your summary and the transcript so far.',
+      );
+    }
+    sections.push(
+      `# Your time on this call\nYou have ${human} for this call. The system will quietly remind you `
+      + 'at the 2-minute and 30-second marks — pace the conversation so you can wrap up cleanly.'
+      + (tips.length > 0 ? '\n\n' + tips.join('\n') : ''),
     );
   }
 
@@ -360,10 +408,96 @@ export interface RealtimeVoiceBridgeOptions {
    * is how many tool calls were still in flight at teardown — non-zero
    * means the call dropped mid-tool (e.g. an unanswered `ask_operator`),
    * which is the signal the API layer uses to arm callback-on-disconnect
-   * (plan §7).
+   * (plan §7). `endedByTimeBudget` is true when the bridge itself ended
+   * the call because the soft deadline elapsed and the grace period
+   * expired — the API layer uses this to log a different teardown
+   * reason and to skip "callback flagged" if the agent already used
+   * `schedule_callback` itself.
    */
-  onEnd?: (summary: { reason: string; pendingToolCalls: number }) => void;
+  onEnd?: (summary: { reason: string; pendingToolCalls: number; endedByTimeBudget?: boolean }) => void;
+  /**
+   * NEW in v0.9.81 — initial soft time budget for the call, in seconds.
+   * When set, the bridge schedules a graceful-end timer with reminders
+   * (T-120s, T-30s) and a final 30s grace window after the budget
+   * elapses. The carrier-level hard cap (Twilio `TimeLimit` / 46elks
+   * `timeout`) still applies on top; this is the AGENT's view of how
+   * long it has, which it can grow via {@link extendCallTime}.
+   * Omitted ⇒ no bridge-level timer (legacy behaviour).
+   */
+  callBudgetSeconds?: number;
+  /**
+   * NEW in v0.9.81 — extension policy for {@link extendCallTime}. When
+   * the agent asks for more time, every request is auto-approved up to
+   * these caps. Omitted ⇒ extensions are denied.
+   */
+  extensionPolicy?: import('./mission.js').PhoneExtensionPolicy;
+  /**
+   * NEW in v0.9.81 — callback policy for {@link scheduleCallback}.
+   * Omitted ⇒ scheduled callbacks are denied.
+   */
+  callbackPolicy?: import('./mission.js').PhoneCallbackPolicy;
+  /**
+   * NEW in v0.9.81 — fires when the agent calls schedule_callback and the
+   * bridge has approved it against the policy. The API layer persists
+   * the request to mission metadata and the scheduler dials the
+   * callback when the requested `at` timestamp arrives. `priorContext`
+   * is the model-supplied summary plus a system-built transcript
+   * digest the bridge composed at request-time.
+   */
+  onCallbackScheduled?: (req: ScheduledCallbackRequest) => void;
+  /**
+   * NEW in v0.9.81 — injectable wall-clock + timer functions so unit
+   * tests can fast-forward the deadline without sleeping. Defaults to
+   * the real `Date.now` / `setTimeout` / `clearTimeout`.
+   */
+  now?: () => number;
+  setTimeoutFn?: typeof setTimeout;
+  clearTimeoutFn?: typeof clearTimeout;
 }
+
+/**
+ * Captures everything the API layer needs to honour a `schedule_callback`
+ * tool call: when to dial, why, what the model wants to remember about
+ * the conversation so far, and a transcript digest the bridge composed
+ * at the moment of the request. The digest is the "context from the
+ * previous call" the operator asked for — without it, the next call's
+ * agent would start cold.
+ */
+export interface ScheduledCallbackRequest {
+  /** Wall-clock ISO timestamp when the callback should fire. */
+  at: string;
+  /** Free-text reason from the agent (transcribed verbatim to logs). */
+  reason: string;
+  /**
+   * The agent's own summary of what the next-call agent should know.
+   * Trimmed to {@link MAX_CALLBACK_SUMMARY_LENGTH} chars.
+   */
+  agentSummary: string;
+  /**
+   * System-built digest of the assistant + system transcript so far,
+   * trimmed to {@link MAX_CALLBACK_TRANSCRIPT_DIGEST_LENGTH} chars.
+   * The next call sees this verbatim under "# What you said before".
+   */
+  transcriptDigest: string;
+}
+
+/** Hard cap on the model-provided callback summary. */
+export const MAX_CALLBACK_SUMMARY_LENGTH = 1500;
+/** Hard cap on the bridge-built transcript digest carried into the callback. */
+export const MAX_CALLBACK_TRANSCRIPT_DIGEST_LENGTH = 2500;
+/**
+ * Reminder marks (seconds remaining) that trigger a system-message
+ * injection telling the agent "you have ~N left, start wrapping up".
+ * Sorted descending so the soonest-to-fire is last. Any mark less than
+ * 5 seconds is suppressed (too close to the grace window to be useful).
+ */
+export const CALL_BUDGET_REMINDER_MARKS_SECONDS = [120, 30] as const;
+/**
+ * How long after the soft deadline the agent has to wrap up before the
+ * bridge ends the call itself. Long enough to say goodbye, short
+ * enough that the operator isn't paying for a runaway model.
+ */
+export const CALL_BUDGET_GRACE_SECONDS = 30;
 
 /**
  * Bridges a phone carrier's realtime-media connection to an OpenAI
@@ -388,7 +522,49 @@ export class RealtimeVoiceBridge {
   private readonly toolExecutor?: ToolExecutor;
   private readonly maxToolCallMs: number;
   private readonly onTranscript?: (entry: RealtimeBridgeTranscriptEntry) => void;
-  private readonly onEnd?: (summary: { reason: string; pendingToolCalls: number }) => void;
+  private readonly onEnd?: (summary: { reason: string; pendingToolCalls: number; endedByTimeBudget?: boolean }) => void;
+
+  /** Injectable clock + timers (tests substitute fakes). */
+  private readonly nowFn: () => number;
+  private readonly setTimeoutFn: typeof setTimeout;
+  private readonly clearTimeoutFn: typeof clearTimeout;
+
+  /** v0.9.81 — extension / callback state. */
+  private readonly extensionPolicy?: import('./mission.js').PhoneExtensionPolicy;
+  private readonly callbackPolicy?: import('./mission.js').PhoneCallbackPolicy;
+  private readonly onCallbackScheduled?: (req: ScheduledCallbackRequest) => void;
+  /** Initial soft budget, in seconds. 0 = no bridge-side timer (legacy). */
+  private readonly initialBudgetSeconds: number;
+  /** Wall-clock ms when the call started, set on first carrier hello. */
+  private callStartedAtMs: number | null = null;
+  /** Wall-clock ms when the soft deadline fires. Bumped by extensions. */
+  private softDeadlineMs: number | null = null;
+  /** Soft-end timer (fires once, then schedules the grace timer). */
+  private softEndTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Final hard-end timer that fires after the grace window. */
+  private graceEndTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Reminder timers for the T-N marks. Cleared/re-armed on extensions. */
+  private reminderTimers: ReturnType<typeof setTimeout>[] = [];
+  /** Marks (in seconds-remaining) we've already fired this call. Dedup
+   *  prevents re-injecting the same reminder after an extension if the
+   *  new deadline still has us past the same mark. */
+  private firedReminderMarks = new Set<number>();
+  /** Count of extensions granted this call. */
+  private extensionsUsed = 0;
+  /** Total extra seconds granted across all extensions this call. */
+  private extensionSecondsUsed = 0;
+  /** True once the agent's schedule_callback request was accepted. */
+  private callbackArmed = false;
+  /** Captured for the API layer when the soft deadline fires. */
+  private endedByTimeBudgetFlag = false;
+  /**
+   * Sliding window of recent assistant + system utterances, used to
+   * build the transcript digest carried into a scheduled callback.
+   * Capped at {@link MAX_CALLBACK_TRANSCRIPT_DIGEST_LENGTH} chars so
+   * the digest itself can always be produced cheaply even on a long
+   * call.
+   */
+  private readonly recentUtterances: string[] = [];
 
   /** Carrier `hello`/`start` received — the call leg is live. */
   private helloSeen = false;
@@ -454,6 +630,18 @@ export class RealtimeVoiceBridge {
     this.maxToolCallMs = opts.maxToolCallMs ?? REALTIME_TOOL_CALL_TIMEOUT_MS;
     this.onTranscript = opts.onTranscript;
     this.onEnd = opts.onEnd;
+    // v0.9.81 — call-budget / extension / callback wiring. All optional;
+    // defaults preserve the pre-0.9.81 behaviour (no bridge timer, no
+    // extension/callback tools active).
+    this.nowFn = opts.now ?? Date.now;
+    this.setTimeoutFn = opts.setTimeoutFn ?? setTimeout;
+    this.clearTimeoutFn = opts.clearTimeoutFn ?? clearTimeout;
+    this.initialBudgetSeconds = opts.callBudgetSeconds && opts.callBudgetSeconds > 0
+      ? Math.floor(opts.callBudgetSeconds)
+      : 0;
+    this.extensionPolicy = opts.extensionPolicy;
+    this.callbackPolicy = opts.callbackPolicy;
+    this.onCallbackScheduled = opts.onCallbackScheduled;
   }
 
   /** True once the bridge has ended. */
@@ -667,6 +855,11 @@ export class RealtimeVoiceBridge {
         from: event.from,
         to: event.to,
       });
+      // v0.9.81 — arm the call-budget timers as soon as we know the call
+      // is live. Hello is the right moment: the carrier has answered,
+      // the model is about to speak, and any earlier arming would have
+      // counted setup latency against the agent's budget.
+      this.startCallBudget();
       return;
     }
 
@@ -757,7 +950,13 @@ export class RealtimeVoiceBridge {
       case 'response.output_audio_transcript.done':
       case 'response.audio_transcript.done': {
         const text = this.assistantTranscript.trim();
-        if (text) this.emitTranscript('agent', text);
+        if (text) {
+          this.emitTranscript('agent', text);
+          // Capture for the callback transcript digest. We tag with
+          // role so the next call's continuation prompt can render
+          // "Agent: ..." / "Caller: ..." in the digest.
+          this.noteUtterance(`Agent: ${text}`);
+        }
         this.assistantTranscript = '';
         return;
       }
@@ -765,7 +964,10 @@ export class RealtimeVoiceBridge {
       // Caller speech transcription, when input transcription is on.
       case 'conversation.item.input_audio_transcription.completed': {
         const text = typeof event.transcript === 'string' ? event.transcript.trim() : '';
-        if (text) this.emitTranscript('provider', text, { speaker: 'caller' });
+        if (text) {
+          this.emitTranscript('provider', text, { speaker: 'caller' });
+          this.noteUtterance(`Caller: ${text}`);
+        }
         return;
       }
 
@@ -909,6 +1111,436 @@ export class RealtimeVoiceBridge {
     this.safeSend(this.openai, { type: 'response.create' });
   }
 
+  // ─── Call-budget timers / extensions / callback (v0.9.81) ─────────
+
+  /** True if the agent's `schedule_callback` request has been accepted. */
+  get isCallbackArmed(): boolean {
+    return this.callbackArmed;
+  }
+
+  /**
+   * Seconds remaining on the current soft deadline, floored at 0. Returns
+   * the initial budget if hello hasn't fired yet, and `Infinity` if no
+   * call budget was configured (legacy mode). Used by `get_call_status`.
+   */
+  getTimeRemainingSeconds(): number {
+    if (this.initialBudgetSeconds <= 0) return Number.POSITIVE_INFINITY;
+    if (this.callStartedAtMs == null || this.softDeadlineMs == null) {
+      return this.initialBudgetSeconds;
+    }
+    return Math.max(0, Math.ceil((this.softDeadlineMs - this.nowFn()) / 1000));
+  }
+
+  /**
+   * Public extension state snapshot for `get_call_status`. Each value is
+   * "what the agent has left" so the model can decide whether to call
+   * `extend_call_time` at all — exposing both the per-request cap AND
+   * the remaining budget makes greedy / unbounded extension attempts
+   * impossible.
+   */
+  getExtensionStatus(): {
+    extensionsUsed: number;
+    extensionsRemaining: number;
+    secondsUsedSoFar: number;
+    secondsAvailable: number;
+    maxSecondsPerRequest: number;
+  } {
+    const pol = this.extensionPolicy;
+    if (!pol) {
+      return {
+        extensionsUsed: 0,
+        extensionsRemaining: 0,
+        secondsUsedSoFar: 0,
+        secondsAvailable: 0,
+        maxSecondsPerRequest: 0,
+      };
+    }
+    return {
+      extensionsUsed: this.extensionsUsed,
+      extensionsRemaining: Math.max(0, pol.maxRequestsPerCall - this.extensionsUsed),
+      secondsUsedSoFar: this.extensionSecondsUsed,
+      secondsAvailable: Math.max(0, pol.maxTotalExtensionSeconds - this.extensionSecondsUsed),
+      maxSecondsPerRequest: pol.maxSecondsPerRequest,
+    };
+  }
+
+  /**
+   * Grant (or refuse) more time on the call. Auto-approved within all
+   * three policy caps; the granted amount is the min of:
+   *
+   *   - the agent's requested seconds (positive integer, clamped > 0)
+   *   - policy.maxSecondsPerRequest
+   *   - policy.maxTotalExtensionSeconds − seconds already granted
+   *
+   * AND we won't push the new deadline past the hard ceiling
+   * (PHONE_SERVER_MAX_CALL_DURATION_SECONDS from call start). The
+   * returned shape always includes a model-readable `reason` so a
+   * partial grant ("you asked for 5 min, you got 2 min") doesn't
+   * confuse the agent.
+   *
+   * Failure modes (granted: 0):
+   *   - no extension policy on this call
+   *   - max requests already used
+   *   - max total seconds already used
+   *   - call already ended
+   *   - non-positive `seconds`
+   */
+  extendCallTime(requestedSeconds: number, reason?: string): {
+    granted: boolean;
+    secondsGranted: number;
+    secondsRemaining: number;
+    extensionsRemaining: number;
+    message: string;
+  } {
+    if (this.ended) {
+      return {
+        granted: false,
+        secondsGranted: 0,
+        secondsRemaining: 0,
+        extensionsRemaining: 0,
+        message: 'The call has already ended; no more extensions can be granted.',
+      };
+    }
+    const pol = this.extensionPolicy;
+    if (!pol) {
+      return {
+        granted: false,
+        secondsGranted: 0,
+        secondsRemaining: this.getTimeRemainingSeconds(),
+        extensionsRemaining: 0,
+        message: 'Extensions are not enabled for this call.',
+      };
+    }
+    if (this.initialBudgetSeconds <= 0 || this.softDeadlineMs == null || this.callStartedAtMs == null) {
+      // No active soft-budget timer — nothing to extend. (Shouldn't
+      // happen in practice if hello has fired, but the guard keeps the
+      // bridge honest if a caller sets extensionPolicy without a budget.)
+      return {
+        granted: false,
+        secondsGranted: 0,
+        secondsRemaining: Number.POSITIVE_INFINITY,
+        extensionsRemaining: pol.maxRequestsPerCall - this.extensionsUsed,
+        message: 'This call has no soft time budget, so extensions are a no-op.',
+      };
+    }
+    if (this.extensionsUsed >= pol.maxRequestsPerCall) {
+      return {
+        granted: false,
+        secondsGranted: 0,
+        secondsRemaining: this.getTimeRemainingSeconds(),
+        extensionsRemaining: 0,
+        message: `Out of extensions — already used ${pol.maxRequestsPerCall}/${pol.maxRequestsPerCall} this call. Wrap up or schedule a callback.`,
+      };
+    }
+    const remainingBudgetSeconds = Math.max(0, pol.maxTotalExtensionSeconds - this.extensionSecondsUsed);
+    if (remainingBudgetSeconds <= 0) {
+      return {
+        granted: false,
+        secondsGranted: 0,
+        secondsRemaining: this.getTimeRemainingSeconds(),
+        extensionsRemaining: Math.max(0, pol.maxRequestsPerCall - this.extensionsUsed),
+        message: `Out of extension time — already granted ${this.extensionSecondsUsed}s of the ${pol.maxTotalExtensionSeconds}s cap.`,
+      };
+    }
+    const asked = Math.floor(requestedSeconds);
+    if (!Number.isFinite(asked) || asked <= 0) {
+      return {
+        granted: false,
+        secondsGranted: 0,
+        secondsRemaining: this.getTimeRemainingSeconds(),
+        extensionsRemaining: Math.max(0, pol.maxRequestsPerCall - this.extensionsUsed),
+        message: 'extend_call_time requires a positive integer number of seconds.',
+      };
+    }
+
+    // Compute the granted amount: bounded by (1) requested, (2) per-
+    // request cap, (3) total remaining cap, (4) hard call-duration
+    // ceiling. Whichever is smallest wins.
+    let granted = Math.min(asked, pol.maxSecondsPerRequest, remainingBudgetSeconds);
+    const elapsedSeconds = Math.floor((this.nowFn() - this.callStartedAtMs) / 1000);
+    const maxAllowedFromStart = 3600; // PHONE_SERVER_MAX_CALL_DURATION_SECONDS — guarded by import path; inline literal to avoid a cross-module circular ref.
+    const hardCeilingRoom = Math.max(0, maxAllowedFromStart - (elapsedSeconds + this.getTimeRemainingSeconds()));
+    granted = Math.min(granted, hardCeilingRoom);
+    if (granted <= 0) {
+      return {
+        granted: false,
+        secondsGranted: 0,
+        secondsRemaining: this.getTimeRemainingSeconds(),
+        extensionsRemaining: Math.max(0, pol.maxRequestsPerCall - this.extensionsUsed),
+        message: 'No extension granted — the call is already at the hard duration ceiling.',
+      };
+    }
+
+    // Commit the grant: push the deadline + re-arm timers + log.
+    this.extensionsUsed += 1;
+    this.extensionSecondsUsed += granted;
+    this.softDeadlineMs = this.softDeadlineMs + granted * 1000;
+    this.rearmBudgetTimers();
+    this.emitTranscript('system', `Granted ${granted}s extension (#${this.extensionsUsed}). Reason: ${truncate(asString(reason) || 'unspecified', 120)}`, {
+      extensionsUsed: this.extensionsUsed,
+      extensionSecondsUsed: this.extensionSecondsUsed,
+      softDeadlineMs: this.softDeadlineMs,
+    });
+
+    return {
+      granted: true,
+      secondsGranted: granted,
+      secondsRemaining: this.getTimeRemainingSeconds(),
+      extensionsRemaining: Math.max(0, pol.maxRequestsPerCall - this.extensionsUsed),
+      message: `Granted ${granted} more seconds (${this.getTimeRemainingSeconds()}s now remaining). ${Math.max(0, pol.maxRequestsPerCall - this.extensionsUsed)} extension(s) left after this one.`,
+    };
+  }
+
+  /**
+   * Capture the agent's `schedule_callback` request. The bridge VALIDATES
+   * (policy allows it, delay is in the legal window, summary present),
+   * builds a transcript digest from {@link recentUtterances}, then fires
+   * {@link onCallbackScheduled} so the API layer can persist + arm the
+   * scheduler. The bridge does NOT itself dial — that's the scheduler's
+   * job, fired at the requested wall-clock time.
+   *
+   * Returning `{ accepted: true }` arms `isCallbackArmed`, which the
+   * end-of-call path uses to skip the legacy operator-query callback
+   * flag (the agent has already declared its own follow-up plan).
+   */
+  scheduleCallback(req: {
+    delaySeconds: number;
+    reason?: string;
+    summary: string;
+  }): { accepted: boolean; at?: string; message: string } {
+    if (this.ended) {
+      return { accepted: false, message: 'Cannot schedule a callback — the call has already ended.' };
+    }
+    if (this.callbackArmed) {
+      return { accepted: false, message: 'A callback has already been scheduled for this call. Stick with that plan.' };
+    }
+    const pol = this.callbackPolicy;
+    if (!pol || !pol.allowAutoCallback || pol.maxCallbackChain <= 0) {
+      return {
+        accepted: false,
+        message: 'Auto-callbacks are disabled by policy on this call. Tell the caller you will follow up another way.',
+      };
+    }
+    const delay = Math.floor(req.delaySeconds);
+    // PHONE_CALLBACK_MIN_DELAY_SECONDS / _MAX_ pulled in by literal —
+    // avoids a circular import between bridge + mission.
+    const minDelay = 30;
+    const maxDelay = 7 * 24 * 60 * 60;
+    if (!Number.isFinite(delay) || delay < minDelay) {
+      return {
+        accepted: false,
+        message: `Callbacks must be scheduled at least ${minDelay}s in the future.`,
+      };
+    }
+    if (delay > maxDelay) {
+      return {
+        accepted: false,
+        message: `Callbacks must be scheduled within ${Math.floor(maxDelay / 86400)} days.`,
+      };
+    }
+    const summary = asString(req.summary);
+    if (!summary) {
+      return {
+        accepted: false,
+        message: 'schedule_callback requires a non-empty `summary` for the next call to pick up from.',
+      };
+    }
+
+    const at = new Date(this.nowFn() + delay * 1000).toISOString();
+    const digest = this.composeTranscriptDigest();
+    const payload: ScheduledCallbackRequest = {
+      at,
+      reason: truncate(asString(req.reason) || 'no reason given', 240),
+      agentSummary: truncate(summary, MAX_CALLBACK_SUMMARY_LENGTH),
+      transcriptDigest: digest,
+    };
+    try {
+      this.onCallbackScheduled?.(payload);
+    } catch (err) {
+      // The persister threw — surface the failure to the agent so it
+      // doesn't tell the caller a callback is locked in when it isn't.
+      return { accepted: false, message: `Could not arm callback: ${errorText(err)}` };
+    }
+    this.callbackArmed = true;
+    this.emitTranscript('system', `Callback scheduled for ${at}. Reason: ${payload.reason}`, {
+      scheduledAt: at,
+      summaryLength: payload.agentSummary.length,
+      digestLength: digest.length,
+    });
+    return {
+      accepted: true,
+      at,
+      message: `Callback scheduled for ${at}. The next call will pick up with your summary + the transcript so far.`,
+    };
+  }
+
+  /**
+   * Public time-budget snapshot for `get_call_status`. Bundles
+   * everything the agent needs to decide whether to keep going, ask
+   * for more time, or schedule a callback.
+   */
+  getCallStatus(): {
+    secondsRemaining: number;
+    softDeadlineAt: string | null;
+    extension: ReturnType<RealtimeVoiceBridge['getExtensionStatus']>;
+    callbackAvailable: boolean;
+    callbackArmed: boolean;
+  } {
+    return {
+      secondsRemaining: this.getTimeRemainingSeconds(),
+      softDeadlineAt: this.softDeadlineMs ? new Date(this.softDeadlineMs).toISOString() : null,
+      extension: this.getExtensionStatus(),
+      callbackAvailable: !!this.callbackPolicy?.allowAutoCallback
+        && (this.callbackPolicy?.maxCallbackChain ?? 0) > 0
+        && !this.callbackArmed,
+      callbackArmed: this.callbackArmed,
+    };
+  }
+
+  /**
+   * Arm the soft-deadline timer + reminder timers. Called once at hello.
+   * No-op when the bridge has no budget configured.
+   */
+  private startCallBudget(): void {
+    if (this.initialBudgetSeconds <= 0) return;
+    const nowMs = this.nowFn();
+    this.callStartedAtMs = nowMs;
+    this.softDeadlineMs = nowMs + this.initialBudgetSeconds * 1000;
+    this.emitTranscript('system', `Call budget armed: ${this.initialBudgetSeconds}s, soft deadline ${new Date(this.softDeadlineMs).toISOString()}.`, {
+      budgetSeconds: this.initialBudgetSeconds,
+    });
+    this.rearmBudgetTimers();
+  }
+
+  /**
+   * Cancel all existing budget timers and re-arm them against
+   * {@link softDeadlineMs}. Called at startCallBudget time AND after
+   * every successful {@link extendCallTime} grant — the timers always
+   * reflect the CURRENT deadline.
+   */
+  private rearmBudgetTimers(): void {
+    this.clearBudgetTimers();
+    if (this.softDeadlineMs == null) return;
+    const nowMs = this.nowFn();
+    const msToDeadline = this.softDeadlineMs - nowMs;
+
+    // Reminder injections at T-N marks. Skip a mark we've already fired
+    // (extension after T-120 fired shouldn't re-fire T-120 unless the
+    // new deadline pushes us back PAST it; cleaner to just dedup via
+    // firedReminderMarks).
+    for (const mark of CALL_BUDGET_REMINDER_MARKS_SECONDS) {
+      const msUntilMark = msToDeadline - mark * 1000;
+      if (msUntilMark <= 0) continue;
+      if (this.firedReminderMarks.has(mark)) continue;
+      const t = this.setTimeoutFn(() => {
+        this.firedReminderMarks.add(mark);
+        this.injectReminder(mark);
+      }, msUntilMark);
+      this.reminderTimers.push(t);
+    }
+
+    // Soft-end timer — fires once at the deadline, injects the "wrap up
+    // NOW" system message, then schedules the grace-window hard end.
+    const msUntilSoftEnd = Math.max(0, msToDeadline);
+    this.softEndTimer = this.setTimeoutFn(() => {
+      this.softEndTimer = null;
+      this.onSoftDeadline();
+    }, msUntilSoftEnd);
+  }
+
+  /** Cancel all currently-armed budget timers. Idempotent. */
+  private clearBudgetTimers(): void {
+    if (this.softEndTimer) {
+      this.clearTimeoutFn(this.softEndTimer);
+      this.softEndTimer = null;
+    }
+    if (this.graceEndTimer) {
+      this.clearTimeoutFn(this.graceEndTimer);
+      this.graceEndTimer = null;
+    }
+    for (const t of this.reminderTimers) {
+      this.clearTimeoutFn(t);
+    }
+    this.reminderTimers = [];
+  }
+
+  /**
+   * Inject a "you have ~N seconds left" system message into the live
+   * OpenAI session. The model receives it as a `conversation.item.create`
+   * with role:`system`, followed by `response.create` so it can decide
+   * whether to acknowledge it out loud (often it just naturally
+   * accelerates wrap-up; we don't force a verbal "I have 30 seconds").
+   */
+  private injectReminder(secondsRemaining: number): void {
+    if (this.ended || !this.openaiReady) return;
+    const text = secondsRemaining >= 60
+      ? `[system] About ${Math.round(secondsRemaining / 60)} minute(s) left on this call. Start wrapping up — if you need more time, call extend_call_time; if you can't finish, call schedule_callback before signing off.`
+      : `[system] About ${secondsRemaining}s left on this call. Wrap up now: thank the caller, give a clear next step, and sign off.`;
+    this.safeSend(this.openai, {
+      type: 'conversation.item.create',
+      item: { type: 'message', role: 'system', content: [{ type: 'input_text', text }] },
+    });
+    this.safeSend(this.openai, { type: 'response.create' });
+    this.emitTranscript('system', `Time reminder injected at T-${secondsRemaining}s.`);
+  }
+
+  /**
+   * Fires once the soft deadline elapses. Injects a "your time is up"
+   * system message + schedules the grace-window hard end. If the agent
+   * uses the grace window to call `schedule_callback` or `extend_call_time`
+   * the latter can push the deadline forward again — that's fine, the
+   * grace timer is cancelled by {@link extendCallTime} via rearmBudgetTimers.
+   */
+  private onSoftDeadline(): void {
+    if (this.ended) return;
+    if (this.openaiReady) {
+      const text = `[system] Your time on this call is up. You have ~${CALL_BUDGET_GRACE_SECONDS} seconds to wrap up. `
+        + 'If you need to continue with this person, call schedule_callback NOW with the time and a summary. '
+        + 'Then thank them, give a clear next step, and sign off. The line will close at the end of the grace window.';
+      this.safeSend(this.openai, {
+        type: 'conversation.item.create',
+        item: { type: 'message', role: 'system', content: [{ type: 'input_text', text }] },
+      });
+      this.safeSend(this.openai, { type: 'response.create' });
+    }
+    this.emitTranscript('system', `Soft deadline reached; ${CALL_BUDGET_GRACE_SECONDS}s grace window started.`);
+    this.endedByTimeBudgetFlag = true;
+    this.graceEndTimer = this.setTimeoutFn(() => {
+      this.graceEndTimer = null;
+      if (this.ended) return;
+      this.emitTranscript('system', 'Grace window elapsed — bridge ending call.');
+      this.end('time-budget-exceeded');
+    }, CALL_BUDGET_GRACE_SECONDS * 1000);
+  }
+
+  /**
+   * Add an utterance to the rolling buffer used for the callback
+   * transcript digest. Bounded by char count, not entry count, so a
+   * burst of short turns doesn't get pruned prematurely.
+   */
+  private noteUtterance(line: string): void {
+    if (!line) return;
+    this.recentUtterances.push(line);
+    let total = this.recentUtterances.reduce((n, s) => n + s.length, 0);
+    while (total > MAX_CALLBACK_TRANSCRIPT_DIGEST_LENGTH * 2 && this.recentUtterances.length > 1) {
+      const dropped = this.recentUtterances.shift()!;
+      total -= dropped.length;
+    }
+  }
+
+  /**
+   * Compose a transcript digest from the rolling buffer. Used as the
+   * "context from the previous call" payload in {@link scheduleCallback}.
+   * Always honours {@link MAX_CALLBACK_TRANSCRIPT_DIGEST_LENGTH}.
+   */
+  private composeTranscriptDigest(): string {
+    const joined = this.recentUtterances.join('\n');
+    if (joined.length <= MAX_CALLBACK_TRANSCRIPT_DIGEST_LENGTH) return joined;
+    // Tail-bias the digest — the recent turns matter more than the
+    // opening pleasantries when reconstructing context for the callback.
+    return '…\n' + joined.slice(joined.length - MAX_CALLBACK_TRANSCRIPT_DIGEST_LENGTH + 2);
+  }
+
   // ─── Teardown ─────────────────────────────────────────
 
   /**
@@ -919,6 +1551,10 @@ export class RealtimeVoiceBridge {
   end(reason: string): void {
     if (this.ended) return;
     this.ended = true;
+    // Cancel any armed budget timers — they MUST NOT fire after end()
+    // (would inject a system message into a closed socket and could
+    // double-trigger onEnd via the grace timer).
+    this.clearBudgetTimers();
     if (this.droppedFrames > 0) {
       this.onTranscript?.({
         source: 'system',
@@ -943,7 +1579,15 @@ export class RealtimeVoiceBridge {
     }
     try { this.carrier.close(); } catch { /* ignore */ }
     try { this.openai.close(); } catch { /* ignore */ }
-    this.onEnd?.({ reason, pendingToolCalls });
+    // Omit endedByTimeBudget when false — keeps the onEnd shape
+    // strictly backward-compatible for legacy callers that match the
+    // payload exactly (existing realtime-bridge.test.ts and
+    // twilio-bridge.test.ts both assert `toEqual({ reason, pendingToolCalls })`).
+    if (this.endedByTimeBudgetFlag) {
+      this.onEnd?.({ reason, pendingToolCalls, endedByTimeBudget: true });
+    } else {
+      this.onEnd?.({ reason, pendingToolCalls });
+    }
   }
 
   // ─── Internals ────────────────────────────────────────

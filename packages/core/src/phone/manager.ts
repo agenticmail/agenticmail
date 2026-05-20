@@ -314,6 +314,25 @@ function readOperatorQueries(mission: PhoneCallMission): PhoneOperatorQuery[] {
   ));
 }
 
+/**
+ * Read the callback chain depth from a mission's metadata. Depth 0
+ * means "this is not a callback" (a brand-new mission); depth 1 is
+ * "this mission was itself spawned by a scheduled callback"; depth N
+ * means N hops removed from the original. We store the depth on the
+ * NEW (callback) mission's metadata as `callbackChainDepth` so we
+ * don't have to walk the parent chain.
+ */
+function readChainDepth(mission: PhoneCallMission): number {
+  const raw = mission.metadata.callbackChainDepth;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) return Math.floor(raw);
+  // If the parent mission itself has a `scheduledCallback` record that
+  // was already fired, take its chainDepth — defence in depth for
+  // missions written before callbackChainDepth was a metadata key.
+  const sc = mission.metadata.scheduledCallback as PhoneScheduledCallback | undefined;
+  if (sc && Number.isFinite(sc.chainDepth)) return Math.floor(sc.chainDepth);
+  return 0;
+}
+
 /** Escape SQL `LIKE` metacharacters so a value is matched literally. */
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
@@ -339,6 +358,74 @@ function buildCallbackTask(originalTask: string, query: PhoneOperatorQuery): str
     '# Original task',
   ].join('\n');
   // Reserve room for the continuity block; trim the original task if needed.
+  const room = Math.max(0, PHONE_TASK_MAX_LENGTH - continuity.length - 1);
+  return `${continuity}\n${originalTask.slice(0, room)}`.slice(0, PHONE_TASK_MAX_LENGTH);
+}
+
+/**
+ * Persisted shape of a `schedule_callback` request. Stored verbatim
+ * on `mission.metadata.scheduledCallback`; the scheduler reads it back
+ * when the wall-clock reaches `at`.
+ *
+ *   - `at`         — when to dial back, ISO timestamp
+ *   - `reason`     — short audit string
+ *   - `agentSummary` — what the next call needs to know (model-provided)
+ *   - `transcriptDigest` — bridge-built rolling transcript snapshot
+ *   - `chainDepth` — 0 for first scheduled callback, 1 if THIS mission
+ *                   was itself a callback, 2 if its parent was too, …
+ *                   Used to enforce `policy.callbackPolicy.maxCallbackChain`
+ *                   without re-walking the chain at dial time.
+ *   - `status`     — pending → dialing → fired (mission spawned) | failed
+ *   - `callbackMissionId` — id of the new mission once dialing happens
+ *   - `armedAt`    — when this record was written, audit only
+ *   - `firedAt`    — when the scheduler actually dialed
+ *   - `lastError`  — last dial-failure message (the scheduler retries
+ *                   inside the manager; this is the visibility hook)
+ */
+export interface PhoneScheduledCallback {
+  at: string;
+  reason: string;
+  agentSummary: string;
+  transcriptDigest: string;
+  chainDepth: number;
+  status: 'pending' | 'dialing' | 'fired' | 'failed';
+  callbackMissionId?: string;
+  armedAt: string;
+  firedAt?: string;
+  lastError?: string;
+}
+
+/**
+ * Compose the continuation task for a SCHEDULED callback (the
+ * `schedule_callback` tool path, separate from the operator-query
+ * callback path above). The next call's agent sees:
+ *
+ *   - what happened on the prior call (reason + agent's own summary)
+ *   - a rolling transcript digest from the bridge (the actual lines)
+ *   - the original task
+ *
+ * Bounded to {@link PHONE_TASK_MAX_LENGTH}; the original task is
+ * trimmed last to make room for the continuity context (which is the
+ * whole point of the callback).
+ */
+function buildScheduledCallbackTask(
+  originalTask: string,
+  payload: { reason: string; agentSummary: string; transcriptDigest: string },
+): string {
+  const continuity = [
+    '# Call continuity — auto-callback',
+    'You were on a call with this person earlier and scheduled this follow-up before signing off. '
+    + 'Open by acknowledging it naturally — e.g. "Hi, this is <your name> calling back as I said I '
+    + 'would." Then continue the conversation from where you left off.',
+    '',
+    `## Why you arranged this callback\n${payload.reason}`,
+    '',
+    `## Notes you left for yourself (your own summary at the end of the prior call)\n${payload.agentSummary}`,
+    '',
+    `## What was actually said on the prior call (verbatim digest)\n${payload.transcriptDigest}`,
+    '',
+    '# Original task',
+  ].join('\n');
   const room = Math.max(0, PHONE_TASK_MAX_LENGTH - continuity.length - 1);
   return `${continuity}\n${originalTask.slice(0, room)}`.slice(0, PHONE_TASK_MAX_LENGTH);
 }
@@ -1154,6 +1241,166 @@ export class PhoneManager {
         at: new Date().toISOString(),
         source: 'system',
         text: `Callback dial failed (${message}) — it remains pending.`,
+      }]);
+      throw err;
+    }
+  }
+
+  // ─── Scheduled callbacks (v0.9.81 — schedule_callback tool) ──────────
+
+  /**
+   * Persist a `schedule_callback` request to the mission. Called from
+   * the realtime bridge's `onCallbackScheduled` hook. The scheduler
+   * picks this up later when `payload.at <= now`. ChainDepth is
+   * computed from the parent's metadata so {@link triggerScheduledCallback}
+   * can enforce policy.callbackPolicy.maxCallbackChain without
+   * walking back through the mission history.
+   *
+   * Returns the updated mission, or null if the mission isn't known.
+   * Idempotent on the `mission.metadata.scheduledCallback.at` key: if
+   * a scheduled callback already exists on the mission this writes a
+   * SECOND copy on `scheduledCallbacks` as an audit trail but does
+   * NOT overwrite the active record (the bridge only allows one per
+   * call anyway; the audit log is a belt-and-braces guard against
+   * the unusual case where a server restart re-runs the bridge logic).
+   */
+  armScheduledCallback(
+    missionId: string,
+    payload: {
+      at: string;
+      reason: string;
+      agentSummary: string;
+      transcriptDigest: string;
+    },
+  ): PhoneCallMission | null {
+    const mission = this.getMission(missionId);
+    if (!mission) return null;
+    const parentDepth = readChainDepth(mission);
+    const record: PhoneScheduledCallback = {
+      at: payload.at,
+      reason: payload.reason,
+      agentSummary: payload.agentSummary,
+      transcriptDigest: payload.transcriptDigest,
+      chainDepth: parentDepth + 1,
+      status: 'pending',
+      armedAt: new Date().toISOString(),
+    };
+    return this.updateMissionStatus(mission.id, mission.status, {
+      scheduledCallback: record,
+    }, [{
+      at: record.armedAt,
+      source: 'system',
+      text: `Scheduled callback armed for ${record.at} (chain depth ${record.chainDepth}). Reason: ${record.reason}`,
+      metadata: { scheduledAt: record.at, chainDepth: record.chainDepth },
+    }]);
+  }
+
+  /**
+   * All missions with a `scheduledCallback.status === 'pending'` whose
+   * `at` is <= now. The scheduler's per-tick worklist. Pass an upper
+   * bound on count so a backlog doesn't dial every overdue callback in
+   * one frame.
+   */
+  findDueScheduledCallbacks(nowIso: string, limit = 16): PhoneCallMission[] {
+    // metadata_json is a LIKE-indexed string column; this is a coarse
+    // first-cut filter, then we re-check in JS. Cheap on small DBs;
+    // if the per-call mission count grows large enough to matter we
+    // can promote `scheduled_callback_at` to a real column.
+    const rows = this.db.prepare(
+      "SELECT * FROM phone_missions WHERE metadata_json LIKE '%scheduledCallback%' AND metadata_json LIKE '%pending%' LIMIT ?",
+    ).all(limit * 4) as any[];
+    return rows
+      .map(rowToMission)
+      .filter((mission) => {
+        const sc = mission.metadata.scheduledCallback as PhoneScheduledCallback | undefined;
+        return sc && sc.status === 'pending' && sc.at <= nowIso;
+      })
+      .slice(0, limit);
+  }
+
+  /**
+   * Dial a due scheduled callback. Mirrors {@link triggerCallback} for
+   * the operator-query path:
+   *
+   *   1. Reject if the mission's policy.callbackPolicy disallows it OR
+   *      `chainDepth > maxCallbackChain` (no infinite chains).
+   *   2. Transition status pending → dialing BEFORE dialing so a
+   *      concurrent tick can't double-dial.
+   *   3. Build the continuation task with prior-call context and dial.
+   *   4. On success: write `status: 'fired'` + the new mission id.
+   *   5. On failure: write `status: 'pending'` + `lastError` so the
+   *      next tick can retry, then rethrow.
+   *
+   * Returns `null` if the mission isn't known or has no due callback.
+   */
+  async triggerScheduledCallback(
+    missionId: string,
+    options: StartPhoneCallOptions = {},
+  ): Promise<{ mission: PhoneCallMission; callbackMission: PhoneCallMission } | null> {
+    const mission = this.getMission(missionId);
+    if (!mission) return null;
+    const sc = mission.metadata.scheduledCallback as PhoneScheduledCallback | undefined;
+    if (!sc) return null;
+    if (sc.status !== 'pending') return null;
+
+    // Policy gates: callbacks must be allowed AND the next dial must
+    // not exceed the chain cap. Caller is the agent — the policy is
+    // the only thing protecting the operator from a runaway chain.
+    const callbackPol = mission.policy.callbackPolicy;
+    if (!callbackPol || !callbackPol.allowAutoCallback || sc.chainDepth > callbackPol.maxCallbackChain) {
+      const updated = this.updateMissionStatus(mission.id, mission.status, {
+        scheduledCallback: { ...sc, status: 'failed', lastError: 'policy denies callback (chain or disabled)' },
+      }, [{
+        at: new Date().toISOString(),
+        source: 'system',
+        text: `Scheduled callback denied by policy (chainDepth=${sc.chainDepth}, max=${callbackPol?.maxCallbackChain ?? 0}).`,
+      }]);
+      return updated ? { mission: updated, callbackMission: updated } : null;
+    }
+
+    // Transition pending → dialing BEFORE the dial. A concurrent tick
+    // hitting this mission MUST see status:dialing and skip.
+    this.updateMissionStatus(mission.id, mission.status, {
+      scheduledCallback: { ...sc, status: 'dialing' },
+    }, [{
+      at: new Date().toISOString(),
+      source: 'system',
+      text: `Dialing scheduled callback (chain depth ${sc.chainDepth}).`,
+    }]);
+
+    try {
+      const result = await this.startMission(mission.agentId, {
+        to: mission.to,
+        task: buildScheduledCallbackTask(mission.task, {
+          reason: sc.reason,
+          agentSummary: sc.agentSummary,
+          transcriptDigest: sc.transcriptDigest,
+        }),
+        policy: mission.policy,
+      }, options);
+      // Stamp the chain depth onto the NEW mission so any callback IT
+      // schedules can compute parentDepth + 1 without re-walking parents.
+      const callbackMission = this.updateMissionStatus(result.mission.id, result.mission.status, {
+        callbackChainDepth: sc.chainDepth,
+        callbackParentMissionId: mission.id,
+      }, []) ?? result.mission;
+      const linked = this.updateMissionStatus(mission.id, mission.status, {
+        scheduledCallback: {
+          ...sc,
+          status: 'fired',
+          firedAt: new Date().toISOString(),
+          callbackMissionId: result.mission.id,
+        },
+      }, []);
+      return { mission: linked!, callbackMission };
+    } catch (err) {
+      const message = (err as Error)?.message ?? String(err);
+      this.updateMissionStatus(mission.id, mission.status, {
+        scheduledCallback: { ...sc, status: 'pending', lastError: message },
+      }, [{
+        at: new Date().toISOString(),
+        source: 'system',
+        text: `Scheduled callback dial failed (${message}); will retry on next scheduler tick.`,
       }]);
       throw err;
     }
