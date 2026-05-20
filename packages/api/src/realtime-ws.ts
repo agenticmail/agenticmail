@@ -74,6 +74,7 @@ import {
   GET_CALL_STATUS_TOOL,
   EXTEND_CALL_TIME_TOOL,
   SCHEDULE_CALLBACK_TOOL,
+  END_CALL_TOOL,
   resolveExtensionPolicy,
   resolveCallbackPolicy,
   PHONE_SERVER_MAX_CALL_DURATION_SECONDS,
@@ -573,6 +574,10 @@ function buildVoiceTools(): RealtimeToolDefinition[] {
     GET_CALL_STATUS_TOOL,
     EXTEND_CALL_TIME_TOOL,
     SCHEDULE_CALLBACK_TOOL,
+    // v0.9.82 — the missing piece: the agent now has a tool to actually
+    // hang up. Without this the model says "goodbye" but the line
+    // stays open until carrier/human teardown.
+    END_CALL_TOOL,
   ];
 }
 
@@ -752,6 +757,17 @@ function createVoiceToolExecutor(params: VoiceToolExecutorParams): ToolExecutor 
         reason,
         summary,
       });
+    },
+
+    // v0.9.82 — hangup. The bridge actually drops the call (carrier
+    // bye frame + close both sockets). The model's tool-call return
+    // gets through the WS before the close completes, so the model
+    // sees the {ok: true} and won't retry.
+    end_call: (args) => {
+      const bridge = getBridge();
+      if (!bridge) return { error: 'Bridge not available — cannot hang up a non-live call.' };
+      const reason = typeof args.reason === 'string' ? args.reason : '';
+      return bridge.endByAgentRequest(reason);
     },
   });
 }

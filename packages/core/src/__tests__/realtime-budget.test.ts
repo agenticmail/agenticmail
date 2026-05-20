@@ -282,6 +282,43 @@ describe('RealtimeVoiceBridge — schedule_callback', () => {
   });
 });
 
+describe('RealtimeVoiceBridge — endByAgentRequest (v0.9.82)', () => {
+  it('drops the call when the agent calls end_call', () => {
+    const ends: { reason: string; endedByTimeBudget?: boolean }[] = [];
+    const scheduler = new FakeScheduler();
+    const elks = new FakePort();
+    const openai = new FakePort();
+    const bridge = new RealtimeVoiceBridge({
+      elks, openai,
+      sessionConfig: buildRealtimeSessionConfig({ task: 'end test' }),
+      callBudgetSeconds: 600,
+      onEnd: (s) => ends.push({ reason: s.reason, endedByTimeBudget: s.endedByTimeBudget }),
+      now: scheduler.now,
+      setTimeoutFn: scheduler.setTimeout,
+      clearTimeoutFn: scheduler.clearTimeout,
+    });
+    bridge.handleOpenAIOpen();
+    bridge.handleCarrierMessage(helloFrame());
+    expect(bridge.isEnded).toBe(false);
+
+    const result = bridge.endByAgentRequest('caller said goodbye');
+    expect(result.ok).toBe(true);
+    expect(bridge.isEnded).toBe(true);
+    // onEnd ran exactly once with the agent-requested reason. The
+    // endedByTimeBudget flag stays false (agent end, not budget end).
+    expect(ends).toEqual([{ reason: 'agent-requested', endedByTimeBudget: undefined }]);
+    // Both ports were closed.
+    expect(openai.closed).toBe(true);
+    expect(elks.closed).toBe(true);
+  });
+
+  it('is idempotent — a second end_call returns ok: false', () => {
+    const { bridge } = setup({ budgetSeconds: 60 });
+    expect(bridge.endByAgentRequest('first').ok).toBe(true);
+    expect(bridge.endByAgentRequest('second').ok).toBe(false);
+  });
+});
+
 describe('RealtimeVoiceBridge — getCallStatus', () => {
   it('reports remaining time + extension envelope + callback availability', () => {
     const { bridge } = setup({

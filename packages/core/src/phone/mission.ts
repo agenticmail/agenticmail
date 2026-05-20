@@ -37,7 +37,13 @@ export type PhoneNumberRisk = 'invalid' | 'standard' | 'premium_or_special';
  * be MORE restrictive than the server, never less. A phone mission places
  * real, billed calls — these bounds are the financial blast-radius cap.
  */
-export const PHONE_SERVER_MAX_CALL_DURATION_SECONDS = 3600;   // 1 hour
+// Real-world calls (insurance, government services, customer support
+// queues) often run 45–90 minutes including hold time. v0.9.81 set
+// this at 1h which was too tight — bumped to 2h in v0.9.82 so a single
+// long call doesn't need to be artificially split. Carrier billing
+// still applies at the per-second rate; the cap is a SAFETY net, not
+// a cost-optimization knob.
+export const PHONE_SERVER_MAX_CALL_DURATION_SECONDS = 7200;   // 2 hours
 export const PHONE_SERVER_MAX_COST_PER_MISSION = 5;           // currency units (e.g. USD/EUR)
 export const PHONE_SERVER_MAX_ATTEMPTS = 3;
 /** Hard cap on the free-text `task` fed to the voice runtime. */
@@ -49,20 +55,32 @@ export const PHONE_TASK_MAX_LENGTH = 2000;
  * caller can ask for a stricter extension policy but never a looser
  * one. The defaults err on the side of "give the agent a fighting
  * chance to finish a real call" without letting it sit on the line
- * forever: 2 minutes per request × 2 requests max = +4 minutes total
- * default, capped at +5 minutes by the server even if the caller's
- * policy is more generous. The TOTAL also can't push the call past
+ * forever. v0.9.82 bumped these substantially after field reports of
+ * agents running out of time on legitimately long calls (15-25 min
+ * hold queues, 30 min explanations from the rep):
+ *
+ *   - per-request cap raised 5 min → 15 min so a single "I need more
+ *     time on hold" request can carry the agent through a queue
+ *   - per-call cap raised 4 → 8 so chained extensions don't run dry
+ *     on a long bureaucracy call
+ *   - total cap raised 10 min → 1 hour so the absolute add can match
+ *     a long-tail call without artificial chunking
+ *
+ * The TOTAL also can't push the call past
  * PHONE_SERVER_MAX_CALL_DURATION_SECONDS — that ceiling still wins.
  */
-export const PHONE_SERVER_MAX_EXTENSION_SECONDS_PER_REQUEST = 300;   // 5 min
-export const PHONE_SERVER_MAX_EXTENSION_REQUESTS_PER_CALL = 4;
-export const PHONE_SERVER_MAX_TOTAL_EXTENSION_SECONDS = 600;         // 10 min
+export const PHONE_SERVER_MAX_EXTENSION_SECONDS_PER_REQUEST = 900;    // 15 min
+export const PHONE_SERVER_MAX_EXTENSION_REQUESTS_PER_CALL = 8;
+export const PHONE_SERVER_MAX_TOTAL_EXTENSION_SECONDS = 3600;         // 1 hour
 
-/** Default per-call extension envelope when the caller doesn't set one. */
+/** Default per-call extension envelope when the caller doesn't set one.
+ *  Bumped in v0.9.82 — 5 min × 4 = 20 min of headroom is a much more
+ *  realistic out-of-the-box budget for the kinds of calls operators
+ *  actually use this for (bills, bookings, customer support). */
 export const DEFAULT_EXTENSION_POLICY: PhoneExtensionPolicy = {
-  maxSecondsPerRequest: 120,    // 2 minutes
-  maxRequestsPerCall: 2,
-  maxTotalExtensionSeconds: 300, // 5 minutes
+  maxSecondsPerRequest: 300,     // 5 minutes
+  maxRequestsPerCall: 4,
+  maxTotalExtensionSeconds: 1200, // 20 minutes
 };
 
 /**

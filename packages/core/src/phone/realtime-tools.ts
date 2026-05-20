@@ -385,6 +385,43 @@ export const SCHEDULE_CALLBACK_TOOL: RealtimeToolDefinition = {
   },
 };
 
+/**
+ * v0.9.82 — the hang-up tool the agent must call when it's done.
+ *
+ * Before v0.9.82 the realtime voice model could SAY "Goodbye, I'll
+ * hang up now" but had no way to actually drop the call — the bridge
+ * only ended on a carrier-side bye (human hung up), OpenAI socket
+ * close, time-budget grace expiry, or programmatic teardown from the
+ * API layer. So the agent would say goodbye and then sit silently
+ * waiting for the human to hang up, racking up minutes.
+ *
+ * end_call wires the model to {@link RealtimeVoiceBridge.endByAgentRequest}
+ * which sends the carrier its end-of-call frame and closes both
+ * sockets. The model is instructed (in {@link buildRealtimeToolGuidance})
+ * to ALWAYS call this after it has said goodbye — verbal acknowledgement
+ * is not enough.
+ */
+export const END_CALL_TOOL: RealtimeToolDefinition = {
+  type: 'function',
+  name: 'end_call',
+  description:
+    'Hang up the call. You MUST call this AFTER you have said goodbye and the conversation is '
+    + 'complete — saying "I\'ll hang up now" is not enough on its own, the call stays open until '
+    + 'you actually call this tool. Use it when: the task is done and you have signed off, the '
+    + 'caller has indicated the conversation is over, you have scheduled a callback and said '
+    + 'goodbye, or the caller has stopped responding for an extended period. Once called the '
+    + 'call drops immediately; you cannot un-hang-up.',
+  parameters: {
+    type: 'object',
+    properties: {
+      reason: {
+        type: 'string',
+        description: 'One short line for the audit trail — e.g. "task complete", "caller said bye", "scheduled callback, signing off". Optional but recommended.',
+      },
+    },
+  },
+};
+
 /** Every tool defined in this module, keyed by name. */
 export const REALTIME_TOOL_DEFINITIONS: Record<string, RealtimeToolDefinition> = {
   ask_operator: ASK_OPERATOR_TOOL,
@@ -397,6 +434,7 @@ export const REALTIME_TOOL_DEFINITIONS: Record<string, RealtimeToolDefinition> =
   get_call_status: GET_CALL_STATUS_TOOL,
   extend_call_time: EXTEND_CALL_TIME_TOOL,
   schedule_callback: SCHEDULE_CALLBACK_TOOL,
+  end_call: END_CALL_TOOL,
 };
 
 // ─── Tool-use guidance for the session instructions ─────
@@ -477,6 +515,28 @@ export function buildRealtimeToolGuidance(tools: readonly RealtimeToolDefinition
       'When in doubt — out of time, out of extensions, the caller is uncertain — preferred order is: '
       + 'wrap up gracefully → schedule_callback → sign off. Never go silent or invent excuses; the '
       + 'right move is always a clean handoff to a future call.',
+    );
+  }
+  if (names.has('end_call')) {
+    lines.push(
+      '# Hanging up — you must call end_call to actually drop the line',
+      'SAYING "I\'ll hang up now" or "goodbye" does NOT drop the call — the line stays open until '
+      + 'you call the end_call tool. This is the single most important habit on a real phone call: '
+      + 'after you have said your goodbye sentence, IMMEDIATELY call end_call({ reason: "..." }). Do '
+      + 'not wait for the caller to hang up first; do not assume the system will close the line for '
+      + 'you. Call end_call yourself.',
+      '',
+      'When to call end_call:',
+      '- The task is complete and you have just said goodbye.',
+      '- The caller said "thanks, bye" or otherwise signalled they are done.',
+      '- You scheduled a callback and said "I\'ll call you back at <when>".',
+      '- The caller has gone silent for an extended stretch and is clearly not coming back.',
+      '- The operator told you to hang up.',
+      '',
+      'Do NOT call end_call:',
+      '- Mid-conversation when there is still pending business.',
+      '- Because you ran into a tool error — handle it and keep the call going.',
+      '- During a hold while a tool is running — let the tool finish.',
     );
   }
   return lines.join('\n');

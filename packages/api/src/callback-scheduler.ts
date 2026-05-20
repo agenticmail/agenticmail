@@ -23,7 +23,7 @@
  * indexed column is the next step.
  */
 
-import { PhoneManager, type AgenticMailConfig } from '@agenticmail/core';
+import { PhoneManager, TelegramManager, sendTelegramMessage, type AgenticMailConfig, type PhoneCallMission, type PhoneScheduledCallback } from '@agenticmail/core';
 import type { getDatabase } from '@agenticmail/core';
 
 type Db = ReturnType<typeof getDatabase>;
@@ -67,6 +67,11 @@ export function startCallbackScheduler(
   // stateless w.r.t. the DB connection (prepares statements lazily),
   // so a long-lived instance is safe.
   const phoneManager = new PhoneManager(db as any, config.masterKey);
+  // TelegramManager too — used to DM the operator when a scheduled
+  // callback wakes and dials. Same long-lived discipline as
+  // phoneManager. (`getConfig` is best-effort: no telegram setup ⇒
+  // the notification is skipped.)
+  const telegramManager = new TelegramManager(db as any, config.masterKey);
 
   // Guard against overlapping ticks: a slow dial could otherwise let
   // the next tick start before this one finishes, and parallel dials
@@ -80,11 +85,25 @@ export function startCallbackScheduler(
       const due = phoneManager.findDueScheduledCallbacks(new Date().toISOString(), maxPerTick);
       for (const mission of due) {
         try {
-          await phoneManager.triggerScheduledCallback(mission.id);
+          const result = await phoneManager.triggerScheduledCallback(mission.id);
+          // Notify the operator over Telegram (best-effort). The agent
+          // arranged this re-dial possibly hours ago; surfacing the
+          // dial keeps the human in the loop without them having to
+          // watch the web UI. Skipped silently if the agent has no
+          // Telegram config — same discipline as the operator-query
+          // notifier in realtime-ws.ts.
+          if (result?.callbackMission) {
+            void notifyScheduledCallbackFired(telegramManager, mission, result.callbackMission.id)
+              .catch((err) => onError(err as Error, mission.id));
+          }
         } catch (err) {
           // Dial failures are LOGGED but do not stop the loop — the
           // manager already wrote the failure back to the mission
           // (status: 'pending' + lastError), so the next tick retries.
+          // Surface the failure to the operator via Telegram too so
+          // they aren't waiting on a callback that never happens.
+          void notifyScheduledCallbackFailed(telegramManager, mission, (err as Error).message)
+            .catch((notifyErr) => onError(notifyErr as Error, mission.id));
           onError(err as Error, mission.id);
         }
       }
@@ -106,4 +125,57 @@ export function startCallbackScheduler(
   return () => {
     try { clearInterval(handle); } catch { /* idempotent */ }
   };
+}
+
+/**
+ * Send a Telegram DM to the agent's configured operator chat when a
+ * scheduled callback wakes and successfully dials. Lets the human
+ * know "your agent just rang +1 555 0100 back as you both agreed" in
+ * real time. Best-effort: no telegram config / no operator chat ⇒
+ * the notification is silently skipped (the dial still happened).
+ */
+async function notifyScheduledCallbackFired(
+  telegramManager: TelegramManager,
+  parentMission: PhoneCallMission,
+  callbackMissionId: string,
+): Promise<void> {
+  const cfg = telegramManager.getConfig(parentMission.agentId);
+  if (!cfg?.enabled || !cfg.operatorChatId || !cfg.botToken) return;
+
+  const sc = parentMission.metadata.scheduledCallback as PhoneScheduledCallback | undefined;
+  const lines = [
+    '📞 Scheduled callback firing now',
+    '',
+    `Your voice agent just woke up and dialed ${parentMission.to} — the auto-callback you arranged on the prior call (mission ${parentMission.id}).`,
+  ];
+  if (sc?.reason) lines.push('', `Reason: ${truncate(sc.reason, 240)}`);
+  if (sc?.agentSummary) lines.push('', `Agent's notes for this call:`, truncate(sc.agentSummary, 480));
+  lines.push('', `Live mission: ${callbackMissionId}`);
+
+  await sendTelegramMessage(cfg.botToken, cfg.operatorChatId, lines.join('\n'));
+}
+
+/** Notify the operator that a scheduled callback's dial failed. */
+async function notifyScheduledCallbackFailed(
+  telegramManager: TelegramManager,
+  parentMission: PhoneCallMission,
+  errorMessage: string,
+): Promise<void> {
+  const cfg = telegramManager.getConfig(parentMission.agentId);
+  if (!cfg?.enabled || !cfg.operatorChatId || !cfg.botToken) return;
+
+  const lines = [
+    '⚠️ Scheduled callback failed to dial',
+    '',
+    `The auto-callback to ${parentMission.to} (mission ${parentMission.id}) couldn't go through.`,
+    '',
+    `Error: ${truncate(errorMessage, 240)}`,
+    '',
+    'The scheduler will retry on the next tick.',
+  ];
+  await sendTelegramMessage(cfg.botToken, cfg.operatorChatId, lines.join('\n'));
+}
+
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(0, max - 1) + '…';
 }

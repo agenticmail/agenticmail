@@ -67,6 +67,9 @@ import {
   type RealtimeToolDefinition,
   type ToolExecutor,
 } from './realtime-tools.js';
+// Value import for the runtime ceiling used by extendCallTime. mission.ts
+// has no bridge imports, so this introduces no cycle.
+import { PHONE_SERVER_MAX_CALL_DURATION_SECONDS } from './mission.js';
 
 // ─── Constants ──────────────────────────────────────────
 
@@ -1258,8 +1261,10 @@ export class RealtimeVoiceBridge {
     // ceiling. Whichever is smallest wins.
     let granted = Math.min(asked, pol.maxSecondsPerRequest, remainingBudgetSeconds);
     const elapsedSeconds = Math.floor((this.nowFn() - this.callStartedAtMs) / 1000);
-    const maxAllowedFromStart = 3600; // PHONE_SERVER_MAX_CALL_DURATION_SECONDS — guarded by import path; inline literal to avoid a cross-module circular ref.
-    const hardCeilingRoom = Math.max(0, maxAllowedFromStart - (elapsedSeconds + this.getTimeRemainingSeconds()));
+    const hardCeilingRoom = Math.max(
+      0,
+      PHONE_SERVER_MAX_CALL_DURATION_SECONDS - (elapsedSeconds + this.getTimeRemainingSeconds()),
+    );
     granted = Math.min(granted, hardCeilingRoom);
     if (granted <= 0) {
       return {
@@ -1542,6 +1547,32 @@ export class RealtimeVoiceBridge {
   }
 
   // ─── Teardown ─────────────────────────────────────────
+
+  /**
+   * v0.9.82 — agent-initiated hangup. Called when the `end_call` tool
+   * fires. Logs a marker, then routes through {@link end} so the
+   * carrier sees the bye frame and `onEnd` fires exactly once (the
+   * same teardown path the human-hangup case takes). The "agent-
+   * requested" reason flows through to the mission transcript so a
+   * post-call audit can tell apart "agent hung up" from "human hung
+   * up" from "time budget exceeded".
+   *
+   * Returns the structured result the tool handler echoes back to the
+   * model — even though by the time the model receives it the line
+   * will already be closed, keeping a consistent return shape lets the
+   * executor JSON-stringify deterministically.
+   */
+  endByAgentRequest(reason?: string): { ok: boolean; message: string } {
+    if (this.ended) {
+      return { ok: false, message: 'Call has already ended.' };
+    }
+    const trimmed = (reason ?? '').trim();
+    this.emitTranscript('system', `Agent requested hangup. Reason: ${trimmed || 'unspecified'}`, {
+      endedByAgent: true,
+    });
+    this.end('agent-requested');
+    return { ok: true, message: 'Call ended.' };
+  }
 
   /**
    * End the bridge. Idempotent — the first call wins, later calls are

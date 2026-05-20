@@ -168,7 +168,9 @@ describe('phone mission server-side hardening', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       // The caller asked for absurd "limits"; the server cap wins.
-      expect(result.policy.maxCallDurationSeconds).toBe(3600);
+      // (v0.9.82 raised the duration ceiling from 3600 to 7200 — see
+      // PHONE_SERVER_MAX_CALL_DURATION_SECONDS in mission.ts for the rationale.)
+      expect(result.policy.maxCallDurationSeconds).toBe(7200);
       expect(result.policy.maxCostPerMission).toBe(5);
       expect(result.policy.maxAttempts).toBe(3);
     }
