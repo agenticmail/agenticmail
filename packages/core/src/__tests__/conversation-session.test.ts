@@ -50,6 +50,7 @@ describe('conversation sessions', () => {
     expect(ended.status).toBe('ended');
     expect(manager.findActiveSessionByPeer('agent1', 'telegram', '42')).toBeNull();
     expect(manager.findActiveSessionByExternalRef('agent1', 'telegram', 'tg-thread-42')).toBeNull();
+    expect(manager.findSessionByExternalRef('agent1', 'telegram', 'tg-thread-42')?.id).toBe(session.id);
 
     db.close();
   });

@@ -447,7 +447,10 @@ export function createPhoneRoutes(
 
       const mission = phoneManager.getMission(req.params.id, agent.id);
       if (!mission) return res.status(404).json({ error: 'Phone mission not found' });
-      res.json({ mission });
+      res.json({
+        mission,
+        conversationSession: conversations.findSessionByExternalRef(agent.id, 'phone', mission.id),
+      });
     } catch (err) {
       sendPhoneError(res, err);
     }

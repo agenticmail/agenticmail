@@ -218,6 +218,11 @@ describe('phone routes', () => {
 
     const loaded = await request(baseUrl, `/calls/${missionId}`);
     expect(loaded.body.mission.id).toBe(missionId);
+    expect(loaded.body.conversationSession).toMatchObject({
+      id: started.body.conversationSession.id,
+      status: 'active',
+      externalRef: missionId,
+    });
 
     const transcript = await request(baseUrl, `/calls/${missionId}/transcript`);
     expect(transcript.body.transcript.length).toBeGreaterThan(0);
@@ -228,6 +233,11 @@ describe('phone routes', () => {
     expect(conversations.listMessages('agent1', started.body.conversationSession.id).map((m) => m.text)).toContain(
       `Phone mission ${missionId} cancelled by operator.`,
     );
+    const loadedAfterCancel = await request(baseUrl, `/calls/${missionId}`);
+    expect(loadedAfterCancel.body.conversationSession).toMatchObject({
+      id: started.body.conversationSession.id,
+      status: 'ended',
+    });
 
     db.close();
   });

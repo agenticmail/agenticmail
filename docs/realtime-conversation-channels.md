@@ -75,7 +75,9 @@ Conversation sessions are the runtime ledger above the individual transports:
   path. Realtime bridge transcript entries are mirrored into the active
   conversation session so `conversation_context` can show caller, agent, and
   system turns. Provider hangups and operator cancellations close the active
-  phone session instead of leaving stale live conversations behind.
+  phone session instead of leaving stale live conversations behind. `GET
+  /calls/:id` includes the linked `conversationSession`, so hosts can recover
+  the ledger from a mission id.
 - Matrix, WhatsApp, and Google Meet remain planned and fail closed through the
   same start gate until their adapters exist.
 
