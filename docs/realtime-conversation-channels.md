@@ -15,7 +15,7 @@ and Google Meet media/space adapters.
 | Telegram | Available | Near-realtime text | Already usable as a user/agent message channel and operator escalation path. It is text-turn realtime, not audio realtime. |
 | Matrix | Available | Near-realtime text | Plain-text Matrix bot adapter over the Client-Server API: homeserver/token setup, allowed rooms, `m.room.message` send, `/sync` poll ingestion, transcript mirroring, and host wake prompts. E2EE rooms need a separate E2EE-capable bot runtime. |
 | WhatsApp | Planned | Near-realtime text | Must be opt-in and WhatsApp Business/template/session-window aware. It must not be treated as free-form SMS. |
-| Google Meet | Planned | Meeting AV | Needs a meeting bot/join authority, audio capture/playback bridge, transcript, and participant consent policy. It is not a phone carrier. |
+| Google Meet | Planned | Meeting AV | Target flow: operator sends a Meet link plus topic over Telegram/Matrix/email; the agent prepares from project context, joins as a named participant, listens, writes notes, updates tasks, and speaks only when addressed or operator-directed. It needs meeting join authority, audio capture/playback bridge, transcript, and participant consent policy. It is not a phone carrier. |
 
 ## Start Gate
 
@@ -28,7 +28,7 @@ Use `planRealtimeConversationStart()` before claiming a channel can start:
 - Phone requires a configured transport, realtime media, an embedded realtime provider key or `host_bridge`, and mission policy.
 - 46elks phone realtime also requires `realtimeBridgeNumber`, the 46elks websocket-number that outbound calls connect to.
 - WhatsApp additionally requires template/session-window approval.
-- Google Meet additionally requires operator approval to join or create a meeting.
+- Google Meet additionally requires operator approval to join or create a meeting, a parsed Meet link or managed space, and a behavior mode such as `listen_only`, `answer_when_asked`, or `operator_directed`.
 
 The API exposes the same gate for host integrations:
 

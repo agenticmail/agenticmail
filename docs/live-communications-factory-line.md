@@ -167,7 +167,36 @@ text/media, not a WhatsApp call bot.
 
 ### Google Meet
 
-Goal: Meet becomes a managed meeting channel, then a live AV bot channel.
+Goal: Meet becomes a managed meeting channel, then a live AV participant
+channel.
+
+Product shape:
+
+The operator can send AgenticMail/OpenClaw a Telegram message like:
+
+```text
+Here is the Google Meet link: https://meet.google.com/abc-defg-hij
+Topic: Project Alpha pricing review.
+Prepare from the project memory, join, listen, keep notes, update the task log,
+and only speak when someone asks you or when I explicitly tell you to.
+```
+
+The agent should then:
+
+1. Parse the Meet link and create a `google_meet` conversation session.
+2. Load project context through the normal host memory/context tools.
+3. Join the meeting as a clearly named participant.
+4. Consume live audio, speaker metadata, and later artifacts.
+5. Produce a running transcript/notes stream into the conversation ledger.
+6. Offer facts, task updates, links, or short spoken answers when addressed.
+7. Escalate to the operator over Telegram before commitments, sensitive
+   disclosures, or unclear tradeoffs.
+8. Close with a meeting recap, changed tasks, open questions, and evidence
+   links.
+
+This is a meeting participant product, not only a transcript fetcher. REST
+artifacts are useful after the call, but the product value is the live
+"prepared colleague in the room" loop.
 
 What is direct:
 
@@ -187,17 +216,44 @@ References:
 
 Factory slices:
 
-1. `meet_setup`: OAuth scopes, workspace/project config, consent wording.
-2. `meet_space_create` / `meet_space_get` / `meet_space_end`.
-3. Artifact ingestion: transcript/recording metadata into conversation sessions.
-4. Live media sidecar: WebRTC client that joins/consumes media and streams it
+1. `meet_setup`: OAuth scopes, workspace/project config, participant naming,
+   consent wording, allowed domains, and operator approval policy.
+2. `meet_link_intake`: parse a Meet URL from Telegram/Matrix/email, store the
+   topic, project hint, operator instructions, and desired behavior mode
+   (`listen_only`, `answer_when_asked`, `operator_directed`).
+3. `meet_session_prepare`: build the session briefing from AgenticMail memory,
+   project context, prior emails, prior conversation sessions, and explicit
+   operator notes.
+4. `meet_space_create` / `meet_space_get` / `meet_space_end`: managed spaces
+   for meetings the agent creates itself.
+5. Artifact ingestion: transcript/recording metadata and transcript entries
+   into conversation sessions.
+6. Live media sidecar: WebRTC client that joins/consumes media and streams it
    through the same `host_bridge` protocol used by phone.
-5. Speak-back path: only after join/media capture is proven and consent policy
-   is explicit.
+7. Live note stream: speaker-attributed partial/final transcript events,
+   action items, decisions, questions, and source links mirrored to the
+   conversation ledger.
+8. Speak-back path: only after join/media capture is proven and consent policy
+   is explicit. The first mode should be "answer when asked", not free-form
+   interruption.
+9. Operator side channel: Telegram commands such as `say: ...`, `mute`,
+   `leave`, `summarize`, `ask me before answering`, and `approve answer`.
 
 REST alone does not make the agent "speak in a meeting". The live bot requires
 a join/media runtime. Google now has a path through the Meet Media API, but it
 must be implemented as a real media sidecar, not as a fake REST wrapper.
+
+First credible MVP:
+
+1. Telegram intake accepts a Meet link plus project/topic instructions.
+2. Agent creates a `google_meet` session and prepares a briefing.
+3. If live Media API access is unavailable, the session fails closed with the
+   exact missing Google Workspace/Developer Preview/OAuth requirements.
+4. If live Media API access is available, the sidecar joins in listen-only mode,
+   streams transcript notes into the ledger, and posts periodic Telegram
+   summaries.
+5. Speaking is a second gate: the agent can only speak when addressed by name
+   or when the operator sends an explicit `say:` command.
 
 ## Implementation Order
 
@@ -210,8 +266,10 @@ must be implemented as a real media sidecar, not as a fake REST wrapper.
 | 5 | Operator query/approval flow | The agent can pause, ask the operator, resume, and record approvals. |
 | 6 | Guided phone smoke test | One command proves "this install can call and converse". |
 | 7 | WhatsApp `meta_cloud` adapter | First non-Telegram/non-Matrix external messaging channel. |
-| 8 | Google Meet space + artifact adapter | Meeting setup/transcript value without pretending live AV is done. |
-| 9 | Google Meet media sidecar | Real live meeting audio path into the same host bridge. |
+| 8 | Google Meet link intake + briefing | Telegram-to-Meet handoff creates a session, loads context, and produces an honest readiness result. |
+| 9 | Google Meet space + artifact adapter | Meeting setup/transcript value without pretending live AV is done. |
+| 10 | Google Meet media sidecar | Real live meeting audio path into the same host bridge. |
+| 11 | Google Meet speak-back policy | The agent can answer when addressed or operator-directed, with consent and approval gates. |
 
 ## Testing Gate
 

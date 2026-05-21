@@ -146,13 +146,13 @@ const CAPABILITIES: Record<RealtimeConversationChannel, RealtimeConversationCapa
     supportsTranscript: true,
     requiresOptIn: true,
     requiredRuntime: [
-      'calendar or meeting join authority',
+      'meeting link intake or calendar/space authority',
       'meeting bot runtime',
       'audio capture/playback bridge',
       'participant consent policy',
     ],
     notes: [
-      'Google Meet is a meeting runtime, not a phone carrier. It needs an AV bot/join contract before use.',
+      'Google Meet is a meeting runtime, not a phone carrier. Target flow: an operator sends a Meet link plus topic, the agent prepares from context, joins as a named participant, listens, records notes, and only speaks when addressed or operator-directed.',
     ],
   },
 };
