@@ -2,6 +2,11 @@
 
 AgenticMail's live-conversation work starts with phone calls, but the contract must not become phone-only. The core capability map in `packages/core/src/conversation/realtime.ts` defines the channel targets and their readiness gates.
 
+The next execution plan is tracked in
+[`live-communications-factory-line.md`](./live-communications-factory-line.md):
+phone `host_bridge`, OpenClaw-owned realtime brain, WhatsApp provider adapters,
+and Google Meet media/space adapters.
+
 ## Channel Matrix
 
 | Channel | Status | Mode | Notes |
