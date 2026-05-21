@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createTestDatabase } from '../storage/db.js';
+import { ConversationSessionManager } from '../conversation/session.js';
 import {
   MatrixManager,
   buildMatrixConfig,
   getMatrixWhoami,
   parseMatrixSyncMessages,
+  recordMatrixConversationInbound,
   redactMatrixConfig,
   sendMatrixMessage,
 } from '../matrix/index.js';
@@ -109,6 +111,38 @@ describe('Matrix channel', () => {
         text: 'hello',
       },
     ]);
+  });
+
+  it('mirrors Matrix inbound events into active conversation sessions', () => {
+    const db = createDb();
+    const conversations = new ConversationSessionManager(db);
+    const session = conversations.createSession({
+      agentId: 'agent1',
+      channel: 'matrix',
+      peer: '!room:example.org',
+      goal: 'Coordinate over Matrix',
+    });
+
+    const context = recordMatrixConversationInbound(conversations, 'agent1', {
+      roomId: '!room:example.org',
+      eventId: '$event2',
+      sender: '@benedikt:example.org',
+      text: 'hello',
+      metadata: { originServerTs: 1_700_000_001_000 },
+    });
+
+    expect(context).toMatchObject({
+      sessionId: session.id,
+      channel: 'matrix',
+      roomId: '!room:example.org',
+      eventId: '$event2',
+      latestText: 'hello',
+      goal: 'Coordinate over Matrix',
+    });
+    expect(conversations.listMessages('agent1', session.id).map((m) => [m.direction, m.text])).toEqual([
+      ['inbound', 'hello'],
+    ]);
+    db.close();
   });
 
   it('reads Matrix whoami identity', async () => {

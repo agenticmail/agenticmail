@@ -167,6 +167,7 @@ export {
   parseMatrixSyncMessages,
   MatrixManager,
   buildMatrixConfig,
+  recordMatrixConversationInbound,
   redactMatrixConfig,
   isMatrixRoomAllowed,
 } from './matrix/index.js';
@@ -177,6 +178,7 @@ export type {
   MatrixSyncOptions,
   ParsedMatrixMessage,
   MatrixConfig,
+  MatrixConversationContext,
   MatrixMessage,
 } from './matrix/index.js';
 

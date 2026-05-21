@@ -8,9 +8,12 @@ import {
   getMatrixWhoami,
   isMatrixRoomAllowed,
   parseMatrixSyncMessages,
+  recordMatrixConversationInbound,
   redactMatrixConfig,
   sendMatrixMessage,
   type AgenticMailConfig,
+  type GatewayManager,
+  type MatrixConversationContext,
 } from '@agenticmail/core';
 
 type Db = ReturnType<typeof import('@agenticmail/core').getDatabase>;
@@ -58,6 +61,7 @@ function linkedRooms(config: ReturnType<MatrixManager['getConfig']>): string[] {
 export function createMatrixRoutes(
   db: Db,
   config: AgenticMailConfig,
+  gatewayManager?: GatewayManager,
 ): Router {
   const router = Router();
   const matrixManager = new MatrixManager(db as any, config.masterKey);
@@ -190,6 +194,7 @@ export function createMatrixRoutes(
       });
       let recorded = 0;
       let mirrored = 0;
+      const pendingBridges: Array<{ event: (typeof parsed)[number]; conversation?: MatrixConversationContext | null }> = [];
       for (const event of parsed) {
         if (matrixManager.inboundMessageExists(agent.id, event.roomId, event.eventId)) continue;
         matrixManager.recordInbound(agent.id, {
@@ -200,21 +205,19 @@ export function createMatrixRoutes(
           createdAt: event.createdAt,
         }, event.metadata);
         recorded++;
-        const session = conversations.findActiveSessionByPeer(agent.id, 'matrix', event.roomId);
-        if (session) {
-          conversations.recordTranscriptMessage({
-            sessionId: session.id,
-            agentId: agent.id,
-            direction: 'inbound',
-            text: event.text,
-            externalMessageId: event.eventId,
-            metadata: { ...event.metadata, sender: event.sender, roomId: event.roomId },
-          });
-          mirrored++;
-        }
+        const conversation = recordMatrixConversationInbound(conversations, agent.id, event);
+        if (conversation) mirrored++;
+        if (gatewayManager) pendingBridges.push({ event, conversation });
       }
       const nextBatch = typeof sync.next_batch === 'string' ? sync.next_batch : undefined;
       if (nextBatch) matrixManager.updateSyncToken(agent.id, nextBatch);
+      for (const bridge of pendingBridges) {
+        try {
+          await gatewayManager!.bridgeMatrixInbound(agent.id, bridge.event, cfg, bridge.conversation);
+        } catch (err) {
+          console.warn(`[matrix-poll] wake bridge failed: ${(err as Error).message}`);
+        }
+      }
       res.json({ success: true, fetched: parsed.length, recorded, mirrored, nextBatch });
     } catch (err) {
       matrixError(res, err);

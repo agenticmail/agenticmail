@@ -29,14 +29,14 @@ function createDb() {
   return db;
 }
 
-function createApp(db: ReturnType<typeof createTestDatabase>): express.Express {
+function createApp(db: ReturnType<typeof createTestDatabase>, gatewayManager?: any): express.Express {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     (req as any).agent = { id: 'agent1', email: 'ralf@example.com' };
     next();
   });
-  app.use(createMatrixRoutes(db, config));
+  app.use(createMatrixRoutes(db, config, gatewayManager));
   app.use(createConversationSessionRoutes(db, config));
   return app;
 }
@@ -97,7 +97,8 @@ describe('matrix routes', () => {
   it('sets up Matrix, starts a session, sends, polls, and mirrors transcript turns', async () => {
     const db = createDb();
     vi.stubGlobal('fetch', matrixFetchMock());
-    const baseUrl = await listen(createApp(db));
+    const gatewayManager = { bridgeMatrixInbound: vi.fn(async () => {}) };
+    const baseUrl = await listen(createApp(db, gatewayManager));
 
     const setup = await request(baseUrl, '/matrix/setup', {
       method: 'POST',
@@ -140,6 +141,12 @@ describe('matrix routes', () => {
     const poll = await request(baseUrl, '/matrix/poll', { method: 'POST' });
     expect(poll.status).toBe(200);
     expect(poll.body).toMatchObject({ recorded: 1, mirrored: 1, nextBatch: 's2' });
+    expect(gatewayManager.bridgeMatrixInbound).toHaveBeenCalledWith(
+      'agent1',
+      expect.objectContaining({ roomId: '!room:example.org', eventId: '$in1', text: 'Inbound Matrix turn.' }),
+      expect.objectContaining({ userId: '@agent:example.org' }),
+      expect.objectContaining({ sessionId: started.body.session.id, channel: 'matrix' }),
+    );
 
     const context = await request(baseUrl, `/conversation/sessions/${started.body.session.id}/context`);
     expect(context.body.messages.map((m: any) => [m.direction, m.text])).toEqual([

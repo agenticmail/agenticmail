@@ -8,7 +8,7 @@ AgenticMail's live-conversation work starts with phone calls, but the contract m
 | --- | --- | --- | --- |
 | Phone | Available | Duplex audio | Current executable path: phone mission -> carrier media stream -> `RealtimeVoiceBridge`. Requires realtime media, OpenAI Realtime, and a per-mission policy. |
 | Telegram | Available | Near-realtime text | Already usable as a user/agent message channel and operator escalation path. It is text-turn realtime, not audio realtime. |
-| Matrix | Available | Near-realtime text | Plain-text Matrix bot adapter over the Client-Server API: homeserver/token setup, allowed rooms, `m.room.message` send, `/sync` poll ingestion, transcript mirroring. E2EE rooms need a separate E2EE-capable bot runtime. |
+| Matrix | Available | Near-realtime text | Plain-text Matrix bot adapter over the Client-Server API: homeserver/token setup, allowed rooms, `m.room.message` send, `/sync` poll ingestion, transcript mirroring, and host wake prompts. E2EE rooms need a separate E2EE-capable bot runtime. |
 | WhatsApp | Planned | Near-realtime text | Must be opt-in and WhatsApp Business/template/session-window aware. It must not be treated as free-form SMS. |
 | Google Meet | Planned | Meeting AV | Needs a meeting bot/join authority, audio capture/playback bridge, transcript, and participant consent policy. It is not a phone carrier. |
 
@@ -78,7 +78,11 @@ Conversation sessions are the runtime ledger above the individual transports:
   rooms. Starting a Matrix conversation can send an initial message, later
   `conversation_send` calls send `m.room.message` events, and `matrix_poll` /
   `agenticmail_matrix_poll` ingests `/sync` message events into the same
-  conversation transcript.
+  conversation transcript. Fresh inbound Matrix messages also wake the host via
+  the same synthetic-inbox bridge as Telegram. When a Matrix message belongs to
+  an active session, the wake prompt instructs MCP/OpenClaw hosts to answer with
+  `conversation_send` / `agenticmail_conversation_send`; otherwise it routes
+  replies through `matrix_send` / `agenticmail_matrix_send`.
 - Phone sessions wrap a tracked phone mission and record the mission id as the
   session's external reference. They are created both by
   `conversation_start(channel: "phone")` and by the legacy `/calls/start`

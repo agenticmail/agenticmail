@@ -24,3 +24,10 @@ export type {
   MatrixConfig,
   MatrixMessage,
 } from './manager.js';
+
+export {
+  recordMatrixConversationInbound,
+} from './conversation.js';
+export type {
+  MatrixConversationContext,
+} from './conversation.js';

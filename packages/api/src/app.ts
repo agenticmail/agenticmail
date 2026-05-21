@@ -264,7 +264,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createSmsRoutes(db, accountManager, config, gatewayManager));
   app.use('/api/agenticmail', createPhoneRoutes(db, config));
   app.use('/api/agenticmail', createTelegramRoutes(db, config, gatewayManager));
-  app.use('/api/agenticmail', createMatrixRoutes(db, config));
+  app.use('/api/agenticmail', createMatrixRoutes(db, config, gatewayManager));
   app.use('/api/agenticmail', createRealtimeConversationRoutes(db, config));
   app.use('/api/agenticmail', createConversationSessionRoutes(db, config));
   // Media toolset — TTS, image / video / audio editing, probing,

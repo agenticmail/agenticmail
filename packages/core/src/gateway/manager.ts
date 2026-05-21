@@ -35,6 +35,11 @@ import {
   type ParsedTelegramMessage,
   type TelegramConfig,
 } from '../telegram/index.js';
+import type {
+  MatrixConfig,
+  MatrixConversationContext,
+  ParsedMatrixMessage,
+} from '../matrix/index.js';
 import { PhoneManager } from '../phone/manager.js';
 import { ConversationSessionManager } from '../conversation/session.js';
 
@@ -1345,6 +1350,114 @@ export class GatewayManager {
       console.log(`[TelegramBridge] delivered ok messageId=${inbound.messageId}`);
     } catch (err) {
       console.warn(`[GatewayManager] Telegram → inbox bridge failed for ${agentName}: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Public wrapper around the Matrix bridge. Matrix poll ingestion calls
+   * this after it has persisted a fresh inbound event, mirroring the
+   * Telegram webhook/poll wake path.
+   */
+  async bridgeMatrixInbound(
+    agentId: string,
+    parsed: ParsedMatrixMessage,
+    config: MatrixConfig,
+    conversation?: MatrixConversationContext | null,
+  ): Promise<void> {
+    if (!parsed.text.trim()) return;
+    if (!this.accountManager) {
+      console.log('[MatrixBridge] no accountManager');
+      return;
+    }
+    const agent = await this.accountManager.getById(agentId);
+    if (!agent) {
+      console.log(`[MatrixBridge] agent ${agentId.slice(0, 8)} not found`);
+      return;
+    }
+
+    const trimmedText = parsed.text.trim();
+    const senderName = parsed.sender || 'Matrix user';
+    const subject = `[Matrix] ${trimmedText.slice(0, 80)}${trimmedText.length > 80 ? '…' : ''}`;
+    const replyRouting = conversation ? [
+      `=== ACTIVE CONVERSATION SESSION (important, read before responding) ===`,
+      `This Matrix message belongs to an active AgenticMail conversation session.`,
+      `session_id:          ${conversation.sessionId}`,
+      `conversation_msg_id: ${conversation.messageId}`,
+      `channel:             matrix`,
+      `room_id:             ${conversation.roomId}`,
+      conversation.sender ? `sender:              ${conversation.sender}` : null,
+      conversation.goal ? `goal:                ${conversation.goal}` : null,
+      conversation.subject ? `subject:             ${conversation.subject}` : null,
+      ``,
+      `Reply through the conversation session, NOT raw matrix_send and NOT email.`,
+      ``,
+      `For MCP hosts, call:`,
+      ``,
+      `    mcp__agenticmail__invoke({`,
+      `      tool: "conversation_send",`,
+      `      args: { sessionId: "${conversation.sessionId}", text: "<your reply text>" }`,
+      `    })`,
+      ``,
+      `For OpenClaw hosts, call agenticmail_conversation_send with:`,
+      `    { sessionId: "${conversation.sessionId}", text: "<your reply text>" }`,
+      ``,
+      `To inspect the session plus transcript first, use conversation_context /`,
+      `agenticmail_conversation_context with the same sessionId.`,
+      `Send EXACTLY ONE conversation_send response unless you need to do work first.`,
+      `Do not also reply by email or narrate a duplicate summary.`,
+      `=== END ACTIVE CONVERSATION SESSION ===`,
+    ] : [
+      `=== REPLY ROUTING (important, read before responding) ===`,
+      `This message arrived via Matrix, NOT email. To reply to ${senderName}`,
+      `you MUST send through the Matrix bot — replying by email will go`,
+      `nowhere they can see it.`,
+      ``,
+      `For MCP hosts, call:`,
+      ``,
+      `    mcp__agenticmail__invoke({`,
+      `      tool: "matrix_send",`,
+      `      args: { roomId: "${parsed.roomId}", text: "<your reply text>" }`,
+      `    })`,
+      ``,
+      `For OpenClaw hosts, call agenticmail_matrix_send with:`,
+      `    { roomId: "${parsed.roomId}", text: "<your reply text>" }`,
+      ``,
+      `Send EXACTLY ONE Matrix reply unless you need to do work first.`,
+      `Do not also reply by email or narrate a duplicate summary.`,
+      `=== END REPLY ROUTING ===`,
+    ];
+
+    const body = [
+      `[Incoming Matrix message — via AgenticMail Matrix bridge]`,
+      `sender:              ${senderName}`,
+      `room_id:             ${parsed.roomId}`,
+      `event_id:            ${parsed.eventId}`,
+      config.userId ? `agent_matrix_user:   ${config.userId}` : null,
+      parsed.createdAt ? `received_at:         ${parsed.createdAt}` : null,
+      ``,
+      ...replyRouting,
+      ``,
+      `--- User's message ---`,
+      trimmedText,
+      `---`,
+    ].filter((l) => l !== null).join('\n');
+
+    const idToken = Buffer.from(`${parsed.roomId}:${parsed.eventId}`).toString('base64url').slice(0, 120);
+    const inbound: InboundEmail = {
+      from: 'matrix-bridge@matrix.local',
+      to: agent.email,
+      subject,
+      text: body,
+      html: undefined,
+      date: parsed.createdAt ? new Date(parsed.createdAt) : new Date(),
+      messageId: `<mx-${idToken}@matrix.local>`,
+    };
+
+    try {
+      await this.deliverInboundLocally(agent.name, inbound);
+      console.log(`[MatrixBridge] delivered ok messageId=${inbound.messageId}`);
+    } catch (err) {
+      console.warn(`[GatewayManager] Matrix → inbox bridge failed for ${agent.name}: ${(err as Error).message}`);
     }
   }
 
