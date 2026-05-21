@@ -103,6 +103,13 @@ describe('tool catalogue ↔ tool definitions', () => {
     ]);
   });
 
+  it('realtime set exposes channel-neutral conversation readiness tools', () => {
+    expect(TOOL_SETS.realtime).toEqual([
+      'realtime_conversation_capabilities',
+      'realtime_conversation_plan',
+    ]);
+  });
+
   it('media set exposes the media toolset surface', () => {
     expect(TOOL_SETS.media).toEqual([
       'media_capabilities',

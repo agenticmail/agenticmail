@@ -117,6 +117,8 @@
     "agenticmail_sms_config",
     "agenticmail_phone_transport_setup",
     "agenticmail_phone_capabilities",
+    "agenticmail_realtime_conversation_capabilities",
+    "agenticmail_realtime_conversation_plan",
     "agenticmail_call_phone",
     "agenticmail_call_status",
     "agenticmail_call_transcript",

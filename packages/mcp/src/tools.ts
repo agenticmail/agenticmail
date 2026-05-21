@@ -1226,6 +1226,36 @@ export const toolDefinitions = [
       properties: {},
     },
   },
+  {
+    name: 'realtime_conversation_capabilities',
+    description: 'Show AgenticMail realtime-conversation channel readiness for this agent: phone, Telegram, Matrix, WhatsApp, and Google Meet. Planned adapters fail closed until implemented.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Optional channel to inspect; omit to list all channels.' },
+        policyProvided: { type: 'boolean', description: 'Set true when a concrete per-mission policy is already present.' },
+        operatorApproved: { type: 'boolean', description: 'Set true only when the operator approved a gated channel action.' },
+        userOptedIn: { type: 'boolean', description: 'Override the inferred opt-in gate for channels that require it.' },
+      },
+    },
+  },
+  {
+    name: 'realtime_conversation_plan',
+    description: 'Check whether a realtime conversation can start on one channel and get the exact missing gates. Use before claiming a live phone, Telegram, Matrix, WhatsApp, or Google Meet conversation is ready.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Channel to start.' },
+        policyProvided: { type: 'boolean', description: 'True when a concrete phone mission policy exists.' },
+        operatorApproved: { type: 'boolean', description: 'True only after explicit operator approval for gated channels.' },
+        userOptedIn: { type: 'boolean', description: 'True only when the target user/chat/meeting has opted in or is already linked.' },
+        transportConfigured: { type: 'boolean', description: 'Override inferred transport configuration, mainly for tests/future adapters.' },
+        realtimeMediaConfigured: { type: 'boolean', description: 'Override inferred phone realtime-media capability.' },
+        openaiRealtimeConfigured: { type: 'boolean', description: 'Override inferred OpenAI Realtime API key availability.' },
+      },
+      required: ['channel'],
+    },
+  },
 
   // --- Telegram Channel ---
   {
@@ -3610,6 +3640,29 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
 
     case 'phone_capabilities': {
       const result = await apiRequest('GET', '/phone/capabilities');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'realtime_conversation_capabilities': {
+      const query = new URLSearchParams();
+      for (const key of ['channel', 'policyProvided', 'operatorApproved', 'userOptedIn']) {
+        if (args[key] !== undefined) query.set(key, String(args[key]));
+      }
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/conversation/realtime/capabilities${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'realtime_conversation_plan': {
+      const result = await apiRequest('POST', '/conversation/realtime/plan', {
+        channel: args.channel,
+        policyProvided: args.policyProvided,
+        operatorApproved: args.operatorApproved,
+        userOptedIn: args.userOptedIn,
+        transportConfigured: args.transportConfigured,
+        realtimeMediaConfigured: args.realtimeMediaConfigured,
+        openaiRealtimeConfigured: args.openaiRealtimeConfigured,
+      });
       return JSON.stringify(result, null, 2);
     }
 

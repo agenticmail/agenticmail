@@ -2525,6 +2525,54 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
     },
   });
 
+  reg('agenticmail_realtime_conversation_capabilities', {
+    description: 'Show AgenticMail realtime-conversation channel readiness for this agent: phone, Telegram, Matrix, WhatsApp, and Google Meet. Planned adapters fail closed until implemented.',
+    parameters: {
+      channel: { type: 'string', description: 'Optional channel to inspect: phone, telegram, matrix, whatsapp, or google_meet. Omit to list all channels.' },
+      policyProvided: { type: 'boolean', description: 'Set true when a concrete per-mission policy is already present.' },
+      operatorApproved: { type: 'boolean', description: 'Set true only when the operator approved a gated channel action.' },
+      userOptedIn: { type: 'boolean', description: 'Override the inferred opt-in gate for channels that require it.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        for (const key of ['channel', 'policyProvided', 'operatorApproved', 'userOptedIn']) {
+          if (params[key] !== undefined) query.set(key, String(params[key]));
+        }
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/conversation/realtime/capabilities${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_realtime_conversation_plan', {
+    description: 'Check whether a realtime conversation can start on one channel and get the exact missing gates. Use before claiming a live phone, Telegram, Matrix, WhatsApp, or Google Meet conversation is ready.',
+    parameters: {
+      channel: { type: 'string', required: true, description: 'Channel to start: phone, telegram, matrix, whatsapp, or google_meet.' },
+      policyProvided: { type: 'boolean', description: 'True when a concrete phone mission policy exists.' },
+      operatorApproved: { type: 'boolean', description: 'True only after explicit operator approval for gated channels.' },
+      userOptedIn: { type: 'boolean', description: 'True only when the target user/chat/meeting has opted in or is already linked.' },
+      transportConfigured: { type: 'boolean', description: 'Override inferred transport configuration, mainly for tests/future adapters.' },
+      realtimeMediaConfigured: { type: 'boolean', description: 'Override inferred phone realtime-media capability.' },
+      openaiRealtimeConfigured: { type: 'boolean', description: 'Override inferred OpenAI Realtime API key availability.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/conversation/realtime/plan', {
+          channel: params.channel,
+          policyProvided: params.policyProvided,
+          operatorApproved: params.operatorApproved,
+          userOptedIn: params.userOptedIn,
+          transportConfigured: params.transportConfigured,
+          realtimeMediaConfigured: params.realtimeMediaConfigured,
+          openaiRealtimeConfigured: params.openaiRealtimeConfigured,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   // --- Telegram Channel ---
 
   reg('agenticmail_telegram_setup', {

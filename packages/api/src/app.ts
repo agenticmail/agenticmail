@@ -27,6 +27,7 @@ import { createTaskRoutes } from './routes/tasks.js';
 import { createSmsRoutes, createSmsWebhookRoutes } from './routes/sms.js';
 import { createPhoneRoutes, createPhoneWebhookRoutes } from './routes/phone.js';
 import { createTelegramRoutes, createTelegramWebhookRoutes } from './routes/telegram.js';
+import { createRealtimeConversationRoutes } from './routes/realtime-conversation.js';
 import { createMediaRoutes } from './routes/media.js';
 import { createStorageRoutes } from './routes/storage.js';
 import { createMemoryRoutes } from './routes/memory.js';
@@ -261,6 +262,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createSmsRoutes(db, accountManager, config, gatewayManager));
   app.use('/api/agenticmail', createPhoneRoutes(db, config));
   app.use('/api/agenticmail', createTelegramRoutes(db, config, gatewayManager));
+  app.use('/api/agenticmail', createRealtimeConversationRoutes(db, config));
   // Media toolset — TTS, image / video / audio editing, probing,
   // video understanding, voice cloning. Thin routes over the core
   // MediaManager; the underlying binaries (ffmpeg, ImageMagick, …) are

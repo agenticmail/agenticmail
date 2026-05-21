@@ -23,4 +23,14 @@ Use `planRealtimeConversationStart()` before claiming a channel can start:
 - WhatsApp additionally requires template/session-window approval.
 - Google Meet additionally requires operator approval to join or create a meeting.
 
+The API exposes the same gate for host integrations:
+
+- `GET /api/agenticmail/conversation/realtime/capabilities`
+- `GET /api/agenticmail/conversation/realtime/capabilities?channel=phone`
+- `POST /api/agenticmail/conversation/realtime/plan`
+
+MCP hosts use `realtime_conversation_capabilities` and `realtime_conversation_plan`.
+OpenClaw hosts use `agenticmail_realtime_conversation_capabilities` and
+`agenticmail_realtime_conversation_plan`.
+
 This keeps the roadmap broad enough for Telegram, Matrix, WhatsApp, and Google Meet while the actual product path remains honest: phone realtime first, then channel adapters.

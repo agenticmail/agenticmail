@@ -158,6 +158,12 @@ export const TOOL_SETS = {
     'call_answer_query',
   ],
 
+  /** Realtime conversation readiness across phone, Telegram, Matrix, WhatsApp, and Google Meet. */
+  realtime: [
+    'realtime_conversation_capabilities',
+    'realtime_conversation_plan',
+  ],
+
   /** Telegram channel — bot setup, send/list messages, poll for updates. */
   telegram: [
     'telegram_setup',
@@ -242,6 +248,7 @@ export const SET_DESCRIPTIONS: Record<ToolSetName, string> = {
   contacts: 'Address book and your own metadata',
   sms: 'SMS / voice — send/read/setup/parse/record',
   phone: 'Phone call-control — setup/capabilities/start/status/transcript/cancel',
+  realtime: 'Realtime conversation readiness — channel map and start gates for phone, Telegram, Matrix, WhatsApp, and Google Meet',
   telegram: 'Telegram channel — bot setup, send/list messages, poll for updates',
   skills: 'Skill library — load real-world phone-call playbooks (negotiate-bill-reduction, handle-debt-collector, book-restaurant-reservation, …) on demand mid-call. Search and load when the agent hits a situation it needs a playbook for.',
   media: 'Media toolset — text-to-speech, image/video/audio editing, probing, video understanding, voice cloning (opt-in, needs ffmpeg/ImageMagick/whisper)',
@@ -278,6 +285,7 @@ export const TOOL_TO_SET: Record<string, ToolSetName> = (() => {
  */
 const PROMOTED_TO_ESSENTIAL: readonly string[] = [
   'call_phone',
+  'realtime_conversation_plan',
   'telegram_send',
   'memory',
   'memory_context',

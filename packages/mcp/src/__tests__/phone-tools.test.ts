@@ -84,4 +84,25 @@ describe('MCP phone tool dispatch', () => {
       method: 'GET',
     }));
   });
+
+  it('checks realtime conversation start gates through the API', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      plan: { ok: true, channel: 'phone', mode: 'duplex_audio', missing: [] },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = JSON.parse(await handleToolCall('realtime_conversation_plan', {
+      channel: 'phone',
+      policyProvided: true,
+    }));
+
+    expect(result.plan).toEqual({ ok: true, channel: 'phone', mode: 'duplex_audio', missing: [] });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/realtime/plan', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        channel: 'phone',
+        policyProvided: true,
+      }),
+    }));
+  });
 });
