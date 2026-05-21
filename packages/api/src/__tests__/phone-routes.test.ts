@@ -224,6 +224,10 @@ describe('phone routes', () => {
 
     const cancelled = await request(baseUrl, `/calls/${missionId}/cancel`, { method: 'POST' });
     expect(cancelled.body.mission.status).toBe('cancelled');
+    expect(conversations.getSession('agent1', started.body.conversationSession.id)?.status).toBe('ended');
+    expect(conversations.listMessages('agent1', started.body.conversationSession.id).map((m) => m.text)).toContain(
+      `Phone mission ${missionId} cancelled by operator.`,
+    );
 
     db.close();
   });
@@ -237,6 +241,7 @@ describe('phone routes', () => {
       body: JSON.stringify({ to: '+436641234567', task: 'Reserve dinner', policy, dryRun: true }),
     });
     const missionId = started.body.mission.id;
+    const conversationSessionId = started.body.conversationSession.id;
     const token = tokenFor(missionId);
 
     // Forged token -> uniform 403.
@@ -267,6 +272,11 @@ describe('phone routes', () => {
       body: JSON.stringify({ callid: 'call123' }),
     });
     expect(hangup.body.mission.status).toBe('failed');
+    const conversations = new ConversationSessionManager(db);
+    expect(conversations.getSession('agent1', conversationSessionId)?.status).toBe('failed');
+    expect(conversations.listMessages('agent1', conversationSessionId).map((m) => m.text)).toContain(
+      `Phone mission ${missionId} ended by 46elks hangup.`,
+    );
 
     db.close();
   });

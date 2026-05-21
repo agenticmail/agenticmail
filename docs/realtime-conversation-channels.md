@@ -74,7 +74,8 @@ Conversation sessions are the runtime ledger above the individual transports:
   conversation still runs through the carrier WebSocket -> `RealtimeVoiceBridge`
   path. Realtime bridge transcript entries are mirrored into the active
   conversation session so `conversation_context` can show caller, agent, and
-  system turns.
+  system turns. Provider hangups and operator cancellations close the active
+  phone session instead of leaving stale live conversations behind.
 - Matrix, WhatsApp, and Google Meet remain planned and fail closed through the
   same start gate until their adapters exist.
 

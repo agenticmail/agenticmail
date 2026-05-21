@@ -9,6 +9,7 @@ import {
   validateTwilioSignature,
   type AgenticMailConfig,
   type PhoneMissionState,
+  type PhoneCallMission,
 } from '@agenticmail/core';
 
 function requestString(value: unknown): string {
@@ -158,12 +159,38 @@ function phoneSetupNextSteps(cfg: ReturnType<PhoneManager['getPhoneTransportConf
   return steps;
 }
 
+function closePhoneConversationForMission(
+  conversations: ConversationSessionManager,
+  mission: PhoneCallMission,
+  reason: string,
+): void {
+  const session = conversations.findActiveSessionByExternalRef(mission.agentId, 'phone', mission.id);
+  if (!session) return;
+  conversations.recordTranscriptMessage({
+    sessionId: session.id,
+    agentId: mission.agentId,
+    direction: 'system',
+    text: `Phone mission ${mission.id} ${reason}.`,
+    metadata: {
+      missionId: mission.id,
+      status: mission.status,
+      reason,
+    },
+  });
+  conversations.endSession(
+    mission.agentId,
+    session.id,
+    mission.status === 'failed' ? 'failed' : 'ended',
+  );
+}
+
 export function createPhoneWebhookRoutes(
   db: ReturnType<typeof import('@agenticmail/core').getDatabase>,
   config: AgenticMailConfig,
 ): Router {
   const router = Router();
   const phoneManager = new PhoneManager(db as any, config.masterKey);
+  const conversations = new ConversationSessionManager(db as any);
 
   // Webhook routes are mounted before bearer auth (the provider must
   // reach them). A missing/unknown missionId or a bad token all funnel
@@ -185,6 +212,7 @@ export function createPhoneWebhookRoutes(
       const mission = phoneManager.handleHangupWebhook(
         readMissionId(req), readWebhookToken(req), req.body ?? {},
       );
+      closePhoneConversationForMission(conversations, mission, 'ended by 46elks hangup');
       res.json({ success: true, mission });
     } catch (err) {
       sendPhoneError(res, err);
@@ -251,6 +279,7 @@ export function createPhoneWebhookRoutes(
     try {
       const { missionId, token } = authenticateTwilioWebhook(req);
       const mission = phoneManager.handleTwilioStatusWebhook(missionId, token, req.body ?? {});
+      closePhoneConversationForMission(conversations, mission, 'ended by Twilio status webhook');
       res.json({ success: true, mission });
     } catch (err) {
       sendPhoneError(res, err);
@@ -505,6 +534,7 @@ export function createPhoneRoutes(
       if (!agent) return;
 
       const mission = phoneManager.cancelMission(agent.id, req.params.id);
+      closePhoneConversationForMission(conversations, mission, 'cancelled by operator');
       res.json({ success: true, mission });
     } catch (err) {
       sendPhoneError(res, err);
