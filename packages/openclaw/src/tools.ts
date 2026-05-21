@@ -2527,6 +2527,17 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
     },
   });
 
+  reg('agenticmail_phone_voice_providers', {
+    description: 'List registered realtime voice-runtime providers for phone calls, including default models, available voices, and whether an API key is configured. Secrets are never returned.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/phone/voice/providers');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   reg('agenticmail_realtime_conversation_capabilities', {
     description: 'Show AgenticMail realtime-conversation channel readiness for this agent: phone, Telegram, Matrix, WhatsApp, and Google Meet. Planned adapters fail closed until implemented.',
     parameters: {

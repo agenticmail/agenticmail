@@ -100,6 +100,18 @@ describe('MCP phone tool dispatch', () => {
     }));
   });
 
+  it('lists voice runtime providers through the phone API', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ providers: [{ id: 'openai' }], defaultRuntime: 'openai' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = JSON.parse(await handleToolCall('phone_voice_providers', {}));
+
+    expect(result).toEqual({ providers: [{ id: 'openai' }], defaultRuntime: 'openai' });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/phone/voice/providers', expect.objectContaining({
+      method: 'GET',
+    }));
+  });
+
   it('reads one phone mission by id', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ mission: { id: 'phn_1', status: 'dialing' } }));
     vi.stubGlobal('fetch', fetchMock);

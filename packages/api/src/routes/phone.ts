@@ -5,6 +5,7 @@ import {
   PhoneWebhookAuthError,
   PhoneRateLimitError,
   buildPhoneTransportConfig,
+  listVoiceProviders,
   redactPhoneTransportConfig,
   validateTwilioSignature,
   type AgenticMailConfig,
@@ -367,6 +368,44 @@ export function createPhoneRoutes(
           : !!cfg?.capabilities.includes('realtime_media'),
         realtimeReady: phoneRealtimeReady(cfg),
       });
+    } catch (err) {
+      sendPhoneError(res, err);
+    }
+  });
+
+  router.get('/phone/voice/providers', (req: Request, res: Response) => {
+    try {
+      const agent = getAgent(req, res);
+      if (!agent) return;
+      const defaultRuntime = (config.voiceRuntime && config.voiceRuntime.trim()) || 'openai';
+      const providers = listVoiceProviders().map((provider) => {
+        const legacyConfigured = provider.apiKeyConfigField
+          ? !!requestString((config as any)[provider.apiKeyConfigField])
+          : false;
+        const mapConfigured = !!requestString(config.voiceProviderKeys?.[provider.id]);
+        const envConfigured = !!requestString(process.env[provider.apiKeyEnvVar]);
+        const configuredVoice = requestString(config.voiceProviderVoices?.[provider.id]) || undefined;
+        return {
+          id: provider.id,
+          displayName: provider.displayName,
+          description: provider.description,
+          websocketBaseUrl: provider.websocketBaseUrl,
+          defaultModel: provider.defaultModel,
+          apiKeyEnvVar: provider.apiKeyEnvVar,
+          keyConfigured: legacyConfigured || mapConfigured || envConfigured,
+          keySources: {
+            legacyConfig: legacyConfigured,
+            voiceProviderKeys: mapConfigured,
+            env: envConfigured,
+          },
+          voices: provider.voices,
+          defaultVoice: provider.defaultVoice,
+          configuredVoice,
+          customVoicesSupported: !!provider.customVoicesSupported,
+          selectedDefault: provider.id === defaultRuntime,
+        };
+      });
+      res.json({ providers, defaultRuntime });
     } catch (err) {
       sendPhoneError(res, err);
     }

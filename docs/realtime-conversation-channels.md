@@ -54,6 +54,13 @@ They use `agenticmail_conversation_list`, `agenticmail_conversation_get`,
 OpenClaw hosts should prefer `agenticmail_call_phone_safe`; `agenticmail_call_phone`
 remains the raw-policy escape hatch.
 
+Voice runtime selection is provider-registry based. `GET
+/api/agenticmail/phone/voice/providers`, `phone_voice_providers`, and
+`agenticmail_phone_voice_providers` list the registered phone voice runtimes,
+default models, voice catalogue, and key readiness without returning secrets.
+Per-call `voiceRuntime`, `voiceModel`, and `voice` fields can be passed through
+`call_phone_safe`, raw `call_phone`, or `conversation_start(channel: "phone")`.
+
 ## Conversation Sessions
 
 Conversation sessions are the runtime ledger above the individual transports:

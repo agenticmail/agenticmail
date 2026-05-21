@@ -1228,6 +1228,14 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'phone_voice_providers',
+    description: 'List registered realtime voice-runtime providers for phone calls, including default models, available voices, and whether an API key is configured. Secrets are never returned.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
     name: 'realtime_conversation_capabilities',
     description: 'Show AgenticMail realtime-conversation channel readiness for this agent: phone, Telegram, Matrix, WhatsApp, and Google Meet. Planned adapters fail closed until implemented.',
     inputSchema: {
@@ -3835,6 +3843,11 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
 
     case 'phone_capabilities': {
       const result = await apiRequest('GET', '/phone/capabilities');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'phone_voice_providers': {
+      const result = await apiRequest('GET', '/phone/voice/providers');
       return JSON.stringify(result, null, 2);
     }
 

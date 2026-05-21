@@ -158,6 +158,37 @@ describe('phone routes', () => {
     db.close();
   });
 
+  it('lists voice runtime providers without exposing secrets', async () => {
+    const priorXai = process.env.XAI_API_KEY;
+    process.env.XAI_API_KEY = 'xai-secret';
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+
+    const result = await request(baseUrl, '/phone/voice/providers');
+
+    expect(result.status).toBe(200);
+    expect(result.body.defaultRuntime).toBe('openai');
+    expect(result.body.providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'openai',
+        apiKeyEnvVar: 'OPENAI_API_KEY',
+        keyConfigured: false,
+        selectedDefault: true,
+      }),
+      expect.objectContaining({
+        id: 'grok',
+        apiKeyEnvVar: 'XAI_API_KEY',
+        keyConfigured: true,
+        keySources: expect.objectContaining({ env: true }),
+      }),
+    ]));
+    expect(JSON.stringify(result.body)).not.toContain('xai-secret');
+
+    if (priorXai === undefined) delete process.env.XAI_API_KEY;
+    else process.env.XAI_API_KEY = priorXai;
+    db.close();
+  });
+
   it('rejects a transport setup with a weak webhook secret', async () => {
     const db = createDb();
     const baseUrl = await listen(createPhoneApp(db));
