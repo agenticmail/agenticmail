@@ -5919,6 +5919,7 @@ function printLiveHelp() {
   log(`    ${c.green('agenticmail live setup')} ${c.dim('[--url ws://127.0.0.1:3999/realtime] [--token <secret>]')}`);
   log(`    ${c.green('agenticmail live doctor')} ${c.dim('[--voice-runtime host_bridge]')}`);
   log(`    ${c.green('agenticmail live bridge')} ${c.dim('[--for openclaw|hermes|codex|claudecode] [bridge options]')}`);
+  log(`    ${c.green('agenticmail live test meet')} ${c.dim('--link <meet-url> [--topic <text>] [--project-ref <id>]')}`);
   log('');
   log(`  ${c.bold('Intent:')}`);
   log('    One product surface for phone, Telegram/Matrix, WhatsApp, and Meet readiness.');
@@ -6153,6 +6154,60 @@ async function cmdLiveBridge(args: string[]) {
   if (code !== 0) process.exit(code);
 }
 
+async function cmdLiveTest(args: string[]) {
+  const target = (args[0] || '').toLowerCase();
+  const rest = args.slice(1);
+  if (!target || target === 'help' || hasArg(args, ['--help', '-h'])) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Live Test ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live test meet --link <meet-url> [--topic <text>] [--project-ref <id>]`);
+    log('');
+    return;
+  }
+  if (target !== 'meet' && target !== 'google-meet') {
+    fail(`Unknown live test target: ${target}`);
+    info(`Try ${c.green('agenticmail live test meet --link <meet-url>')}.`);
+    process.exit(1);
+  }
+
+  const link = readArg(rest, ['--link', '--url', '--meet']);
+  if (!link) {
+    fail('--link is required for Google Meet intake tests.');
+    info(`Try ${c.green('agenticmail live test meet --link https://meet.google.com/abc-defg-hij')}.`);
+    process.exit(1);
+  }
+
+  const { parseGoogleMeetLink } = await import('@agenticmail/core');
+  const parsed = parseGoogleMeetLink(link);
+  const topic = readArg(rest, ['--topic', '--subject']) || 'Google Meet live session';
+  const projectRef = readArg(rest, ['--project-ref', '--project']) || undefined;
+  const behaviorMode = readArg(rest, ['--behavior-mode', '--mode']) || 'answer_when_asked';
+  const hostIntegration = readArg(rest, ['--for', '--host-integration']) || 'openclaw';
+  const payload = {
+    channel: 'google_meet',
+    peer: parsed.normalizedUrl,
+    externalRef: parsed.meetingCode,
+    subject: topic,
+    goal: `Prepare for the meeting, listen, keep notes, and speak only according to behaviorMode=${behaviorMode}.`,
+    operatorApproved: true,
+    userOptedIn: true,
+    liveContext: {
+      hostIntegration,
+      projectRef,
+      behaviorMode,
+    },
+  };
+
+  log('');
+  ok(`Parsed Google Meet link: ${c.cyan(parsed.normalizedUrl)}`);
+  info(`Meeting code: ${parsed.meetingCode}`);
+  info('This is an intake payload test; the live Meet adapter still fails closed until implemented.');
+  log('');
+  log(JSON.stringify(payload, null, 2));
+  log('');
+}
+
 async function cmdLive() {
   const args = process.argv.slice(3);
   const sub = (args[0] || 'doctor').toLowerCase();
@@ -6173,6 +6228,9 @@ async function cmdLive() {
     case 'bridge':
     case 'host-bridge':
       await cmdLiveBridge(rest);
+      return;
+    case 'test':
+      await cmdLiveTest(rest);
       return;
     default:
       fail(`Unknown live subcommand: ${sub}`);

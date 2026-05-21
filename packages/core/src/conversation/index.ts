@@ -12,6 +12,10 @@ export {
   isConversationMessageDirection,
 } from './session.js';
 
+export {
+  parseGoogleMeetLink,
+} from './google-meet.js';
+
 export type {
   ConversationMessage,
   ConversationMessageDirection,
@@ -21,6 +25,10 @@ export type {
   RecordConversationMessageInput,
   RecordConversationTranscriptInput,
 } from './session.js';
+
+export type {
+  ParsedGoogleMeetLink,
+} from './google-meet.js';
 
 export type {
   RealtimeConversationCapability,

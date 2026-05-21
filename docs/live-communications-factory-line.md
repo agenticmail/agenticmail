@@ -296,6 +296,19 @@ First credible MVP:
 5. Speaking is a second gate: the agent can only speak when addressed by name
    or when the operator sends an explicit `say:` command.
 
+Current test hook:
+
+```bash
+agenticmail live test meet \
+  --link https://meet.google.com/abc-defg-hij \
+  --topic "Project Alpha pricing review" \
+  --project-ref project-alpha \
+  --behavior-mode answer_when_asked
+```
+
+This only validates link intake and the future session payload. It deliberately
+does not claim a live Meet bot exists yet.
+
 ## Implementation Order
 
 | Order | Slice | Outcome |

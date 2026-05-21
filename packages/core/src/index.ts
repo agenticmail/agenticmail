@@ -513,6 +513,7 @@ export {
   listRealtimeConversationCapabilities,
   planRealtimeConversationStart,
   ConversationSessionManager,
+  parseGoogleMeetLink,
 } from './conversation/index.js';
 export type {
   ConversationMessage,
@@ -522,6 +523,7 @@ export type {
   CreateConversationSessionInput,
   RecordConversationMessageInput,
   RecordConversationTranscriptInput,
+  ParsedGoogleMeetLink,
   RealtimeConversationCapability,
   RealtimeConversationChannel,
   RealtimeConversationMode,
