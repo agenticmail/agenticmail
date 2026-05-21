@@ -4,6 +4,7 @@ import {
   PhoneManager,
   TelegramApiError,
   TelegramManager,
+  isConversationMessageDirection,
   isRealtimeConversationChannel,
   isTelegramChatAllowed,
   planRealtimeConversationStart,
@@ -17,6 +18,12 @@ type Db = ReturnType<typeof import('@agenticmail/core').getDatabase>;
 
 function requestString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function requestRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function getAgent(req: Request, res: Response): { id: string; email: string } | null {
@@ -199,6 +206,36 @@ export function createConversationSessionRoutes(
       }
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  router.post('/conversation/sessions/:id/transcript', (req: Request, res: Response) => {
+    try {
+      const agent = getAgent(req, res);
+      if (!agent) return;
+      const direction = req.body?.direction;
+      if (!isConversationMessageDirection(direction)) {
+        return res.status(400).json({ error: 'direction must be inbound, outbound, or system' });
+      }
+      const text = typeof req.body?.text === 'string' ? req.body.text : '';
+      if (!text.trim()) return res.status(400).json({ error: 'text is required' });
+
+      const message = sessions.recordTranscriptMessage({
+        sessionId: req.params.id,
+        agentId: agent.id,
+        direction,
+        text,
+        externalMessageId: requestString(req.body?.externalMessageId) || undefined,
+        metadata: requestRecord(req.body?.metadata),
+      });
+      const session = sessions.getSession(agent.id, req.params.id);
+      return res.json({ success: true, session, message });
+    } catch (err) {
+      const msg = String((err as Error).message);
+      const status = msg.includes('not found') ? 404
+        : msg.includes('not active') || msg.includes('required') || msg.includes('direction') ? 400
+          : 500;
+      res.status(status).json({ error: (err as Error).message });
     }
   });
 

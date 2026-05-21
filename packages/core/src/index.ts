@@ -474,8 +474,10 @@ export type {
 // represented as planned/gated so future adapters share one contract
 // without false availability claims.
 export {
+  CONVERSATION_MESSAGE_DIRECTIONS,
   REALTIME_CONVERSATION_CHANNELS,
   getRealtimeConversationCapability,
+  isConversationMessageDirection,
   isRealtimeConversationChannel,
   listRealtimeConversationCapabilities,
   planRealtimeConversationStart,
@@ -488,6 +490,7 @@ export type {
   ConversationSessionStatus,
   CreateConversationSessionInput,
   RecordConversationMessageInput,
+  RecordConversationTranscriptInput,
   RealtimeConversationCapability,
   RealtimeConversationChannel,
   RealtimeConversationMode,

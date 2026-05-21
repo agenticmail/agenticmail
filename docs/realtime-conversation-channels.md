@@ -34,6 +34,7 @@ The API exposes the same gate for host integrations:
 - `GET /api/agenticmail/conversation/sessions/:id/context`
 - `POST /api/agenticmail/conversation/sessions/start`
 - `POST /api/agenticmail/conversation/sessions/:id/messages`
+- `POST /api/agenticmail/conversation/sessions/:id/transcript`
 - `GET /api/agenticmail/conversation/sessions/:id/messages`
 - `POST /api/agenticmail/conversation/sessions/:id/end`
 
@@ -52,6 +53,12 @@ They use `agenticmail_conversation_list`, `agenticmail_conversation_get`,
 
 Conversation sessions are the runtime ledger above the individual transports:
 
+- `POST /conversation/sessions/:id/messages` means "deliver this text through
+  the channel transport". Today that is executable for Telegram text sessions.
+- `POST /conversation/sessions/:id/transcript` means "mirror an already
+  observed event into the ledger". It records inbound, outbound, or system
+  turns against the session's existing channel and does not send anything over
+  Matrix, WhatsApp, Meet, phone, or Telegram.
 - Telegram sessions are executable now. Starting a session can send an initial
   message, later `conversation_send` calls send more text turns, and inbound
   Telegram webhooks/polls append replies to the same session transcript. When

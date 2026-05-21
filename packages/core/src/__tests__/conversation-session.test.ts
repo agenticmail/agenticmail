@@ -31,10 +31,9 @@ describe('conversation sessions', () => {
       text: 'I will check that.',
       externalMessageId: '999',
     });
-    manager.recordMessage({
+    manager.recordTranscriptMessage({
       sessionId: session.id,
       agentId: 'agent1',
-      channel: 'telegram',
       direction: 'inbound',
       text: 'Thanks.',
     });
@@ -66,6 +65,14 @@ describe('conversation sessions', () => {
     })).toThrow(/Unsupported realtime conversation channel/);
 
     const session = manager.createSession({ agentId: 'agent1', channel: 'phone', peer: '+43123456789' });
+    expect(() => manager.recordMessage({
+      sessionId: session.id,
+      agentId: 'agent1',
+      channel: 'phone',
+      direction: 'sideways' as any,
+      text: 'bad direction',
+    })).toThrow(/direction must be inbound/);
+
     manager.endSession('agent1', session.id);
     expect(() => manager.recordMessage({
       sessionId: session.id,

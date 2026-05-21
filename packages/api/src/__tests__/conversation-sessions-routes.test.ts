@@ -162,6 +162,83 @@ describe('conversation session routes', () => {
     db.close();
   });
 
+  it('records channel-neutral transcript turns without enabling planned-channel send', async () => {
+    const db = createDb();
+    const manager = new ConversationSessionManager(db);
+    const matrix = manager.createSession({
+      agentId: 'agent1',
+      channel: 'matrix',
+      peer: '!room:example.org',
+      goal: 'Coordinate a realtime text thread',
+    });
+    const meet = manager.createSession({
+      agentId: 'agent1',
+      channel: 'google_meet',
+      peer: 'meet.example/abc-defg-hij',
+      subject: 'Planning call',
+    });
+    const baseUrl = await listen(createApp(db));
+
+    const matrixTurn = await request(baseUrl, `/conversation/sessions/${matrix.id}/transcript`, {
+      method: 'POST',
+      body: JSON.stringify({
+        direction: 'inbound',
+        text: 'Matrix event arrived.',
+        externalMessageId: '$event1',
+        metadata: { sender: '@benedikt:example.org' },
+      }),
+    });
+    expect(matrixTurn.status).toBe(200);
+    expect(matrixTurn.body.message).toMatchObject({
+      sessionId: matrix.id,
+      channel: 'matrix',
+      direction: 'inbound',
+      text: 'Matrix event arrived.',
+      externalMessageId: '$event1',
+      metadata: { sender: '@benedikt:example.org' },
+    });
+
+    const meetTurn = await request(baseUrl, `/conversation/sessions/${meet.id}/transcript`, {
+      method: 'POST',
+      body: JSON.stringify({ direction: 'system', text: 'Meet bot joined the waiting room.' }),
+    });
+    expect(meetTurn.status).toBe(200);
+    expect(meetTurn.body.message).toMatchObject({
+      sessionId: meet.id,
+      channel: 'google_meet',
+      direction: 'system',
+    });
+
+    const matrixMessages = await request(baseUrl, `/conversation/sessions/${matrix.id}/messages`);
+    expect(matrixMessages.body.messages.map((m: any) => [m.direction, m.text])).toEqual([
+      ['inbound', 'Matrix event arrived.'],
+    ]);
+
+    const sendAttempt = await request(baseUrl, `/conversation/sessions/${matrix.id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ text: 'Try to send through Matrix.' }),
+    });
+    expect(sendAttempt.status).toBe(400);
+    expect(sendAttempt.body.error).toMatch(/matrix sessions do not accept text messages/);
+
+    const empty = await request(baseUrl, `/conversation/sessions/${matrix.id}/transcript`, {
+      method: 'POST',
+      body: JSON.stringify({ direction: 'inbound', text: '   ' }),
+    });
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toBe('text is required');
+
+    manager.endSession('agent1', matrix.id);
+    const inactive = await request(baseUrl, `/conversation/sessions/${matrix.id}/transcript`, {
+      method: 'POST',
+      body: JSON.stringify({ direction: 'inbound', text: 'Too late.' }),
+    });
+    expect(inactive.status).toBe(400);
+    expect(inactive.body.error).toMatch(/not active/);
+
+    db.close();
+  });
+
   it('lists and ends sessions', async () => {
     const db = createDb();
     const manager = new ConversationSessionManager(db);

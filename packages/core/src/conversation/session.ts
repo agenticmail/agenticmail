@@ -6,7 +6,8 @@ import {
 } from './realtime.js';
 
 export type ConversationSessionStatus = 'active' | 'ended' | 'failed';
-export type ConversationMessageDirection = 'inbound' | 'outbound' | 'system';
+export const CONVERSATION_MESSAGE_DIRECTIONS = ['inbound', 'outbound', 'system'] as const;
+export type ConversationMessageDirection = typeof CONVERSATION_MESSAGE_DIRECTIONS[number];
 
 export interface ConversationSession {
   id: string;
@@ -55,6 +56,21 @@ export interface RecordConversationMessageInput {
   externalMessageId?: string;
   metadata?: Record<string, unknown>;
   now?: Date;
+}
+
+export interface RecordConversationTranscriptInput {
+  sessionId: string;
+  agentId: string;
+  direction: ConversationMessageDirection;
+  text: string;
+  externalMessageId?: string;
+  metadata?: Record<string, unknown>;
+  now?: Date;
+}
+
+export function isConversationMessageDirection(value: unknown): value is ConversationMessageDirection {
+  return typeof value === 'string'
+    && (CONVERSATION_MESSAGE_DIRECTIONS as readonly string[]).includes(value);
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {
@@ -249,6 +265,7 @@ export class ConversationSessionManager {
     if (!session) throw new Error('conversation session not found');
     if (session.status !== 'active') throw new Error('conversation session is not active');
     if (session.channel !== input.channel) throw new Error('message channel does not match session channel');
+    if (!isConversationMessageDirection(input.direction)) throw new Error('direction must be inbound, outbound, or system');
 
     const createdAt = (input.now ?? new Date()).toISOString();
     const message: ConversationMessage = {
@@ -273,6 +290,21 @@ export class ConversationSessionManager {
     this.db.prepare('UPDATE conversation_sessions SET updated_at = ? WHERE id = ?')
       .run(createdAt, input.sessionId);
     return message;
+  }
+
+  recordTranscriptMessage(input: RecordConversationTranscriptInput): ConversationMessage {
+    const session = this.getSession(input.agentId, input.sessionId);
+    if (!session) throw new Error('conversation session not found');
+    return this.recordMessage({
+      sessionId: input.sessionId,
+      agentId: input.agentId,
+      channel: session.channel,
+      direction: input.direction,
+      text: input.text,
+      externalMessageId: input.externalMessageId,
+      metadata: input.metadata,
+      now: input.now,
+    });
   }
 
   listMessages(agentId: string, sessionId: string): ConversationMessage[] {
