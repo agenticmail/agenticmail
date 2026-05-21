@@ -95,6 +95,12 @@ describe('conversation session routes', () => {
         chatId: '42',
         goal: 'Coordinate dinner reservation',
         initialMessage: 'I am checking the reservation.',
+        tenantId: 'tenant_at',
+        hostIntegration: 'openclaw',
+        hostSessionId: 'oc_session_1',
+        behaviorMode: 'operator_directed',
+        policyScope: { preset: 'reservation' },
+        budgetScope: { maxCostPerMission: 1.5 },
       }),
     });
     expect(started.status).toBe(200);
@@ -102,6 +108,17 @@ describe('conversation session routes', () => {
       channel: 'telegram',
       status: 'active',
       peer: '42',
+      metadata: {
+        transport: 'telegram',
+        liveContext: {
+          tenantId: 'tenant_at',
+          hostIntegration: 'openclaw',
+          hostSessionId: 'oc_session_1',
+          behaviorMode: 'operator_directed',
+          policyScope: { preset: 'reservation' },
+          budgetScope: { maxCostPerMission: 1.5 },
+        },
+      },
     });
 
     const sessionId = started.body.session.id;

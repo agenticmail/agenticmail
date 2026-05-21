@@ -65,6 +65,35 @@ The readiness doctor must report both modes separately. A deployment can be
 "transport ready" while still not "live conversation ready" because neither an
 embedded provider key nor a host bridge is reachable.
 
+## Multi-Tenant Target
+
+The live layer must be able to run as a hosted service, not only as one local
+operator install. Every live session carries a tenant-aware context in
+`session.metadata.liveContext`:
+
+- `tenantId` / `accountId` / `workspaceId`
+- `agentId` from the authenticated AgenticMail API key
+- `hostIntegration` such as `openclaw`, `hermes`, `codex`, or `claudecode`
+- `hostSessionId` for trace correlation
+- `operatorId` and `operatorChannel`
+- `projectRef`
+- `behaviorMode` such as `listen_only`, `answer_when_asked`, or
+  `operator_directed`
+- `policyScope` and `budgetScope`
+
+This gives the hosted version the room to:
+
+- choose the cheapest allowed phone provider per tenant, region, and task
+- rotate across multiple tenant-owned phone numbers
+- keep tenant budgets and approval rules separate
+- route Telegram, Matrix, WhatsApp, phone, and Meet through one ledger
+- let OpenViking/OpenClaw bring project knowledge into live calls or meetings
+- audit which host/session/operator caused a message, call, or spoken answer
+
+Google Meet should use this as a knowledge participant, not just a note taker:
+the session prepares from the tenant's project knowledge, listens, records
+decisions, and speaks only when addressed or explicitly operator-directed.
+
 ## Provider Expansion
 
 Do not fake provider support by forcing every vendor into the current

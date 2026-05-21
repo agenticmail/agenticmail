@@ -30,6 +30,49 @@ function requestRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+const LIVE_CONTEXT_STRING_FIELDS = [
+  'tenantId',
+  'accountId',
+  'workspaceId',
+  'operatorId',
+  'operatorChannel',
+  'hostIntegration',
+  'hostIntegrationId',
+  'hostSessionId',
+  'projectRef',
+  'behaviorMode',
+  'approvalScope',
+] as const;
+
+function buildLiveSessionMetadata(
+  req: Request,
+  base: Record<string, unknown>,
+): Record<string, unknown> {
+  const userMetadata = requestRecord(req.body?.metadata) ?? {};
+  const metadataLiveContext = requestRecord(userMetadata.liveContext) ?? {};
+  const bodyLiveContext = requestRecord(req.body?.liveContext) ?? {};
+  const liveContext: Record<string, unknown> = {
+    ...metadataLiveContext,
+    ...bodyLiveContext,
+  };
+
+  for (const field of LIVE_CONTEXT_STRING_FIELDS) {
+    const value = requestString(req.body?.[field] ?? liveContext[field]);
+    if (value) liveContext[field] = value;
+  }
+  const policyScope = requestRecord(req.body?.policyScope) ?? requestRecord(liveContext.policyScope);
+  const budgetScope = requestRecord(req.body?.budgetScope) ?? requestRecord(liveContext.budgetScope);
+  if (policyScope) liveContext.policyScope = policyScope;
+  if (budgetScope) liveContext.budgetScope = budgetScope;
+
+  const out: Record<string, unknown> = {
+    ...userMetadata,
+    ...base,
+  };
+  if (Object.keys(liveContext).length > 0) out.liveContext = liveContext;
+  return out;
+}
+
 function getAgent(req: Request, res: Response): { id: string; email: string } | null {
   const agent = (req as any).agent;
   if (!agent) {
@@ -285,7 +328,7 @@ export function createConversationSessionRoutes(
       peer: chatId,
       subject: requestString(req.body?.subject) || undefined,
       goal: requestString(req.body?.goal) || undefined,
-      metadata: { transport: 'telegram' },
+      metadata: buildLiveSessionMetadata(req, { transport: 'telegram' }),
     });
 
     if (!initialMessage.trim()) {
@@ -345,7 +388,7 @@ export function createConversationSessionRoutes(
       peer: roomId,
       subject: requestString(req.body?.subject) || undefined,
       goal: requestString(req.body?.goal) || undefined,
-      metadata: { transport: 'matrix', homeserverUrl: cfg!.homeserverUrl },
+      metadata: buildLiveSessionMetadata(req, { transport: 'matrix', homeserverUrl: cfg!.homeserverUrl }),
     });
     if (!initialMessage.trim()) {
       return res.json({ success: true, session, reused: !!existing, plan });
@@ -434,13 +477,13 @@ export function createConversationSessionRoutes(
       subject: requestString(req.body?.subject) || undefined,
       goal: task,
       externalRef: result.mission.id,
-      metadata: {
+      metadata: buildLiveSessionMetadata(req, {
         transport: 'phone',
         missionId: result.mission.id,
         provider: result.mission.provider,
         dryRun: req.body?.dryRun === true,
         policyPreset,
-      },
+      }),
     });
     const message = sessions.recordMessage({
       sessionId: session.id,
