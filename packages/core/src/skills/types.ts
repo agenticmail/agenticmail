@@ -232,6 +232,32 @@ export interface SkillSummary {
   version: string;
   disclaimer_required: boolean;
   estimated_call_duration_minutes: number;
+  /**
+   * v0.9.92 — surfaced from `context.when_to_use`. This is the field
+   * that actually tells the model "should I load this for the
+   * current situation?" — far more diagnostic than the generic
+   * `description` (which is just a one-liner for browsing). The
+   * realtime `search_skills` tool result includes it so the model
+   * can decide WITHOUT a second `load_skill` round-trip on a wrong
+   * guess.
+   */
+  when_to_use: string;
+  /**
+   * v0.9.92 — the skill's first principle, surfaced for the same
+   * "is this the right playbook" decision. Principles are the
+   * strategic frame ("be calm and friendly — the rep didn't choose
+   * your bill"); seeing one principle tells the model whether the
+   * skill's POSTURE matches the situation, not just its topic.
+   */
+  first_principle: string;
+  /**
+   * v0.9.92 — BM25F search score from the rank. Only present on
+   * results from `searchSkills`; absent on `listSkills` output
+   * (where the ordering is by id, not by relevance). Lets the
+   * model thresholds "definitely load" vs. "re-search with a
+   * better query".
+   */
+  score?: number;
 }
 
 /** Failed-validation result from the schema validator. */

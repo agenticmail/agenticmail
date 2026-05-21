@@ -256,13 +256,24 @@ export const SEARCH_EMAIL_TOOL: RealtimeToolDefinition = {
  * so the loaded skill actually matches the situation. Fast (file-on-
  * disk search) — a brief "one moment" is enough; no long hold needed.
  */
+// v0.9.92 — robustness pass on search_skills.
+// Earlier version returned `name + 120-char description` only and
+// telemetry showed agents searched then never loaded. The new
+// surface includes `when_to_use`, `first_principle`, BM25 `score`,
+// and an explicit `recommendation` field telling the model whether
+// to load the top hit, choose between close hits, or re-search.
 export const SEARCH_SKILLS_TOOL: RealtimeToolDefinition = {
   type: 'function',
   name: 'search_skills',
   description:
     'Search your skill library for a playbook that fits the situation you just hit on this call '
-    + '(billing dispute, debt collector tactics, reservation deadlock, etc). Returns ranked summaries — '
-    + 'pick the best match and pass its id to load_skill. Fast.',
+    + '(billing dispute, debt collector tactics, reservation deadlock, etc). Returns up to 5 ranked '
+    + 'matches, each with: id, name, BM25 score, when_to_use (the specific situation the skill is '
+    + 'for), first_principle (the playbook\'s strategic frame), and a `recommendation` field. If '
+    + '`recommendation` says LOAD IT NOW or the top score > 0.3, immediately call load_skill with '
+    + 'the top id — do not deliberate. If scores are weak (< 0.15), re-search with a different '
+    + 'phrasing instead of loading a poor match. The model that judges "is this the right skill" '
+    + 'is YOU — but the recommendation field will tell you what the right move usually is.',
   parameters: {
     type: 'object',
     properties: {

@@ -279,9 +279,15 @@ export function validateSkill(s: unknown): SkillValidationError[] {
   return errs;
 }
 
-/** Return a summary view (no body, no tactics) — used by `skill_list`. */
-function summarize(s: Skill): SkillSummary {
-  return {
+/**
+ * Return a summary view (no body, no tactics) — used by `skill_list`
+ * and `skill_search`. v0.9.92 added `when_to_use` + `first_principle`
+ * + optional `score` so the realtime voice agent can decide whether
+ * to load a skill from the SEARCH result alone, without an extra
+ * `load_skill` round-trip on a wrong guess.
+ */
+function summarize(s: Skill, score?: number): SkillSummary {
+  const out: SkillSummary = {
     id: s.id,
     name: s.name,
     category: s.category,
@@ -290,7 +296,11 @@ function summarize(s: Skill): SkillSummary {
     version: s.version,
     disclaimer_required: !!s.disclaimer,
     estimated_call_duration_minutes: s.context.estimated_call_duration_minutes,
+    when_to_use: s.context.when_to_use,
+    first_principle: (s.principles && s.principles.length > 0) ? s.principles[0] : '',
   };
+  if (score !== undefined) out.score = score;
+  return out;
 }
 
 /** List all skills (summaries), optionally filtered. */
@@ -339,7 +349,8 @@ export function searchSkills(query: string, limit = 20): SkillSummary[] {
   // Substring-fallback for queries that survived stemming but still
   // matched nothing — typically because of unusual non-English terms,
   // brand names, or one-off slang. Cheap: only runs when BM25F was
-  // already empty.
+  // already empty. Fallback scores get a synthetic 0.1 so they sort
+  // BELOW any BM25 hit but the model can still see they exist.
   if (ranked.length === 0) {
     const qLow = q.toLowerCase();
     const fallback: SkillSummary[] = [];
@@ -347,7 +358,7 @@ export function searchSkills(query: string, limit = 20): SkillSummary[] {
       if (s.id.toLowerCase().includes(qLow)
           || s.name.toLowerCase().includes(qLow)
           || s.tags.some((t) => t.toLowerCase().includes(qLow))) {
-        fallback.push(summarize(s));
+        fallback.push(summarize(s, 0.1));
         if (fallback.length >= limit) break;
       }
     }
@@ -355,10 +366,10 @@ export function searchSkills(query: string, limit = 20): SkillSummary[] {
   }
 
   const out: SkillSummary[] = [];
-  for (const { id } of ranked) {
+  for (const { id, score } of ranked) {
     const skill = byId.get(id);
     if (!skill) continue;
-    out.push(summarize(skill));
+    out.push(summarize(skill, score));
     if (out.length >= limit) break;
   }
   return out;

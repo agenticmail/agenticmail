@@ -1161,6 +1161,99 @@ export class PhoneManager {
     return { mission: updated, query: answered, alreadyAnswered: false };
   }
 
+  /**
+   * v0.9.92 — auto-close stale operator queries.
+   *
+   * An operator query is "stale" when:
+   *   - it's unanswered, AND
+   *   - either (a) the mission is no longer live (status in
+   *     {completed, failed, cancelled}), OR (b) the query is older
+   *     than `maxAgeSeconds`.
+   *
+   * The sweeper marks each stale query as answered with a synthetic
+   * "[auto-closed: ...]" answer + `answeredVia: 'auto-sweeper'`. This
+   * (a) gets the query out of `listOpenOperatorQueries`, (b) clears
+   * the bridge's "you have N open questions" hint to the operator,
+   * and (c) leaves a permanent audit trail of WHY the query was
+   * closed.
+   *
+   * Returns the count of queries closed + a per-mission breakdown
+   * for logging.
+   */
+  sweepStaleOperatorQueries(opts: { maxAgeSeconds?: number; nowMs?: number } = {}): {
+    closed: number;
+    missionsTouched: number;
+    breakdown: Array<{ missionId: string; closed: number; reason: 'mission-terminal' | 'age' }>;
+  } {
+    // Default: a query is stale if its mission has already terminated
+    // (we close immediately), OR the query is more than 1 hour old
+    // (a live call won't keep one open that long without ending). The
+    // ask_operator tool's own timeout is 5 minutes — so 1h is a
+    // generous safety net for the bridge-side timer, not the model's
+    // patience.
+    const maxAgeMs = (opts.maxAgeSeconds ?? 3600) * 1000;
+    const nowMs = opts.nowMs ?? Date.now();
+    const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+
+    // LIKE on metadata_json keeps the scan cheap — only missions
+    // that have any `operatorQueries` content at all enter the loop.
+    const rows = this.db.prepare(
+      "SELECT * FROM phone_missions WHERE metadata_json LIKE '%\"operatorQueries\"%'",
+    ).all() as any[];
+
+    const breakdown: Array<{ missionId: string; closed: number; reason: 'mission-terminal' | 'age' }> = [];
+    let totalClosed = 0;
+    let missionsTouched = 0;
+
+    for (const row of rows) {
+      const mission = rowToMission(row);
+      const queries = readOperatorQueries(mission);
+      const open = queries.filter((q) => !q.answer);
+      if (open.length === 0) continue;
+
+      const reason: 'mission-terminal' | 'age' | null = TERMINAL.has(mission.status)
+        ? 'mission-terminal'
+        : null;
+
+      const closedAt = new Date(nowMs).toISOString();
+      const nextQueries = queries.map((q): PhoneOperatorQuery => {
+        if (q.answer) return q;
+        const askedAtMs = Date.parse(q.askedAt);
+        const tooOld = Number.isFinite(askedAtMs) && (nowMs - askedAtMs) >= maxAgeMs;
+        const queryReason = reason ?? (tooOld ? 'age' : null);
+        if (!queryReason) return q;  // still inside the age window AND mission still live ⇒ leave alone
+        return {
+          ...q,
+          answer: queryReason === 'mission-terminal'
+            ? `[auto-closed: mission ended (${mission.status}) before this question was answered]`
+            : `[auto-closed: question went unanswered for over ${Math.round(maxAgeMs / 60_000)} minutes]`,
+          answeredAt: closedAt,
+          answeredVia: 'auto-sweeper',
+        };
+      });
+
+      const closedHere = nextQueries.filter((q, i) =>
+        q.answer && !queries[i].answer && q.answeredVia === 'auto-sweeper',
+      ).length;
+      if (closedHere === 0) continue;
+
+      this.updateMissionStatus(mission.id, mission.status, {
+        operatorQueries: nextQueries,
+      }, [{
+        at: closedAt,
+        source: 'system',
+        text: `Auto-closed ${closedHere} stale operator query(ies): ${reason ?? 'aged out'}.`,
+        metadata: { closedCount: closedHere, reason: reason ?? 'age' },
+      }]);
+
+      totalClosed += closedHere;
+      missionsTouched += 1;
+      breakdown.push({ missionId: mission.id, closed: closedHere, reason: reason ?? 'age' });
+    }
+
+    return { closed: totalClosed, missionsTouched, breakdown };
+  }
+
   // ─── Callback on disconnect (plan §7) ─────────────────
 
   /**

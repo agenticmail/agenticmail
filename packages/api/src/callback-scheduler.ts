@@ -82,6 +82,23 @@ export function startCallbackScheduler(
     if (inFlight) return;
     inFlight = true;
     try {
+      // v0.9.92 — sweep stale operator queries first. Cheap: a single
+      // LIKE-filtered scan of missions that have any operatorQueries
+      // metadata at all. Auto-closes queries whose mission already
+      // terminated, or whose ask was over an hour ago. Deterministic;
+      // no LLM involved.
+      try {
+        const swept = phoneManager.sweepStaleOperatorQueries({});
+        if (swept.closed > 0) {
+          // Use the console here — the API server has no structured
+          // logger and this is intentionally low-volume.
+          // eslint-disable-next-line no-console
+          console.log(`[callback-scheduler] swept ${swept.closed} stale operator query(ies) across ${swept.missionsTouched} mission(s)`);
+        }
+      } catch (err) {
+        onError(err as Error, '<sweeper>');
+      }
+
       const due = phoneManager.findDueScheduledCallbacks(new Date().toISOString(), maxPerTick);
       for (const mission of due) {
         try {

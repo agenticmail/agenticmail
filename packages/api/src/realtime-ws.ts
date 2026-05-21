@@ -462,14 +462,15 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
     mission.policy.maxCallDurationSeconds,
     PHONE_SERVER_MAX_CALL_DURATION_SECONDS,
   );
+  const transcript: PhoneMissionTranscriptEntry[] = [];
+  const record = (entry: PhoneMissionTranscriptEntry) => transcript.push(entry);
+
   const executor = createVoiceToolExecutor({
     mission, phoneManager, memory, config, db,
     isCallEnded: () => getBridge()?.isEnded ?? false,
     getBridge,
+    recordTranscript: record,
   });
-
-  const transcript: PhoneMissionTranscriptEntry[] = [];
-  const record = (entry: PhoneMissionTranscriptEntry) => transcript.push(entry);
 
   const openaiWs = new WebSocket(buildOpenAIRealtimeUrl(model), {
     headers: { Authorization: `Bearer ${config.openaiApiKey}` },
@@ -641,6 +642,14 @@ interface VoiceToolExecutorParams {
    * return null briefly during construction; handlers guard for that.
    */
   getBridge: () => RealtimeVoiceBridge | null;
+  /**
+   * v0.9.92 — append a transcript entry from inside a tool handler.
+   * Used by `search_skills` to record what results the model saw, so
+   * post-call review can tell apart "ranking missed" from "model
+   * looked and chose not to load". Routes to the same persistence
+   * path the bridge's own emitTranscript uses.
+   */
+  recordTranscript: (entry: PhoneMissionTranscriptEntry) => void;
 }
 
 /**
@@ -650,7 +659,7 @@ interface VoiceToolExecutorParams {
  * produce is a model-readable error string, never a wedged call.
  */
 function createVoiceToolExecutor(params: VoiceToolExecutorParams): ToolExecutor {
-  const { mission, phoneManager, memory, config, db, isCallEnded, getBridge } = params;
+  const { mission, phoneManager, memory, config, db, isCallEnded, getBridge, recordTranscript } = params;
 
   const askOperator: RealtimeToolHandler = async (args) => {
     const question = typeof args.question === 'string' ? args.question : '';
@@ -702,34 +711,81 @@ function createVoiceToolExecutor(params: VoiceToolExecutorParams): ToolExecutor 
         return { error: 'search_skills requires a non-empty `query` describing the situation.' };
       }
       const { searchSkills } = await import('@agenticmail/core');
-      // Top 3 by default — the model needs enough to pick a clear
-      // winner without paying context to every loosely-relevant
-      // skill. Truncate descriptions to ~120 chars so a 1000-skill
-      // library can't blow the model's working context on a single
-      // search response. The model can re-search with a better
-      // query if the top 3 aren't right.
-      const results = searchSkills(query, 3);
+      // v0.9.92 — robustness pass. Earlier versions returned the top 3
+      // results with `name + 120-char description` only. The model
+      // searched (correctly) but rarely followed through with
+      // load_skill — telemetry showed 1 search across 8 calls, 0
+      // loads. Root cause: the description is for browsing, not
+      // matching. `when_to_use` and `first_principle` are the actually-
+      // diagnostic fields. Surface them, surface the BM25 score, and
+      // give the model an explicit decision rule.
+      const TOP_N = 5;
+      const results = searchSkills(query, TOP_N);
       if (results.length === 0) {
+        recordTranscript({
+          at: new Date().toISOString(),
+          source: 'system',
+          text: `search_skills: 0 results for "${query}"`,
+        });
         return {
           query, count: 0,
-          message: 'No matching skills in the library. Improvise within the call\'s overall task and the operator\'s instructions.',
+          message: 'No matching skills in the library. Re-search with a different query phrasing, or improvise within the call\'s overall task and the operator\'s instructions.',
         };
       }
-      return {
+
+      const topScore = results[0].score ?? 0;
+      const runnerScore = results[1]?.score ?? 0;
+      // Decision heuristic the agent should follow:
+      //   - top score < 0.15        ⇒ weak match, re-search instead
+      //   - top > 0.3 OR top is 2× runner ⇒ load the top hit, it's clearly right
+      //   - otherwise read when_to_use carefully and pick deliberately
+      const ratio = runnerScore > 0 ? topScore / runnerScore : Infinity;
+      let recommendation: string;
+      if (topScore < 0.15) {
+        recommendation = `Top score is only ${topScore.toFixed(2)} — weak match. RE-SEARCH with a different phrasing (the situation in plain words) before loading anything.`;
+      } else if (topScore >= 0.3 || ratio >= 2) {
+        recommendation = `Top hit "${results[0].id}" is a clear winner (score ${topScore.toFixed(2)}${runnerScore > 0 ? `, ${ratio.toFixed(1)}× runner-up` : ''}). LOAD IT NOW: load_skill({ id: "${results[0].id}" }).`;
+      } else {
+        recommendation = `Top hits are close (${topScore.toFixed(2)} vs ${runnerScore.toFixed(2)}). Read each \`when_to_use\` carefully and load the one whose situation actually matches the call.`;
+      }
+
+      const out = {
         query,
         count: results.length,
         skills: results.map((s) => ({
           id: s.id,
           name: s.name,
           category: s.category,
-          // Trim description to ~120 chars — long enough to identify
-          // the skill, short enough that 3 results fit in a few
-          // hundred tokens.
-          summary: s.description.length > 120 ? s.description.slice(0, 117) + '...' : s.description,
+          score: s.score ?? 0,
+          // Truncate but keep the diagnostic fields in full where they
+          // earn their tokens. `when_to_use` is the headline match
+          // signal; `first_principle` shows the playbook's posture.
+          summary: s.description.length > 140 ? s.description.slice(0, 137) + '...' : s.description,
+          when_to_use: s.when_to_use.length > 200 ? s.when_to_use.slice(0, 197) + '...' : s.when_to_use,
+          first_principle: s.first_principle.length > 160 ? s.first_principle.slice(0, 157) + '...' : s.first_principle,
+          tags: s.tags.slice(0, 6),  // first six only — keeps response tight
           disclaimer_required: s.disclaimer_required,
+          estimated_call_duration_minutes: s.estimated_call_duration_minutes,
         })),
-        next_step: 'Pick the best match and call load_skill with its id. Say "hold on one moment" to the caller first.',
+        recommendation,
+        next_step: 'Say "hold on one moment" to the caller, then act on the recommendation above. If you load a skill, its playbook will be in your instructions for the rest of the call.',
       };
+
+      // v0.9.92 — log the result LIST to the mission transcript so the
+      // post-call review (and future debugging) can see WHAT the
+      // model saw and decide whether the lack of follow-up load_skill
+      // was a ranking gap or a model judgement call.
+      try {
+        const summary = results.map((r) => `${r.id}@${(r.score ?? 0).toFixed(2)}`).join(', ');
+        recordTranscript({
+          at: new Date().toISOString(),
+          source: 'system',
+          text: `search_skills "${query}" → ${results.length} results: ${summary}`,
+          metadata: { topScore, runnerScore, recommendation },
+        });
+      } catch { /* transcript persistence is best-effort */ }
+
+      return out;
     },
     load_skill: async (args) => {
       const id = typeof args.id === 'string' ? args.id : '';

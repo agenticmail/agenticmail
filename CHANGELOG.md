@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.92] - 2026-05-20
+
+### Added — `search_skills` robustness + automatic stale-operator-query sweeper
+
+**`search_skills` v2.** Telemetry showed agents were searching but
+never loading: 1 search across 8 calls, 0 loads. Root cause: the
+old tool result returned `name + 120-char description` only, which
+isn't enough for the model to confidently decide whether the
+playbook fits. Surface revamped:
+
+- `SkillSummary` gains `when_to_use` (the specific situation the
+  skill targets — the actually-diagnostic field), `first_principle`
+  (the playbook's strategic frame), and optional `score` (BM25
+  rank).
+- Top 5 results instead of top 3.
+- New `recommendation` field tells the model exactly what to do:
+  LOAD IT NOW if top score > 0.3 or 2× the runner-up; re-search if
+  top score < 0.15; otherwise read each `when_to_use` carefully and
+  pick deliberately.
+- Every search now records a transcript entry with the result IDs
+  and scores so post-call review can tell apart "ranking missed"
+  from "model looked and chose not to load".
+- Tool description teaches the decision rule in the description
+  itself, so it's in the model's working context every call.
+
+**Automatic stale-operator-query sweeper.**
+`PhoneManager.sweepStaleOperatorQueries()` runs on every callback-
+scheduler tick (every 30s). Closes any operator query that's still
+unanswered when either:
+  - the mission has terminated (`completed` / `failed` /
+    `cancelled`) — closed immediately on the next tick, OR
+  - the query is older than 1 hour — closed with an "aged out" tag.
+
+Closed queries get `answer: "[auto-closed: ...]"` + `answeredVia:
+'auto-sweeper'` so the audit trail explains WHY. Deterministic; no
+LLM involved.
+
+### Bumps
+
+`core` 0.9.37 → 0.9.38, `api` 0.9.57 → 0.9.58, `cli` 0.9.91 → 0.9.92.
+
 ## [0.9.91] - 2026-05-20
 
 ### Fixed — caller voice in end-of-call digest + bridge-side operator-query intake + dispatcher awareness
