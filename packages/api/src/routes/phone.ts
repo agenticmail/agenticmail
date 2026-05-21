@@ -1,5 +1,6 @@
 import { Router, urlencoded, type Request, type Response } from 'express';
 import {
+  ConversationSessionManager,
   PhoneManager,
   PhoneWebhookAuthError,
   PhoneRateLimitError,
@@ -265,6 +266,7 @@ export function createPhoneRoutes(
 ): Router {
   const router = Router();
   const phoneManager = new PhoneManager(db as any, config.masterKey);
+  const conversations = new ConversationSessionManager(db as any);
 
   router.get('/phone/transport/config', (req: Request, res: Response) => {
     try {
@@ -353,10 +355,34 @@ export function createPhoneRoutes(
       }, {
         dryRun: req.body?.dryRun === true,
       });
+      const conversationSession = conversations.createSession({
+        agentId: agent.id,
+        channel: 'phone',
+        peer: result.mission.to,
+        subject: requestString(req.body?.subject) || undefined,
+        goal: result.mission.task,
+        externalRef: result.mission.id,
+        metadata: {
+          transport: 'phone',
+          missionId: result.mission.id,
+          provider: result.mission.provider,
+          dryRun: req.body?.dryRun === true,
+        },
+      });
+      const conversationMessage = conversations.recordMessage({
+        sessionId: conversationSession.id,
+        agentId: agent.id,
+        channel: 'phone',
+        direction: 'system',
+        text: `Phone mission ${result.mission.id} started for ${result.mission.to}.`,
+        metadata: { missionId: result.mission.id, status: result.mission.status },
+      });
 
       res.json({
         success: true,
         mission: result.mission,
+        conversationSession,
+        conversationMessage,
         // Redact every token-bearing webhook URL in the echoed request,
         // provider-agnostically: 46elks uses `voice_start`/`whenhangup`,
         // Twilio uses `Url`/`StatusCallback`.

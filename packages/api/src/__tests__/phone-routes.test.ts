@@ -3,7 +3,12 @@ import express from 'express';
 import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
-import { createTestDatabase, PhoneManager, type AgenticMailConfig } from '@agenticmail/core';
+import {
+  ConversationSessionManager,
+  createTestDatabase,
+  PhoneManager,
+  type AgenticMailConfig,
+} from '@agenticmail/core';
 import { createPhoneRoutes, createPhoneWebhookRoutes } from '../routes/phone.js';
 
 // Webhook secret must clear the 24-char entropy floor (#43-H8).
@@ -194,6 +199,23 @@ describe('phone routes', () => {
     expect(started.body.providerRequest.body.voice_start).toBe('[redacted-url]');
 
     const missionId = started.body.mission.id;
+    expect(started.body.conversationSession).toMatchObject({
+      channel: 'phone',
+      status: 'active',
+      peer: '+436641234567',
+      externalRef: missionId,
+      metadata: { missionId, provider: '46elks', dryRun: true },
+    });
+    expect(started.body.conversationMessage).toMatchObject({
+      channel: 'phone',
+      direction: 'system',
+      metadata: { missionId, status: 'dialing' },
+    });
+    const conversations = new ConversationSessionManager(db);
+    expect(conversations.listMessages('agent1', started.body.conversationSession.id).map((m) => [m.direction, m.text])).toEqual([
+      ['system', `Phone mission ${missionId} started for +436641234567.`],
+    ]);
+
     const loaded = await request(baseUrl, `/calls/${missionId}`);
     expect(loaded.body.mission.id).toBe(missionId);
 
