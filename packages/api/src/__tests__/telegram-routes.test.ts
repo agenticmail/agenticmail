@@ -4,6 +4,7 @@ import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
 import {
   createTestDatabase,
+  ConversationSessionManager,
   TelegramManager,
   PhoneManager,
   buildPhoneTransportConfig,
@@ -106,6 +107,21 @@ function createTelegramApp(db: ReturnType<typeof createTestDatabase>): express.E
     next();
   });
   app.use(createTelegramRoutes(db, config));
+  return app;
+}
+
+function createTelegramAppWithGateway(
+  db: ReturnType<typeof createTestDatabase>,
+  gatewayManager: any,
+): express.Express {
+  const app = express();
+  app.use(express.json());
+  app.use(createTelegramWebhookRoutes(db, config, gatewayManager));
+  app.use((req, _res, next) => {
+    (req as any).agent = { id: 'agent1', email: 'ralf@example.com' };
+    next();
+  });
+  app.use(createTelegramRoutes(db, config, gatewayManager));
   return app;
 }
 
@@ -258,6 +274,56 @@ describe('telegram webhook route', () => {
     });
 
     expect(manager.listMessages('agent1', { direction: 'inbound' })).toHaveLength(1);
+    db.close();
+  });
+
+  it('passes active conversation context to the wake bridge', async () => {
+    const db = createDb();
+    const telegram = new TelegramManager(db as any, config.masterKey);
+    telegram.saveConfig('agent1', {
+      enabled: true, botToken: TOKEN, allowedChatIds: ['42'], webhookSecret: WEBHOOK_SECRET,
+      mode: 'webhook', configuredAt: new Date().toISOString(),
+    });
+    const conversation = new ConversationSessionManager(db as any);
+    const session = conversation.createSession({
+      agentId: 'agent1',
+      channel: 'telegram',
+      peer: '42',
+      goal: 'Coordinate the reservation',
+    });
+    const gateway = { bridgeTelegramInbound: vi.fn().mockResolvedValue(undefined) };
+    const baseUrl = await listen(createTelegramAppWithGateway(db, gateway));
+
+    const inbound = await request(baseUrl, '/telegram/webhook', {
+      method: 'POST',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      body: JSON.stringify({
+        update_id: 12,
+        message: { message_id: 5, date: 1, chat: { id: 42, type: 'private' }, from: { id: 7 }, text: 'Works for me' },
+      }),
+    });
+
+    expect(inbound.status).toBe(200);
+    expect(gateway.bridgeTelegramInbound).toHaveBeenCalledTimes(1);
+    expect(gateway.bridgeTelegramInbound.mock.calls[0][3]).toMatchObject({
+      sessionId: session.id,
+      chatId: '42',
+      goal: 'Coordinate the reservation',
+      latestText: 'Works for me',
+    });
+    expect(conversation.listMessages('agent1', session.id).map((m) => m.text)).toEqual(['Works for me']);
+
+    await request(baseUrl, '/telegram/webhook', {
+      method: 'POST',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      body: JSON.stringify({
+        update_id: 12,
+        message: { message_id: 5, date: 1, chat: { id: 42, type: 'private' }, from: { id: 7 }, text: 'Works for me' },
+      }),
+    });
+    expect(gateway.bridgeTelegramInbound).toHaveBeenCalledTimes(1);
+    expect(conversation.listMessages('agent1', session.id)).toHaveLength(1);
+
     db.close();
   });
 

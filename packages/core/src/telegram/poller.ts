@@ -47,6 +47,11 @@ import {
   isTelegramChatAllowed,
   type TelegramConfig,
 } from './manager.js';
+import {
+  recordTelegramConversationInbound,
+  type TelegramConversationContext,
+} from './conversation.js';
+import type { ConversationSessionManager } from '../conversation/session.js';
 
 /** Default long-poll timeout in seconds — well under proxy/CDN caps. */
 export const TELEGRAM_LONG_POLL_TIMEOUT_SEC = 25;
@@ -62,6 +67,8 @@ export interface TelegramInboundEvent {
   message: ParsedTelegramMessage;
   /** The live Telegram config (decrypted) used to send the reply. */
   config: TelegramConfig;
+  /** Active conversation session context when this message belongs to one. */
+  conversation?: TelegramConversationContext | null;
 }
 
 export interface TelegramPollerOptions {
@@ -69,6 +76,8 @@ export interface TelegramPollerOptions {
   timeoutSec?: number;
   /** Min log-suppress window — duplicated warnings collapse to one log line. */
   suppressDuplicateLogsMs?: number;
+  /** Optional active-session ledger writer for poll-mode inbound messages. */
+  conversationManager?: ConversationSessionManager;
 }
 
 /**
@@ -198,13 +207,16 @@ export class TelegramPoller {
             fromUsername: parsed.fromUsername,
             updateId: parsed.updateId,
           });
+          const conversation = this.options.conversationManager
+            ? recordTelegramConversationInbound(this.options.conversationManager, this.agentId, parsed)
+            : null;
 
           // Fire the bridge. Errors here must NOT wedge the loop — the
           // worst case is a missed agent wake on one message, which the
           // user will simply not notice on the next reply.
           if (this.onInbound) {
             try {
-              await this.onInbound({ agentId: this.agentId, message: parsed, config });
+              await this.onInbound({ agentId: this.agentId, message: parsed, config, conversation });
             } catch (err) {
               this.logError('inbound bridge failed', err);
             }

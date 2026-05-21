@@ -30,6 +30,7 @@ import {
   parseTelegramUpdate,
   nextTelegramOffset,
   parseTelegramOperatorReply,
+  recordTelegramConversationInbound,
   redactTelegramConfig,
   isTelegramChatAllowed,
   TELEGRAM_WEBHOOK_SECRET_RE,
@@ -38,6 +39,7 @@ import {
   type TelegramConfig,
   type ParsedTelegramMessage,
   type GatewayManager,
+  type TelegramConversationContext,
 } from '@agenticmail/core';
 
 type Db = ReturnType<typeof import('@agenticmail/core').getDatabase>;
@@ -66,6 +68,7 @@ function normalizeChatIds(value: unknown): string[] {
 interface InboundResult {
   duplicate: boolean;
   recorded: boolean;
+  conversation?: TelegramConversationContext | null;
   /** A reply to send back to the inbound chat, if any. */
   confirmation?: string;
   /** Set when an operator query was answered. */
@@ -104,31 +107,17 @@ function processInboundMessage(
     fromUsername: parsed.fromUsername,
     updateId: parsed.updateId,
   });
-  const session = conversationManager.findActiveSessionByPeer(agentId, 'telegram', parsed.chatId);
-  if (session) {
-    conversationManager.recordMessage({
-      sessionId: session.id,
-      agentId,
-      channel: 'telegram',
-      direction: 'inbound',
-      text: parsed.text,
-      externalMessageId: String(parsed.messageId),
-      metadata: {
-        telegramMessageId: parsed.messageId,
-        fromId: parsed.fromId,
-        updateId: parsed.updateId,
-      },
-    });
-  }
+  const conversation = recordTelegramConversationInbound(conversationManager, agentId, parsed);
+  const baseResult: InboundResult = { duplicate: false, recorded: true, conversation };
 
   // Operator-query answering — only ever from the operator's own chat.
   const operatorChatId = config.operatorChatId ? String(config.operatorChatId).trim() : '';
   if (!operatorChatId || parsed.chatId !== operatorChatId) {
-    return { duplicate: false, recorded: true };
+    return baseResult;
   }
 
   const reply = parseTelegramOperatorReply({ text: parsed.text, replyToText: parsed.replyToText });
-  if (!reply) return { duplicate: false, recorded: true };
+  if (!reply) return baseResult;
 
   // Resolve the target query: an explicitly named id, otherwise the
   // sole open query if there is exactly one (a bare reply convenience).
@@ -139,13 +128,12 @@ function processInboundMessage(
       queryId = open[0].queryId;
     } else if (open.length > 1) {
       return {
-        duplicate: false,
-        recorded: true,
+        ...baseResult,
         confirmation: `You have ${open.length} open questions — reply with: /answer <queryId> <your answer>`,
       };
     } else {
       // No open query and no id — just a normal message to the agent.
-      return { duplicate: false, recorded: true };
+      return baseResult;
     }
   }
 
@@ -153,8 +141,7 @@ function processInboundMessage(
   // Fail closed: the query must exist AND belong to THIS agent.
   if (!found || found.mission.agentId !== agentId) {
     return {
-      duplicate: false,
-      recorded: true,
+      ...baseResult,
       confirmation: `Could not find an open question with id ${queryId}.`,
     };
   }
@@ -167,15 +154,13 @@ function processInboundMessage(
     });
   } catch (err) {
     return {
-      duplicate: false,
-      recorded: true,
+      ...baseResult,
       confirmation: `Could not record that answer: ${(err as Error)?.message ?? 'unknown error'}`,
     };
   }
   if (!answered) {
     return {
-      duplicate: false,
-      recorded: true,
+      ...baseResult,
       confirmation: `Could not find an open question with id ${queryId}.`,
     };
   }
@@ -187,8 +172,7 @@ function processInboundMessage(
     .catch(() => { /* callback failure is logged inside the manager path */ });
 
   return {
-    duplicate: false,
-    recorded: true,
+    ...baseResult,
     answeredQueryId: queryId,
     confirmation: answered.alreadyAnswered
       ? `That question was already answered — keeping the first answer.`
@@ -269,7 +253,7 @@ export function createTelegramWebhookRoutes(
     // bridge directly). Same code path the poller uses, so push-mode
     // and poll-mode wake the agent identically.
     if (gatewayManager && !result.duplicate && !result.answeredQueryId) {
-      void gatewayManager.bridgeTelegramInbound(match.agentId, parsed, match.config)
+      void gatewayManager.bridgeTelegramInbound(match.agentId, parsed, match.config, result.conversation)
         .catch((err) => console.warn(`[telegram-webhook] wake bridge failed: ${(err as Error).message}`));
     }
   });
@@ -543,6 +527,7 @@ export function createTelegramRoutes(
       let recorded = 0;
       let answered = 0;
       const pendingConfirmations: Array<{ chatId: string; messageId: number; text: string }> = [];
+      const pendingBridges: Array<{ parsed: ParsedTelegramMessage; conversation?: TelegramConversationContext | null }> = [];
 
       for (const update of updates) {
         const parsed = parseTelegramUpdate(update);
@@ -551,6 +536,9 @@ export function createTelegramRoutes(
         const result = processInboundMessage(telegramManager, phoneManager, conversationManager, agent.id, cfg, parsed);
         if (result.recorded) recorded++;
         if (result.answeredQueryId) answered++;
+        if (gatewayManager && !result.duplicate && !result.answeredQueryId) {
+          pendingBridges.push({ parsed, conversation: result.conversation });
+        }
         if (result.confirmation) {
           pendingConfirmations.push({ chatId: parsed.chatId, messageId: parsed.messageId, text: result.confirmation });
         }
@@ -568,6 +556,14 @@ export function createTelegramRoutes(
         try {
           await sendTelegramMessage(cfg.botToken, c.chatId, c.text, { replyToMessageId: c.messageId });
         } catch { /* best-effort */ }
+      }
+
+      for (const bridge of pendingBridges) {
+        try {
+          await gatewayManager!.bridgeTelegramInbound(agent.id, bridge.parsed, cfg, bridge.conversation);
+        } catch (err) {
+          console.warn(`[telegram-poll] wake bridge failed: ${(err as Error).message}`);
+        }
       }
 
       res.json({ success: true, fetched: updates.length, recorded, answered, offset: newOffset });

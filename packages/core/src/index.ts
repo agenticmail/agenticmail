@@ -135,6 +135,7 @@ export {
   formatOperatorQueryTelegramMessage,
   parseTelegramOperatorReply,
   TELEGRAM_OPERATOR_QUERY_TAG,
+  recordTelegramConversationInbound,
 } from './telegram/index.js';
 export type {
   TelegramApiOptions,
@@ -151,6 +152,7 @@ export type {
   OperatorQueryNotificationInput,
   ParsedOperatorReply,
   OperatorReplyKind,
+  TelegramConversationContext,
 } from './telegram/index.js';
 
 // Phone Mission Policy

@@ -53,7 +53,10 @@ Conversation sessions are the runtime ledger above the individual transports:
 
 - Telegram sessions are executable now. Starting a session can send an initial
   message, later `conversation_send` calls send more text turns, and inbound
-  Telegram webhooks/polls append replies to the same session transcript.
+  Telegram webhooks/polls append replies to the same session transcript. When
+  a sleeping host is woken by Telegram, the wake message includes the active
+  `sessionId` and tells MCP/OpenClaw hosts to answer with `conversation_send`
+  / `agenticmail_conversation_send`.
 - Phone sessions wrap a tracked phone mission and record the mission id as the
   session's external reference. The audio conversation still runs through the
   carrier WebSocket -> `RealtimeVoiceBridge` path.

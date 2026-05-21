@@ -20,6 +20,7 @@ import {
 } from '../telegram/index.js';
 import { isEncryptedSecret } from '../crypto/secrets.js';
 import { createTestDatabase } from '../storage/db.js';
+import { ConversationSessionManager } from '../conversation/index.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -383,6 +384,13 @@ describe('TelegramPoller', () => {
     seedAgent(db, 'agent1');
     const manager = new TelegramManager(db);
     manager.saveConfig('agent1', makeConfig({ allowedChatIds: ['42'], pollOffset: 0 }));
+    const conversations = new ConversationSessionManager(db);
+    const session = conversations.createSession({
+      agentId: 'agent1',
+      channel: 'telegram',
+      peer: '42',
+      goal: 'Coordinate dinner',
+    });
 
     const update = {
       update_id: 100,
@@ -405,8 +413,12 @@ describe('TelegramPoller', () => {
     }));
 
     const seen: string[] = [];
-    const poller = new TelegramPoller(manager, 'agent1', { timeoutSec: 1 });
-    poller.onInbound = (e) => { seen.push(e.message.text); };
+    const seenSessions: Array<string | undefined> = [];
+    const poller = new TelegramPoller(manager, 'agent1', { timeoutSec: 1, conversationManager: conversations });
+    poller.onInbound = (e) => {
+      seen.push(e.message.text);
+      seenSessions.push(e.conversation?.sessionId);
+    };
     await poller.start();
 
     // Let the loop run one or two iterations.
@@ -414,6 +426,8 @@ describe('TelegramPoller', () => {
     await poller.stop();
 
     expect(seen).toEqual(['hello']);
+    expect(seenSessions).toEqual([session.id]);
+    expect(conversations.listMessages('agent1', session.id).map((m) => m.text)).toEqual(['hello']);
     // Offset must have advanced past the delivered update_id so a
     // redelivery doesn't replay it.
     const cfg = manager.getConfig('agent1');

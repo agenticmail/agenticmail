@@ -31,10 +31,12 @@ import {
   TelegramManager,
   TelegramPoller,
   parseTelegramOperatorReply,
+  type TelegramConversationContext,
   type ParsedTelegramMessage,
   type TelegramConfig,
 } from '../telegram/index.js';
 import { PhoneManager } from '../phone/manager.js';
+import { ConversationSessionManager } from '../conversation/session.js';
 
 export interface LocalSmtpConfig {
   host: string;
@@ -1110,9 +1112,11 @@ export class GatewayManager {
     const config = this.telegramManager.getConfig(agentId);
     if (!config?.enabled || config.mode !== 'poll' || !config.botToken) return;
 
-    const poller = new TelegramPoller(this.telegramManager, agentId);
+    const poller = new TelegramPoller(this.telegramManager, agentId, {
+      conversationManager: new ConversationSessionManager(this.db as any),
+    });
     poller.onInbound = async (event) => {
-      await this.bridgeInboundTelegram(event.agentId, event.message, event.config, agentName);
+      await this.bridgeInboundTelegram(event.agentId, event.message, event.config, event.conversation, agentName);
     };
     this.telegramPollers.set(agentId, poller);
     await poller.start();
@@ -1156,14 +1160,16 @@ export class GatewayManager {
     agentId: string,
     parsed: ParsedTelegramMessage,
     config: TelegramConfig,
+    conversation?: TelegramConversationContext | null,
   ): Promise<void> {
-    return this.bridgeInboundTelegram(agentId, parsed, config);
+    return this.bridgeInboundTelegram(agentId, parsed, config, conversation);
   }
 
   private async bridgeInboundTelegram(
     agentId: string,
     parsed: ParsedTelegramMessage,
     config: TelegramConfig,
+    conversation?: TelegramConversationContext | null,
     agentNameHint?: string,
   ): Promise<void> {
     console.log(`[TelegramBridge] inbound msg id=${parsed.messageId} chat=${parsed.chatId} text="${(parsed.text||'').slice(0,40)}" agentId=${agentId.slice(0,8)}`);
@@ -1251,15 +1257,34 @@ export class GatewayManager {
     //      the agent will instinctively want to reply by email. The
     //      block explicitly forbids that — the user is on Telegram and
     //      will never see an email reply.
-    const body = [
-      `[Incoming Telegram message — via AgenticMail Telegram bridge]`,
-      `from_name:           ${senderName}`,
-      parsed.fromId ? `from_id:             ${parsed.fromId}` : null,
-      `chat_id:             ${parsed.chatId}`,
-      `chat_type:           ${parsed.chatType}`,
-      `telegram_message_id: ${parsed.messageId}`,
-      `received_at:         ${parsed.date}`,
+    const replyRouting = conversation ? [
+      `=== ACTIVE CONVERSATION SESSION (important, read before responding) ===`,
+      `This Telegram message belongs to an active AgenticMail conversation session.`,
+      `session_id:          ${conversation.sessionId}`,
+      `conversation_msg_id: ${conversation.messageId}`,
+      `channel:             telegram`,
+      `chat_id:             ${conversation.chatId}`,
+      conversation.goal ? `goal:                ${conversation.goal}` : null,
+      conversation.subject ? `subject:             ${conversation.subject}` : null,
       ``,
+      `Reply through the conversation session, NOT raw telegram_send and NOT email.`,
+      ``,
+      `For MCP hosts, call:`,
+      ``,
+      `    mcp__agenticmail__invoke({`,
+      `      tool: "conversation_send",`,
+      `      args: { sessionId: "${conversation.sessionId}", text: "<your reply text>" }`,
+      `    })`,
+      ``,
+      `For OpenClaw hosts, call agenticmail_conversation_send with:`,
+      `    { sessionId: "${conversation.sessionId}", text: "<your reply text>" }`,
+      ``,
+      `To inspect the transcript first, use conversation_messages /`,
+      `agenticmail_conversation_messages with the same sessionId.`,
+      `Send EXACTLY ONE conversation_send response unless you need to do work first.`,
+      `Do not also reply by email or narrate a duplicate summary.`,
+      `=== END ACTIVE CONVERSATION SESSION ===`,
+    ] : [
       `=== REPLY ROUTING (important, read before responding) ===`,
       `This message arrived via Telegram, NOT email. To reply to ${senderName}`,
       `you MUST send through the Telegram bot — replying by email will go`,
@@ -1285,6 +1310,18 @@ export class GatewayManager {
       `single clear update back to chat_id ${parsed.chatId} when done — that`,
       `invoke call is the whole reply.`,
       `=== END REPLY ROUTING ===`,
+    ];
+
+    const body = [
+      `[Incoming Telegram message — via AgenticMail Telegram bridge]`,
+      `from_name:           ${senderName}`,
+      parsed.fromId ? `from_id:             ${parsed.fromId}` : null,
+      `chat_id:             ${parsed.chatId}`,
+      `chat_type:           ${parsed.chatType}`,
+      `telegram_message_id: ${parsed.messageId}`,
+      `received_at:         ${parsed.date}`,
+      ``,
+      ...replyRouting,
       ``,
       `--- User's message ---`,
       trimmedText,
