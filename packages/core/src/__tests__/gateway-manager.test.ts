@@ -257,6 +257,7 @@ describe('GatewayManager', () => {
       expect(delivered[0].mail.text).toContain('session_id:          conv_1');
       expect(delivered[0].mail.text).toContain('tool: "conversation_send"');
       expect(delivered[0].mail.text).toContain('agenticmail_conversation_send');
+      expect(delivered[0].mail.text).toContain('conversation_context');
       expect(delivered[0].mail.text).not.toContain('tool: "telegram_send"');
     });
   });

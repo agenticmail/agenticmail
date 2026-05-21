@@ -1282,6 +1282,18 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'conversation_context',
+    description: 'Read one live conversation session plus a compact transcript window in a single call. Use this after a wake message gives you a sessionId.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+        messageLimit: { type: 'number', description: 'Maximum transcript messages to return from the end of the session (1-200, default 50).' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
     name: 'conversation_start',
     description: 'Start a live conversation session. Telegram is executable now; phone starts a tracked phone mission; Matrix, WhatsApp, and Google Meet fail closed until adapters ship.',
     inputSchema: {
@@ -3762,6 +3774,15 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
     case 'conversation_get': {
       if (!args.sessionId) throw new Error('sessionId is required');
       const result = await apiRequest('GET', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_context': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const query = new URLSearchParams();
+      if (args.messageLimit !== undefined) query.set('messageLimit', String(args.messageLimit));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}/context${suffix}`);
       return JSON.stringify(result, null, 2);
     }
 

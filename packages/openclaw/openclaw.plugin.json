@@ -121,6 +121,7 @@
     "agenticmail_realtime_conversation_plan",
     "agenticmail_conversation_list",
     "agenticmail_conversation_get",
+    "agenticmail_conversation_context",
     "agenticmail_conversation_start",
     "agenticmail_conversation_send",
     "agenticmail_conversation_messages",

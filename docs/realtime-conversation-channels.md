@@ -31,21 +31,22 @@ The API exposes the same gate for host integrations:
 - `POST /api/agenticmail/conversation/realtime/plan`
 - `GET /api/agenticmail/conversation/sessions`
 - `GET /api/agenticmail/conversation/sessions/:id`
+- `GET /api/agenticmail/conversation/sessions/:id/context`
 - `POST /api/agenticmail/conversation/sessions/start`
 - `POST /api/agenticmail/conversation/sessions/:id/messages`
 - `GET /api/agenticmail/conversation/sessions/:id/messages`
 - `POST /api/agenticmail/conversation/sessions/:id/end`
 
 MCP hosts use `realtime_conversation_capabilities` and `realtime_conversation_plan`.
-They use `conversation_list`, `conversation_get`, `conversation_start`,
-`conversation_send`, `conversation_messages`, and `conversation_end` for active
-sessions.
+They use `conversation_list`, `conversation_get`, `conversation_context`,
+`conversation_start`, `conversation_send`, `conversation_messages`, and
+`conversation_end` for active sessions.
 OpenClaw hosts use `agenticmail_realtime_conversation_capabilities` and
 `agenticmail_realtime_conversation_plan`.
 They use `agenticmail_conversation_list`, `agenticmail_conversation_get`,
-`agenticmail_conversation_start`, `agenticmail_conversation_send`,
-`agenticmail_conversation_messages`, and `agenticmail_conversation_end` for
-active sessions.
+`agenticmail_conversation_context`, `agenticmail_conversation_start`,
+`agenticmail_conversation_send`, `agenticmail_conversation_messages`, and
+`agenticmail_conversation_end` for active sessions.
 
 ## Conversation Sessions
 

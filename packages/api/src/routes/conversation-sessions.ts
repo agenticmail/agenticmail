@@ -79,6 +79,27 @@ export function createConversationSessionRoutes(
     }
   });
 
+  router.get('/conversation/sessions/:id/context', (req: Request, res: Response) => {
+    try {
+      const agent = getAgent(req, res);
+      if (!agent) return;
+      const session = sessions.getSession(agent.id, req.params.id);
+      if (!session) return res.status(404).json({ error: 'conversation session not found' });
+      const messageLimit = Math.min(Math.max(Number(req.query.messageLimit) || 50, 1), 200);
+      const allMessages = sessions.listMessages(agent.id, req.params.id);
+      const messages = allMessages.slice(-messageLimit);
+      res.json({
+        session,
+        messages,
+        count: messages.length,
+        totalMessages: allMessages.length,
+      });
+    } catch (err) {
+      const status = String((err as Error).message).includes('not found') ? 404 : 500;
+      res.status(status).json({ error: (err as Error).message });
+    }
+  });
+
   router.get('/conversation/sessions/:id/messages', (req: Request, res: Response) => {
     try {
       const agent = getAgent(req, res);

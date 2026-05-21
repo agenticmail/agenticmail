@@ -135,6 +135,15 @@ describe('conversation session routes', () => {
       ['inbound', 'Works for me.'],
     ]);
 
+    const context = await request(baseUrl, `/conversation/sessions/${sessionId}/context?messageLimit=2`);
+    expect(context.status).toBe(200);
+    expect(context.body.session.id).toBe(sessionId);
+    expect(context.body.totalMessages).toBe(3);
+    expect(context.body.messages.map((m: any) => [m.direction, m.text])).toEqual([
+      ['outbound', 'Second turn.'],
+      ['inbound', 'Works for me.'],
+    ]);
+
     db.close();
   });
 

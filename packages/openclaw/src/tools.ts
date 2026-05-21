@@ -2610,6 +2610,24 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
     },
   });
 
+  reg('agenticmail_conversation_context', {
+    description: 'Read one live conversation session plus a compact transcript window in a single call. Use this after a wake message gives you a sessionId.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+      messageLimit: { type: 'number', description: 'Maximum transcript messages to return from the end of the session (1-200, default 50).' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        const query = new URLSearchParams();
+        if (params.messageLimit !== undefined) query.set('messageLimit', String(params.messageLimit));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/conversation/sessions/${encodeURIComponent(params.sessionId)}/context${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   reg('agenticmail_conversation_start', {
     description: 'Start a live conversation session. Telegram is executable now; phone starts a tracked phone mission; Matrix, WhatsApp, and Google Meet fail closed until adapters ship.',
     parameters: {

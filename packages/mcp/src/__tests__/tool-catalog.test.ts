@@ -109,6 +109,7 @@ describe('tool catalogue ↔ tool definitions', () => {
       'realtime_conversation_plan',
       'conversation_list',
       'conversation_get',
+      'conversation_context',
       'conversation_start',
       'conversation_send',
       'conversation_messages',
