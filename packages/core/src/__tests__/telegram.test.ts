@@ -16,6 +16,7 @@ import {
   isTelegramChatAllowed,
   formatOperatorQueryTelegramMessage,
   parseTelegramOperatorReply,
+  recordTelegramConversationInbound,
   type TelegramConfig,
 } from '../telegram/index.js';
 import { isEncryptedSecret } from '../crypto/secrets.js';
@@ -204,6 +205,7 @@ describe('parseTelegramUpdate', () => {
 describe('isTelegramStopCommand', () => {
   it('recognises bare stop words', () => {
     expect(isTelegramStopCommand('stop')).toBe(true);
+    expect(isTelegramStopCommand('/stop')).toBe(true);
     expect(isTelegramStopCommand('  CANCEL! ')).toBe(true);
     expect(isTelegramStopCommand('stop the booking please')).toBe(false);
   });
@@ -367,6 +369,37 @@ describe('parseTelegramOperatorReply', () => {
 
   it('returns null for an empty message', () => {
     expect(parseTelegramOperatorReply({ text: '   ' })).toBeNull();
+  });
+});
+
+describe('recordTelegramConversationInbound', () => {
+  it('records stop commands and closes the active Telegram conversation session', () => {
+    const db = createTestDatabase();
+    seedAgent(db, 'agent1');
+    const conversations = new ConversationSessionManager(db);
+    const session = conversations.createSession({
+      agentId: 'agent1',
+      channel: 'telegram',
+      peer: '42',
+    });
+
+    const context = recordTelegramConversationInbound(conversations, 'agent1', {
+      updateId: 10,
+      messageId: 5,
+      chatId: '42',
+      chatType: 'private',
+      fromId: '42',
+      fromName: 'Ope',
+      text: '/stop',
+      date: new Date().toISOString(),
+    });
+
+    expect(context).toMatchObject({ sessionId: session.id, ended: true });
+    expect(conversations.listMessages('agent1', session.id).map((m) => m.text)).toEqual(['/stop']);
+    expect(conversations.getSession('agent1', session.id)?.status).toBe('ended');
+    expect(conversations.findActiveSessionByPeer('agent1', 'telegram', '42')).toBeNull();
+
+    db.close();
   });
 });
 

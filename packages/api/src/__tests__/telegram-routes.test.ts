@@ -327,6 +327,39 @@ describe('telegram webhook route', () => {
     db.close();
   });
 
+  it('ends an active Telegram conversation on /stop without waking the agent', async () => {
+    const db = createDb();
+    const telegram = new TelegramManager(db as any, config.masterKey);
+    telegram.saveConfig('agent1', {
+      enabled: true, botToken: TOKEN, allowedChatIds: ['42'], webhookSecret: WEBHOOK_SECRET,
+      mode: 'webhook', configuredAt: new Date().toISOString(),
+    });
+    const conversation = new ConversationSessionManager(db as any);
+    const session = conversation.createSession({
+      agentId: 'agent1',
+      channel: 'telegram',
+      peer: '42',
+    });
+    const gateway = { bridgeTelegramInbound: vi.fn().mockResolvedValue(undefined) };
+    const baseUrl = await listen(createTelegramAppWithGateway(db, gateway));
+
+    const inbound = await request(baseUrl, '/telegram/webhook', {
+      method: 'POST',
+      headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET },
+      body: JSON.stringify({
+        update_id: 13,
+        message: { message_id: 6, date: 1, chat: { id: 42, type: 'private' }, from: { id: 7 }, text: '/stop' },
+      }),
+    });
+
+    expect(inbound.status).toBe(200);
+    expect(gateway.bridgeTelegramInbound).not.toHaveBeenCalled();
+    expect(conversation.getSession('agent1', session.id)?.status).toBe('ended');
+    expect(conversation.listMessages('agent1', session.id).map((m) => m.text)).toEqual(['/stop']);
+
+    db.close();
+  });
+
   it('answers an open ask_operator query from the operator chat (plan §13.4)', async () => {
     const db = createDb();
     const telegram = new TelegramManager(db as any, config.masterKey);

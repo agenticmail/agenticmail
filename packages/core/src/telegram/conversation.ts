@@ -1,5 +1,5 @@
 import type { ConversationSessionManager } from '../conversation/session.js';
-import type { ParsedTelegramMessage } from './update.js';
+import { isTelegramStopCommand, type ParsedTelegramMessage } from './update.js';
 
 export interface TelegramConversationContext {
   sessionId: string;
@@ -11,6 +11,7 @@ export interface TelegramConversationContext {
   subject?: string;
   latestText: string;
   telegramMessageId: number;
+  ended?: boolean;
 }
 
 export function recordTelegramConversationInbound(
@@ -34,6 +35,10 @@ export function recordTelegramConversationInbound(
       updateId: parsed.updateId,
     },
   });
+  const ended = isTelegramStopCommand(parsed.text);
+  if (ended) {
+    conversationManager.endSession(agentId, session.id, 'ended');
+  }
 
   return {
     sessionId: session.id,
@@ -45,5 +50,6 @@ export function recordTelegramConversationInbound(
     subject: session.subject,
     latestText: parsed.text,
     telegramMessageId: parsed.messageId,
+    ended,
   };
 }

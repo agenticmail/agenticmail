@@ -56,7 +56,9 @@ Conversation sessions are the runtime ledger above the individual transports:
   Telegram webhooks/polls append replies to the same session transcript. When
   a sleeping host is woken by Telegram, the wake message includes the active
   `sessionId` and tells MCP/OpenClaw hosts to answer with `conversation_send`
-  / `agenticmail_conversation_send`.
+  / `agenticmail_conversation_send`. A bare Telegram stop command such as
+  `/stop` is recorded in the transcript and closes the active session without
+  waking the host for another turn.
 - Phone sessions wrap a tracked phone mission and record the mission id as the
   session's external reference. The audio conversation still runs through the
   carrier WebSocket -> `RealtimeVoiceBridge` path.

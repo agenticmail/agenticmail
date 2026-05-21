@@ -252,7 +252,7 @@ export function createTelegramWebhookRoutes(
     // wasn't an operator-query reply (those already fed the phone
     // bridge directly). Same code path the poller uses, so push-mode
     // and poll-mode wake the agent identically.
-    if (gatewayManager && !result.duplicate && !result.answeredQueryId) {
+    if (gatewayManager && !result.duplicate && !result.answeredQueryId && !result.conversation?.ended) {
       void gatewayManager.bridgeTelegramInbound(match.agentId, parsed, match.config, result.conversation)
         .catch((err) => console.warn(`[telegram-webhook] wake bridge failed: ${(err as Error).message}`));
     }
@@ -536,7 +536,7 @@ export function createTelegramRoutes(
         const result = processInboundMessage(telegramManager, phoneManager, conversationManager, agent.id, cfg, parsed);
         if (result.recorded) recorded++;
         if (result.answeredQueryId) answered++;
-        if (gatewayManager && !result.duplicate && !result.answeredQueryId) {
+        if (gatewayManager && !result.duplicate && !result.answeredQueryId && !result.conversation?.ended) {
           pendingBridges.push({ parsed, conversation: result.conversation });
         }
         if (result.confirmation) {

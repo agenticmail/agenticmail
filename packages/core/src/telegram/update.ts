@@ -104,7 +104,7 @@ export const TELEGRAM_STOP_WORDS: ReadonlySet<string> = new Set([
 /** True when `text` is a bare stop command. */
 export function isTelegramStopCommand(text: string): boolean {
   if (!text) return false;
-  const cleaned = text.trim().toLowerCase().replace(/[!.?]+$/, '');
+  const cleaned = text.trim().toLowerCase().replace(/^\//, '').replace(/[!.?]+$/, '');
   return TELEGRAM_STOP_WORDS.has(cleaned);
 }
 
