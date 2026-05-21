@@ -315,6 +315,20 @@ describe('formatOperatorQueryTelegramMessage', () => {
     expect(msg).toContain('[AMQ oq_abc-123]');
     expect(msg).toContain('URGENT');
   });
+
+  it('surfaces only short bare commands, not /answer <oq_id>', () => {
+    // v0.9.90 — earlier copy printed `/answer oq_<long-id> <text>` and
+    // `/approve oq_<long-id>` inline, which read like a CLI manpage.
+    // The shape should be: bare /approve · /reject + a "reply to this
+    // message" instruction, with the oq_id hidden in a small footer.
+    const msg = formatOperatorQueryTelegramMessage({
+      queryId: 'oq_abc-123',
+      question: 'Is 8pm acceptable?',
+    });
+    expect(msg).toMatch(/\/approve.+\/reject/);
+    expect(msg).not.toMatch(/\/answer\s+oq_/);  // no inline /answer <id> in primary copy
+    expect(msg).not.toMatch(/\/approve oq_abc-123/);  // no inline id with /approve
+  });
 });
 
 describe('parseTelegramOperatorReply', () => {
@@ -328,6 +342,13 @@ describe('parseTelegramOperatorReply', () => {
       .toEqual({ queryId: 'oq_abc-1', answer: 'Approved: under $300', kind: 'approve' });
     expect(parseTelegramOperatorReply({ text: '/deny@am_bot oq_abc-1' }))
       .toEqual({ queryId: 'oq_abc-1', answer: 'Denied.', kind: 'deny' });
+  });
+
+  it('treats /reject as an alias for /deny (v0.9.90 user-facing synonym)', () => {
+    expect(parseTelegramOperatorReply({ text: '/reject', replyToText: 'Q: ...\n[AMQ oq_z]' }))
+      .toEqual({ queryId: 'oq_z', answer: 'Denied.', kind: 'deny' });
+    expect(parseTelegramOperatorReply({ text: '/reject not in budget', replyToText: '[AMQ oq_z]' }))
+      .toEqual({ queryId: 'oq_z', answer: 'Denied: not in budget', kind: 'deny' });
   });
 
   it('takes the query id from a quoted tagged notification', () => {

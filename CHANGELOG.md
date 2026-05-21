@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.90] - 2026-05-20
+
+### Changed — end-of-call digest interleaves both speakers; ask_operator UI cleaned up
+
+End-of-call Telegram digest previously showed the agent's last 3
+turns and the caller's last 2 turns in two SEPARATE blocks, so the
+operator had to mentally reconstruct who said what when. The digest
+now shows the last 8 conversational exchanges interleaved
+chronologically, each labelled "Agent" or "Other party". Reads
+like the call sounded.
+
+ask_operator Telegram notification previously printed
+`/answer oq_<long-id> <text>` and `/approve oq_<long-id>` inline,
+which read like a CLI manpage and exposed the internal query id
+prominently. Reformatted so the visible surface is:
+
+```
+🟡 Your agent needs an answer to continue a live call.
+
+❓ Can I share your date of birth to confirm the appointment?
+
+Reply to this message — your text goes straight back to the agent
+on the call.
+Or use one of: /approve · /reject
+
+— [AMQ oq_…]
+```
+
+The internal `oq_<id>` is now relegated to a compact footer tag
+the parser still uses as a fallback. `/reject` is a new alias for
+`/deny` so the user-facing copy matches what's documented.
+
+The `notifyCallEnded` + `formatEndOfCallDigest` functions live in
+their own module (`packages/api/src/notifications/end-of-call.ts`)
+so the formatter can be unit-tested and reused by future
+notification channels.
+
+### Bumps
+
+`core` 0.9.35 → 0.9.36, `api` 0.9.55 → 0.9.56, `cli` 0.9.89 → 0.9.90.
+
 ## [0.9.89] - 2026-05-20
 
 ### Changed — voice agent now reaches for `ask_operator` on every verification challenge

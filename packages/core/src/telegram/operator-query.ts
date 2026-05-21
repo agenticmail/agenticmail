@@ -37,8 +37,15 @@ export interface OperatorQueryNotificationInput {
 
 /**
  * Render the Telegram message body for an `ask_operator` notification.
- * The trailing `[AMQ <id>]` token lets a reply be matched to the query
- * even when the operator does not use Telegram's native reply gesture.
+ *
+ * v0.9.90 — simplified the surface. Earlier versions printed
+ * `/approve oq_<long-id>` and `/answer oq_<long-id> <text>` inline,
+ * which made every notification look like a CLI manpage. The query
+ * id is now hidden in a compact footer tag (`[AMQ oq_…]`) and the
+ * three primary actions are presented as bare commands the operator
+ * uses with Telegram's native REPLY gesture — which resolves the
+ * query id automatically. The full `/answer <id> …` syntax still
+ * works for non-reply scenarios; it's just no longer the headline.
  */
 export function formatOperatorQueryTelegramMessage(input: OperatorQueryNotificationInput): string {
   const lines: string[] = [];
@@ -46,14 +53,18 @@ export function formatOperatorQueryTelegramMessage(input: OperatorQueryNotificat
     ? '🔴 Your agent needs an answer to continue a live call (URGENT).'
     : '🟡 Your agent needs an answer to continue a live call.');
   lines.push('');
-  lines.push(`Question: ${input.question}`);
-  if (input.callContext) lines.push(`Context: ${input.callContext}`);
+  lines.push(`❓ ${input.question}`);
+  if (input.callContext) {
+    lines.push('');
+    lines.push(`Context: ${input.callContext}`);
+  }
   lines.push('');
-  lines.push('Reply to this message with your answer. You can also send:');
-  lines.push(`  /answer ${input.queryId} <your answer>`);
-  lines.push(`  /approve ${input.queryId}   ·   /deny ${input.queryId}`);
+  lines.push('Reply to this message — your text goes straight back to the agent on the call.');
+  lines.push('Or use one of: /approve · /reject');
   lines.push('');
-  lines.push(`[${TELEGRAM_OPERATOR_QUERY_TAG} ${input.queryId}]`);
+  // Tag stays for non-reply fallback parsing; small + at the very
+  // bottom so it doesn't dominate the message.
+  lines.push(`— [${TELEGRAM_OPERATOR_QUERY_TAG} ${input.queryId}]`);
   return lines.join('\n');
 }
 
@@ -102,8 +113,10 @@ export function parseTelegramOperatorReply(input: { text: string; replyToText?: 
     return { queryId: answerCmd[1], answer: answerCmd[2].trim(), kind: 'answer' };
   }
 
-  // /approve [queryId] [note]  ·  /deny [queryId] [note]
-  const decisionCmd = /^\/(approve|deny)(?:@\w+)?\b([\s\S]*)$/i.exec(text);
+  // /approve [queryId] [note]  ·  /deny [queryId] [note]  ·  /reject (alias for /deny)
+  // /reject is the user-facing synonym surfaced in the v0.9.90 notification copy;
+  // /deny is kept as a long-standing alias the parser still accepts.
+  const decisionCmd = /^\/(approve|deny|reject)(?:@\w+)?\b([\s\S]*)$/i.exec(text);
   if (decisionCmd) {
     const kind: OperatorReplyKind = decisionCmd[1].toLowerCase() === 'approve' ? 'approve' : 'deny';
     const rest = decisionCmd[2].trim();
