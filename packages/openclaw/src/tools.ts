@@ -2803,6 +2803,100 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
     },
   });
 
+  reg('agenticmail_matrix_setup', {
+    description: 'Configure the Matrix channel for this agent. Stores a homeserver URL, access token, and allowed room ids; verifies with /account/whoami unless verify=false. Matrix E2EE rooms need a separate E2EE-capable bot runtime.',
+    parameters: {
+      homeserverUrl: { type: 'string', required: true, description: 'Matrix homeserver base URL, e.g. https://matrix.example.org' },
+      accessToken: { type: 'string', required: true, description: 'Matrix access token for the bot/user. Stored encrypted and redacted.' },
+      allowedRoomIds: { type: 'array', description: 'Allowed Matrix room ids, e.g. !room:example.org' },
+      operatorRoomId: { type: 'string', description: 'Optional operator room id; always allowed.' },
+      userId: { type: 'string', description: 'Optional Matrix user id. Usually discovered via whoami.' },
+      deviceId: { type: 'string', description: 'Optional Matrix device id. Usually discovered via whoami.' },
+      verify: { type: 'boolean', description: 'Set false to skip Matrix /account/whoami verification.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/matrix/setup', {
+          homeserverUrl: params.homeserverUrl,
+          accessToken: params.accessToken,
+          allowedRoomIds: params.allowedRoomIds,
+          operatorRoomId: params.operatorRoomId,
+          userId: params.userId,
+          deviceId: params.deviceId,
+          verify: params.verify,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_config', {
+    description: 'Show the current Matrix channel config with secrets redacted.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/matrix/config');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_send', {
+    description: 'Send a plain-text Matrix m.room.message to an allowed room.',
+    parameters: {
+      roomId: { type: 'string', required: true, description: 'Matrix room id, e.g. !room:example.org' },
+      text: { type: 'string', required: true, description: 'Plain-text message body.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/matrix/send', {
+          roomId: params.roomId,
+          text: params.text,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_messages', {
+    description: 'List stored Matrix messages for this agent, newest first.',
+    parameters: {
+      direction: { type: 'string', description: 'Filter by direction: inbound or outbound.' },
+      roomId: { type: 'string', description: 'Filter by Matrix room id.' },
+      limit: { type: 'number', description: 'Max messages (default 20, max 100).' },
+      offset: { type: 'number', description: 'Skip messages.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        if (params.direction) query.set('direction', String(params.direction));
+        if (params.roomId) query.set('roomId', String(params.roomId));
+        if (params.limit) query.set('limit', String(params.limit));
+        if (params.offset) query.set('offset', String(params.offset));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/matrix/messages${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_poll', {
+    description: 'Poll Matrix /sync for allowed rooms and mirror inbound m.room.message events into active Matrix conversation sessions.',
+    parameters: {
+      since: { type: 'string', description: 'Optional Matrix sync token override. Omit to use saved syncToken.' },
+      timeoutMs: { type: 'number', description: 'Matrix /sync timeout in milliseconds, max 30000.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/matrix/poll', {
+          since: params.since,
+          timeoutMs: params.timeoutMs,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   reg('agenticmail_call_phone', {
     description: 'Start a tracked outbound phone mission. This is call-control only unless the configured transport reports realtime_media; risky decisions must be encoded in policy and may require the operator.',
     parameters: {

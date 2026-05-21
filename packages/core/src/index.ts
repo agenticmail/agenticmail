@@ -155,6 +155,31 @@ export type {
   TelegramConversationContext,
 } from './telegram/index.js';
 
+// Matrix channel — unencrypted bot/room adapter over the Matrix
+// Client-Server API. It stores per-agent homeserver/token config,
+// supports m.room.message sends, and polls /sync for allowed rooms.
+export {
+  MatrixApiError,
+  MATRIX_MESSAGE_LIMIT,
+  getMatrixWhoami,
+  sendMatrixMessage,
+  getMatrixSync,
+  parseMatrixSyncMessages,
+  MatrixManager,
+  buildMatrixConfig,
+  redactMatrixConfig,
+  isMatrixRoomAllowed,
+} from './matrix/index.js';
+export type {
+  MatrixApiOptions,
+  MatrixWhoami,
+  SendMatrixMessageResult,
+  MatrixSyncOptions,
+  ParsedMatrixMessage,
+  MatrixConfig,
+  MatrixMessage,
+} from './matrix/index.js';
+
 // Phone Mission Policy
 export {
   ELKS_REALTIME_AUDIO_FORMATS,

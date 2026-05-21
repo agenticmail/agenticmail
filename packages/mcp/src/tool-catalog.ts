@@ -180,6 +180,15 @@ export const TOOL_SETS = {
     'telegram_poll',
   ],
 
+  /** Matrix channel — bot setup, send/list messages, poll /sync. */
+  matrix: [
+    'matrix_setup',
+    'matrix_config',
+    'matrix_send',
+    'matrix_messages',
+    'matrix_poll',
+  ],
+
   /** Media toolset — TTS, image/video/audio editing, probing, understanding. */
   media: [
     'media_capabilities',
@@ -257,6 +266,7 @@ export const SET_DESCRIPTIONS: Record<ToolSetName, string> = {
   phone: 'Phone call-control — setup/capabilities/start/status/transcript/cancel',
   realtime: 'Realtime conversation readiness — channel map and start gates for phone, Telegram, Matrix, WhatsApp, and Google Meet',
   telegram: 'Telegram channel — bot setup, send/list messages, poll for updates',
+  matrix: 'Matrix channel — homeserver/token setup, send/list messages, poll /sync for allowed rooms',
   skills: 'Skill library — load real-world phone-call playbooks (negotiate-bill-reduction, handle-debt-collector, book-restaurant-reservation, …) on demand mid-call. Search and load when the agent hits a situation it needs a playbook for.',
   media: 'Media toolset — text-to-speech, image/video/audio editing, probing, video understanding, voice cloning (opt-in, needs ffmpeg/ImageMagick/whisper)',
   account_admin: 'Account admin — create/delete/stop/resume agents, cleanup (master key required)',

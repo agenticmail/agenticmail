@@ -8,7 +8,7 @@ AgenticMail's live-conversation work starts with phone calls, but the contract m
 | --- | --- | --- | --- |
 | Phone | Available | Duplex audio | Current executable path: phone mission -> carrier media stream -> `RealtimeVoiceBridge`. Requires realtime media, OpenAI Realtime, and a per-mission policy. |
 | Telegram | Available | Near-realtime text | Already usable as a user/agent message channel and operator escalation path. It is text-turn realtime, not audio realtime. |
-| Matrix | Planned | Near-realtime text | Should reuse the Telegram-style channel contract: room membership, message event bridge, transcript, tool loop. |
+| Matrix | Available | Near-realtime text | Plain-text Matrix bot adapter over the Client-Server API: homeserver/token setup, allowed rooms, `m.room.message` send, `/sync` poll ingestion, transcript mirroring. E2EE rooms need a separate E2EE-capable bot runtime. |
 | WhatsApp | Planned | Near-realtime text | Must be opt-in and WhatsApp Business/template/session-window aware. It must not be treated as free-form SMS. |
 | Google Meet | Planned | Meeting AV | Needs a meeting bot/join authority, audio capture/playback bridge, transcript, and participant consent policy. It is not a phone carrier. |
 
@@ -19,6 +19,7 @@ Use `planRealtimeConversationStart()` before claiming a channel can start:
 - Unknown channels fail closed.
 - Planned adapters fail closed until their implementation exists.
 - Opt-in channels require user opt-in.
+- Matrix requires a configured homeserver/access token and a linked/allowed room.
 - Phone requires a configured transport, realtime media, OpenAI Realtime, and mission policy.
 - 46elks phone realtime also requires `realtimeBridgeNumber`, the 46elks websocket-number that outbound calls connect to.
 - WhatsApp additionally requires template/session-window approval.
@@ -54,7 +55,8 @@ They use `agenticmail_conversation_list`, `agenticmail_conversation_get`,
 Conversation sessions are the runtime ledger above the individual transports:
 
 - `POST /conversation/sessions/:id/messages` means "deliver this text through
-  the channel transport". Today that is executable for Telegram text sessions.
+  the channel transport". Today that is executable for Telegram and Matrix text
+  sessions.
 - `POST /conversation/sessions/:id/transcript` means "mirror an already
   observed event into the ledger". It records inbound, outbound, or system
   turns against the session's existing channel and does not send anything over
@@ -67,6 +69,12 @@ Conversation sessions are the runtime ledger above the individual transports:
   / `agenticmail_conversation_send`. A bare Telegram stop command such as
   `/stop` is recorded in the transcript and closes the active session without
   waking the host for another turn.
+- Matrix sessions are executable now for plain-text bot rooms. `matrix_setup`
+  / `agenticmail_matrix_setup` stores the homeserver, access token, and allowed
+  rooms. Starting a Matrix conversation can send an initial message, later
+  `conversation_send` calls send `m.room.message` events, and `matrix_poll` /
+  `agenticmail_matrix_poll` ingests `/sync` message events into the same
+  conversation transcript.
 - Phone sessions wrap a tracked phone mission and record the mission id as the
   session's external reference. They are created both by
   `conversation_start(channel: "phone")` and by the legacy `/calls/start`
@@ -78,8 +86,8 @@ Conversation sessions are the runtime ledger above the individual transports:
   phone session instead of leaving stale live conversations behind. `GET
   /calls/:id` includes the linked `conversationSession`, so hosts can recover
   the ledger from a mission id.
-- Matrix, WhatsApp, and Google Meet remain planned and fail closed through the
-  same start gate until their adapters exist.
+- WhatsApp and Google Meet remain planned and fail closed through the same start
+  gate until their adapters exist.
 
 ## 46elks Realtime Bridge Number
 

@@ -94,7 +94,7 @@ const CAPABILITIES: Record<RealtimeConversationChannel, RealtimeConversationCapa
   matrix: {
     channel: 'matrix',
     displayName: 'Matrix',
-    status: 'planned',
+    status: 'available',
     mode: 'near_realtime_text',
     supportsOutboundStart: true,
     supportsInboundStart: true,
@@ -108,7 +108,8 @@ const CAPABILITIES: Record<RealtimeConversationChannel, RealtimeConversationCapa
       'message event bridge',
     ],
     notes: [
-      'Planned as a channel adapter that should reuse the same conversation contract as Telegram.',
+      'Executable text adapter: AgenticMail sends m.room.message events and polls /sync for allowed rooms.',
+      'Encrypted Matrix rooms require a separate E2EE-capable bot runtime and are not handled by this adapter.',
     ],
   },
   whatsapp: {

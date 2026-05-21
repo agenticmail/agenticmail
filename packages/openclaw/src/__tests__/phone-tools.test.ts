@@ -36,6 +36,11 @@ describe('OpenClaw phone tool surface', () => {
       'agenticmail_call_status',
       'agenticmail_call_transcript',
       'agenticmail_call_cancel',
+      'agenticmail_matrix_setup',
+      'agenticmail_matrix_config',
+      'agenticmail_matrix_send',
+      'agenticmail_matrix_messages',
+      'agenticmail_matrix_poll',
     ]));
   });
 
@@ -64,5 +69,15 @@ describe('OpenClaw phone tool surface', () => {
     expect(contextTool.parameters.properties.messageLimit.type).toBe('number');
     const startTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_conversation_start');
     expect(startTool.parameters.required).toEqual(expect.arrayContaining(['channel']));
+  });
+
+  it('exposes Matrix channel setup and poll tools', () => {
+    const setupTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_matrix_setup');
+    expect(setupTool.parameters.required).toEqual(expect.arrayContaining(['homeserverUrl', 'accessToken']));
+    expect(setupTool.parameters.properties.allowedRoomIds.type).toBe('array');
+    const sendTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_matrix_send');
+    expect(sendTool.parameters.required).toEqual(expect.arrayContaining(['roomId', 'text']));
+    const pollTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_matrix_poll');
+    expect(pollTool.parameters.properties.timeoutMs.type).toBe('number');
   });
 });

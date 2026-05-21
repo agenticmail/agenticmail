@@ -103,6 +103,16 @@ describe('tool catalogue ↔ tool definitions', () => {
     ]);
   });
 
+  it('matrix set exposes the Matrix channel surface', () => {
+    expect(TOOL_SETS.matrix).toEqual([
+      'matrix_setup',
+      'matrix_config',
+      'matrix_send',
+      'matrix_messages',
+      'matrix_poll',
+    ]);
+  });
+
   it('realtime set exposes channel-neutral conversation readiness tools', () => {
     expect(TOOL_SETS.realtime).toEqual([
       'realtime_conversation_capabilities',

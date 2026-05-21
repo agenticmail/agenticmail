@@ -1411,6 +1411,67 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'matrix_setup',
+    description: 'Configure the Matrix channel for this agent. Stores a Matrix homeserver URL, access token, and allowed room ids; verifies the token with /account/whoami unless verify=false. Matrix E2EE rooms need a separate E2EE-capable bot runtime.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        homeserverUrl: { type: 'string', description: 'Matrix homeserver base URL, e.g. https://matrix.example.org' },
+        accessToken: { type: 'string', description: 'Matrix access token for the bot/user. Stored encrypted and never returned.' },
+        allowedRoomIds: { type: 'array', items: { type: 'string' }, description: 'Room ids the agent may read/send, e.g. !room:example.org' },
+        operatorRoomId: { type: 'string', description: 'Optional operator room id; always allowed.' },
+        userId: { type: 'string', description: 'Optional Matrix user id. Usually discovered via whoami.' },
+        deviceId: { type: 'string', description: 'Optional Matrix device id. Usually discovered via whoami.' },
+        verify: { type: 'boolean', description: 'Set false to skip Matrix /account/whoami verification.' },
+      },
+      required: ['homeserverUrl', 'accessToken'],
+    },
+  },
+  {
+    name: 'matrix_config',
+    description: 'Show the current Matrix channel config with secrets redacted.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'matrix_send',
+    description: 'Send a plain-text Matrix m.room.message to an allowed room.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        roomId: { type: 'string', description: 'Matrix room id, e.g. !room:example.org' },
+        text: { type: 'string', description: 'Plain-text message body.' },
+      },
+      required: ['roomId', 'text'],
+    },
+  },
+  {
+    name: 'matrix_messages',
+    description: 'List stored Matrix messages for this agent, newest first.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        direction: { type: 'string', enum: ['inbound', 'outbound'], description: 'Filter by direction.' },
+        roomId: { type: 'string', description: 'Filter by Matrix room id.' },
+        limit: { type: 'number', description: 'Max messages (default 20, max 100).' },
+        offset: { type: 'number', description: 'Skip messages.' },
+      },
+    },
+  },
+  {
+    name: 'matrix_poll',
+    description: 'Poll Matrix /sync for allowed rooms and mirror inbound m.room.message events into active Matrix conversation sessions.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        since: { type: 'string', description: 'Optional Matrix sync token override. Omit to use saved syncToken.' },
+        timeoutMs: { type: 'number', description: 'Matrix /sync timeout in milliseconds, max 30000.' },
+      },
+    },
+  },
+  {
     name: 'call_phone',
     description: [
       'Start a tracked outbound phone mission. This is call-control only unless the configured transport reports realtime_media; risky decisions must be encoded in policy and may require the operator.',
@@ -3867,6 +3928,51 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
 
     case 'telegram_poll': {
       const result = await apiRequest('POST', '/telegram/poll');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_setup': {
+      const result = await apiRequest('POST', '/matrix/setup', {
+        homeserverUrl: args.homeserverUrl,
+        accessToken: args.accessToken,
+        allowedRoomIds: args.allowedRoomIds,
+        operatorRoomId: args.operatorRoomId,
+        userId: args.userId,
+        deviceId: args.deviceId,
+        verify: args.verify,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_config': {
+      const result = await apiRequest('GET', '/matrix/config');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_send': {
+      const result = await apiRequest('POST', '/matrix/send', {
+        roomId: args.roomId,
+        text: args.text,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_messages': {
+      const query = new URLSearchParams();
+      if (args.direction) query.set('direction', String(args.direction));
+      if (args.roomId) query.set('roomId', String(args.roomId));
+      if (args.limit) query.set('limit', String(args.limit));
+      if (args.offset) query.set('offset', String(args.offset));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/matrix/messages${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_poll': {
+      const result = await apiRequest('POST', '/matrix/poll', {
+        since: args.since,
+        timeoutMs: args.timeoutMs,
+      });
       return JSON.stringify(result, null, 2);
     }
 

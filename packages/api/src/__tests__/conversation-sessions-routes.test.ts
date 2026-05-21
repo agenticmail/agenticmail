@@ -162,7 +162,7 @@ describe('conversation session routes', () => {
     db.close();
   });
 
-  it('records channel-neutral transcript turns without enabling planned-channel send', async () => {
+  it('records channel-neutral transcript turns without requiring transport send config', async () => {
     const db = createDb();
     const manager = new ConversationSessionManager(db);
     const matrix = manager.createSession({
@@ -219,7 +219,7 @@ describe('conversation session routes', () => {
       body: JSON.stringify({ text: 'Try to send through Matrix.' }),
     });
     expect(sendAttempt.status).toBe(400);
-    expect(sendAttempt.body.error).toMatch(/matrix sessions do not accept text messages/);
+    expect(sendAttempt.body.error).toMatch(/Matrix not configured or disabled/);
 
     const empty = await request(baseUrl, `/conversation/sessions/${matrix.id}/transcript`, {
       method: 'POST',

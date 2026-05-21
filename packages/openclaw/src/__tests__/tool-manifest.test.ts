@@ -40,4 +40,17 @@ describe('OpenClaw tool manifest', () => {
       expect(tools.has(name), `${name} should be registered`).toBe(true);
     }
   });
+
+  it('exposes the Matrix channel tools', () => {
+    const tools = new Set(registeredToolNames());
+    for (const name of [
+      'agenticmail_matrix_setup',
+      'agenticmail_matrix_config',
+      'agenticmail_matrix_send',
+      'agenticmail_matrix_messages',
+      'agenticmail_matrix_poll',
+    ]) {
+      expect(tools.has(name), `${name} should be registered`).toBe(true);
+    }
+  });
 });

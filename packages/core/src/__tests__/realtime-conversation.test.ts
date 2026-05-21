@@ -16,7 +16,11 @@ describe('realtime conversation capabilities', () => {
       mode: 'duplex_audio',
       supportsToolLoop: true,
     });
-    expect(getRealtimeConversationCapability('matrix').status).toBe('planned');
+    expect(getRealtimeConversationCapability('matrix')).toMatchObject({
+      status: 'available',
+      mode: 'near_realtime_text',
+      supportsTranscript: true,
+    });
     expect(getRealtimeConversationCapability('whatsapp').requiresOptIn).toBe(true);
     expect(getRealtimeConversationCapability('google_meet').mode).toBe('meeting_av');
   });
@@ -56,7 +60,7 @@ describe('realtime conversation capabilities', () => {
     })).toMatchObject({ ok: true, mode: 'duplex_audio' });
   });
 
-  it('models Telegram as available text conversation and future channels as gated', () => {
+  it('models Telegram and Matrix as available text conversations and future channels as gated', () => {
     expect(planRealtimeConversationStart({
       channel: 'telegram',
       transportConfigured: true,
@@ -68,8 +72,7 @@ describe('realtime conversation capabilities', () => {
       transportConfigured: true,
       userOptedIn: true,
     });
-    expect(matrix.ok).toBe(false);
-    expect(matrix.missing).toContain('Matrix adapter implementation');
+    expect(matrix).toMatchObject({ ok: true, mode: 'near_realtime_text' });
 
     const whatsapp = planRealtimeConversationStart({
       channel: 'whatsapp',

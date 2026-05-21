@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import {
   ConversationSessionManager,
+  MatrixApiError,
+  MatrixManager,
   PhoneManager,
   TelegramApiError,
   TelegramManager,
@@ -8,6 +10,7 @@ import {
   isRealtimeConversationChannel,
   isTelegramChatAllowed,
   planRealtimeConversationStart,
+  sendMatrixMessage,
   sendTelegramMessage,
   type AgenticMailConfig,
   type ConversationSessionStatus,
@@ -57,6 +60,7 @@ export function createConversationSessionRoutes(
   const router = Router();
   const sessions = new ConversationSessionManager(db as any);
   const telegramManager = new TelegramManager(db as any, config.masterKey);
+  const matrixManager = new MatrixManager(db as any, config.masterKey);
   const phoneManager = new PhoneManager(db as any, config.masterKey);
 
   router.get('/conversation/sessions', (req: Request, res: Response) => {
@@ -131,6 +135,9 @@ export function createConversationSessionRoutes(
       if (channel === 'telegram') {
         return await startTelegramSession(req, res, agent.id);
       }
+      if (channel === 'matrix') {
+        return await startMatrixSession(req, res, agent.id);
+      }
       if (channel === 'phone') {
         return await startPhoneSession(req, res, agent.id);
       }
@@ -156,6 +163,10 @@ export function createConversationSessionRoutes(
       if (session.status !== 'active') return res.status(400).json({ error: 'conversation session is not active' });
       const text = typeof req.body?.text === 'string' ? req.body.text : '';
       if (!text.trim()) return res.status(400).json({ error: 'text is required' });
+
+      if (session.channel === 'matrix') {
+        return await sendMatrixSessionMessage(req, res, agent.id, session.id, session.peer, text);
+      }
 
       if (session.channel !== 'telegram') {
         return res.status(400).json({
@@ -308,6 +319,83 @@ export function createConversationSessionRoutes(
         success: false,
         session,
         error: err instanceof TelegramApiError ? err.description : 'Telegram send failed',
+      });
+    }
+  }
+
+  async function startMatrixSession(req: Request, res: Response, agentId: string): Promise<Response> {
+    const cfg = matrixManager.getConfig(agentId);
+    const roomId = requestString(req.body?.roomId ?? req.body?.peer);
+    const initialMessage = typeof req.body?.initialMessage === 'string' ? req.body.initialMessage : '';
+    const roomAllowed = !!cfg && roomId && cfg.allowedRoomIds.concat(cfg.operatorRoomId ? [cfg.operatorRoomId] : [])
+      .some((id) => String(id).trim() === roomId);
+    const plan = planRealtimeConversationStart({
+      channel: 'matrix',
+      transportConfigured: !!cfg?.enabled && !!cfg.accessToken,
+      userOptedIn: roomAllowed,
+    });
+    if (!plan.ok) return res.status(400).json({ error: plan.reason, plan });
+    if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+
+    const existing = sessions.findActiveSessionByPeer(agentId, 'matrix', roomId);
+    const session = existing ?? sessions.createSession({
+      agentId,
+      channel: 'matrix',
+      peer: roomId,
+      subject: requestString(req.body?.subject) || undefined,
+      goal: requestString(req.body?.goal) || undefined,
+      metadata: { transport: 'matrix', homeserverUrl: cfg!.homeserverUrl },
+    });
+    if (!initialMessage.trim()) {
+      return res.json({ success: true, session, reused: !!existing, plan });
+    }
+    return sendMatrixSessionMessage(req, res, agentId, session.id, roomId, initialMessage, { session, reused: !!existing, plan });
+  }
+
+  async function sendMatrixSessionMessage(
+    _req: Request,
+    res: Response,
+    agentId: string,
+    sessionId: string,
+    roomId: string,
+    text: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<Response> {
+    const cfg = matrixManager.getConfig(agentId);
+    if (!cfg?.enabled) {
+      return res.status(400).json({ error: 'Matrix not configured or disabled. Use /matrix/setup first.' });
+    }
+    try {
+      const result = await sendMatrixMessage(cfg, roomId, text);
+      const matrixRecord = matrixManager.recordOutbound(agentId, {
+        roomId,
+        text,
+        eventId: result.eventId,
+        status: 'sent',
+      }, {
+        conversationSessionId: sessionId,
+        txnId: result.txnId,
+      });
+      const message = sessions.recordMessage({
+        sessionId,
+        agentId,
+        channel: 'matrix',
+        direction: 'outbound',
+        text,
+        externalMessageId: result.eventId,
+        metadata: { matrixEventId: result.eventId, txnId: result.txnId },
+      });
+      return res.json({ success: true, message, matrix: matrixRecord, ...extra });
+    } catch (err) {
+      const matrixRecord = matrixManager.recordOutbound(agentId, { roomId, text, status: 'failed' }, {
+        conversationSessionId: sessionId,
+        error: err instanceof MatrixApiError ? err.message : 'send failed',
+      });
+      return res.status(502).json({
+        success: false,
+        matrix: matrixRecord,
+        error: err instanceof MatrixApiError ? err.message : 'Matrix send failed',
+        ...extra,
       });
     }
   }
