@@ -1,0 +1,57 @@
+{
+  "name": "@agenticmail/hermes",
+  "version": "0.1.0",
+  "description": "Hermes host helpers for AgenticMail, including the localhost realtime voice bridge runner",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "agenticmail-hermes-voice-host-bridge": "dist/voice-host-bridge-bin.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/voice-host-bridge-bin.ts --format esm --dts --clean",
+    "test": "vitest run --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@agenticmail/voice-host-bridge": "^0.1.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agenticmail/agenticmail.git",
+    "directory": "packages/hermes"
+  },
+  "homepage": "https://github.com/agenticmail/agenticmail",
+  "bugs": "https://github.com/agenticmail/agenticmail/issues",
+  "keywords": [
+    "agenticmail",
+    "hermes",
+    "nous",
+    "voice",
+    "realtime",
+    "phone"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Ope Olatunji",
+  "license": "MIT"
+}

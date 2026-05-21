@@ -311,7 +311,7 @@ async function buildPhoneReadiness(
           'For 46elks realtime, also set realtimeBridgeNumber to your 46elks websocket-number.',
           runtimeSetupAction,
           voiceRuntime === 'host_bridge'
-            ? 'Start the local bridge with agenticmail-voice-host-bridge or the OpenClaw/Codex/Claude Code wrapper bin.'
+            ? 'Start the local bridge with agenticmail-voice-host-bridge or the OpenClaw/Codex/Claude Code/Hermes wrapper bin.'
             : undefined,
           'Run agenticmail_phone_readiness again until ready=true.',
         ].filter(Boolean),

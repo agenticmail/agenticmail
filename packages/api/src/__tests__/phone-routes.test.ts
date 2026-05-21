@@ -328,7 +328,7 @@ describe('phone routes', () => {
         healthStatus: 503,
       },
     });
-    expect(ready.body.nextActions).toContain('Start the local bridge with agenticmail-voice-host-bridge or the OpenClaw/Codex/Claude Code wrapper bin.');
+    expect(ready.body.nextActions).toContain('Start the local bridge with agenticmail-voice-host-bridge or the OpenClaw/Codex/Claude Code/Hermes wrapper bin.');
 
     if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = priorOpenAi;

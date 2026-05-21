@@ -77,11 +77,30 @@ AGENTICMAIL_VOICE_HOST_BRIDGE_URL=ws://127.0.0.1:3999/realtime
 The same runner is available from host packages as
 `agenticmail-openclaw-voice-host-bridge`,
 `agenticmail-codex-voice-host-bridge`, and
-`agenticmail-claudecode-voice-host-bridge`. Add
+`agenticmail-claudecode-voice-host-bridge`, plus the Hermes helper
+`agenticmail-hermes-voice-host-bridge`. Add
 `AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN` on both sides if the bridge should reject
 unauthenticated local clients. `phone_readiness` also checks the bridge's
 derived `/health` endpoint, so a configured URL does not count as ready unless
 the local bridge process is actually reachable.
+
+OpenClaw setup shape:
+
+1. Start the bridge next to OpenClaw:
+   `OPENAI_API_KEY=sk-... agenticmail-openclaw-voice-host-bridge --token <shared-token>`.
+2. Put `AGENTICMAIL_VOICE_RUNTIME=host_bridge`,
+   `AGENTICMAIL_VOICE_HOST_BRIDGE_URL=ws://127.0.0.1:3999/realtime`, and the
+   same `AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN` into the AgenticMail API service
+   environment.
+3. Restart AgenticMail API, then run
+   `agenticmail_phone_readiness({ "voiceRuntime": "host_bridge" })` from
+   OpenClaw. Only `canHoldRealtimeConversation: true` means the live call path
+   is usable.
+
+Hermes uses the same contract. The Hermes-named bin is intentionally just a
+thin wrapper around `@agenticmail/voice-host-bridge`, so a future Python-native
+Hermes plugin can keep using the same AgenticMail env, health check, and
+`host_bridge` runtime.
 
 For an operator-facing "can I make a real live call now?" check, use `GET
 /api/agenticmail/phone/readiness`, `phone_readiness`, or

@@ -24,8 +24,9 @@ What is now executable:
   AgenticMail connects to in `host_bridge` mode.
 - `phone_readiness` checks the bridge `/health` endpoint instead of treating a
   configured URL as enough.
-- `@agenticmail/cli`, `@agenticmail/openclaw`, `@agenticmail/codex`, and
-  `@agenticmail/claudecode` expose wrapper bins for the same bridge runner.
+- `@agenticmail/cli`, `@agenticmail/openclaw`, `@agenticmail/codex`,
+  `@agenticmail/claudecode`, and `@agenticmail/hermes` expose wrapper bins for
+  the same bridge runner.
 
 What is not done yet:
 
@@ -97,6 +98,7 @@ Factory slices:
    - `agenticmail-openclaw-voice-host-bridge`
    - `agenticmail-codex-voice-host-bridge`
    - `agenticmail-claudecode-voice-host-bridge`
+   - `agenticmail-hermes-voice-host-bridge`
 4. Configure AgenticMail for the runner:
    - `AGENTICMAIL_VOICE_RUNTIME=host_bridge`
    - `AGENTICMAIL_VOICE_HOST_BRIDGE_URL=ws://127.0.0.1:3999/realtime`

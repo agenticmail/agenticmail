@@ -6,6 +6,7 @@
     { "path": "packages/api" },
     { "path": "packages/mcp" },
     { "path": "packages/openclaw" },
+    { "path": "packages/hermes" },
     { "path": "agenticmail" }
   ]
 }
