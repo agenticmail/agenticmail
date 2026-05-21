@@ -170,11 +170,61 @@ function redactEndpoint(endpoint?: string): string | undefined {
   }
 }
 
-function buildPhoneReadiness(
+interface HostBridgeHealth {
+  checked: boolean;
+  reachable: boolean;
+  healthUrl?: string;
+  status?: number;
+  error?: string;
+}
+
+function hostBridgeHealthUrl(endpoint?: string): string | undefined {
+  const raw = requestString(endpoint);
+  if (!raw) return undefined;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === 'wss:') parsed.protocol = 'https:';
+    else if (parsed.protocol === 'ws:') parsed.protocol = 'http:';
+    else if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+    parsed.pathname = '/health';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+async function checkHostBridgeHealth(endpoint?: string): Promise<HostBridgeHealth> {
+  const healthUrl = hostBridgeHealthUrl(endpoint);
+  if (!healthUrl) return { checked: false, reachable: false };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 750);
+  try {
+    const res = await fetch(healthUrl, { signal: controller.signal });
+    return {
+      checked: true,
+      reachable: res.ok,
+      healthUrl,
+      status: res.status,
+    };
+  } catch (err) {
+    return {
+      checked: true,
+      reachable: false,
+      healthUrl,
+      error: (err as Error).name === 'AbortError' ? 'timeout' : ((err as Error).message || 'unreachable'),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function buildPhoneReadiness(
   cfg: PhoneTransportConfig | null,
   config: AgenticMailConfig,
   requestedRuntime?: string,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const defaultRuntime = (config.voiceRuntime && config.voiceRuntime.trim()) || 'openai';
   const voiceRuntime = requestString(requestedRuntime) || defaultRuntime;
   const providers = listVoiceProviders();
@@ -185,6 +235,9 @@ function buildPhoneReadiness(
   const hostBridgeTokenConfigured = !!requestString(config.voiceHostBridge?.token)
     || !!requestString(process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN);
   const hostBridgeConfigured = voiceRuntime === 'host_bridge' && !!hostBridgeEndpoint;
+  const hostBridgeHealth = hostBridgeConfigured
+    ? await checkHostBridgeHealth(hostBridgeEndpoint)
+    : { checked: false, reachable: false } satisfies HostBridgeHealth;
   const missing: string[] = [];
   const warnings: string[] = [];
 
@@ -200,13 +253,14 @@ function buildPhoneReadiness(
     missing.push(`known voice runtime provider "${voiceRuntime}"`);
   } else if (voiceRuntime === 'host_bridge') {
     if (!hostBridgeEndpoint) missing.push('AGENTICMAIL_VOICE_HOST_BRIDGE_URL or voiceHostBridge.url');
+    else if (!hostBridgeHealth.reachable) missing.push('reachable voice host bridge health endpoint');
   } else if (providerKeyRequired && !providerKeys?.configured) {
     missing.push(`${provider.apiKeyEnvVar} or voiceProviderKeys.${provider.id}`);
   }
 
   const canPlaceTrackedCalls = !!cfg && cfg.capabilities.includes('call_control');
   const realtimeTransportReady = phoneRealtimeReady(cfg);
-  const runtimeReady = voiceRuntime === 'host_bridge' ? hostBridgeConfigured : !!providerKeys?.configured;
+  const runtimeReady = voiceRuntime === 'host_bridge' ? hostBridgeConfigured && hostBridgeHealth.reachable : !!providerKeys?.configured;
   const canHoldRealtimeConversation = canPlaceTrackedCalls && realtimeTransportReady && runtimeReady;
   const testRegionAllowlist = cfg?.supportedRegions?.length ? cfg.supportedRegions : ['WORLD'];
   const runtimeSetupAction = voiceRuntime === 'host_bridge'
@@ -238,6 +292,10 @@ function buildPhoneReadiness(
       ? {
           configured: hostBridgeConfigured,
           endpoint: redactEndpoint(hostBridgeEndpoint),
+          reachable: hostBridgeHealth.reachable,
+          healthUrl: redactEndpoint(hostBridgeHealth.healthUrl),
+          healthStatus: hostBridgeHealth.status,
+          healthError: hostBridgeHealth.error,
           tokenConfigured: hostBridgeTokenConfigured,
           wireProtocol: 'openai_realtime_compatible_websocket',
         }
@@ -252,8 +310,11 @@ function buildPhoneReadiness(
           'Run agenticmail_phone_transport_setup with provider credentials, public webhookBaseUrl, webhookSecret, capabilities ["call_control","realtime_media"], and supportedRegions.',
           'For 46elks realtime, also set realtimeBridgeNumber to your 46elks websocket-number.',
           runtimeSetupAction,
+          voiceRuntime === 'host_bridge'
+            ? 'Start the local bridge with agenticmail-voice-host-bridge or the OpenClaw/Codex/Claude Code wrapper bin.'
+            : undefined,
           'Run agenticmail_phone_readiness again until ready=true.',
-        ],
+        ].filter(Boolean),
     testCallTemplate: {
       tool: 'agenticmail_call_phone_safe',
       mcpTool: 'call_phone_safe',
@@ -504,12 +565,12 @@ export function createPhoneRoutes(
     }
   });
 
-  router.get('/phone/readiness', (req: Request, res: Response) => {
+  router.get('/phone/readiness', async (req: Request, res: Response) => {
     try {
       const agent = getAgent(req, res);
       if (!agent) return;
       const cfg = phoneManager.getPhoneTransportConfig(agent.id);
-      res.json(buildPhoneReadiness(cfg, config, requestString(req.query.voiceRuntime)));
+      res.json(await buildPhoneReadiness(cfg, config, requestString(req.query.voiceRuntime)));
     } catch (err) {
       sendPhoneError(res, err);
     }

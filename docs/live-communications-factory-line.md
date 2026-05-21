@@ -22,6 +22,8 @@ What is now executable:
 - AgenticMail exposes a `host_bridge` voice runtime contract.
 - `@agenticmail/voice-host-bridge` runs the localhost WebSocket bridge that
   AgenticMail connects to in `host_bridge` mode.
+- `phone_readiness` checks the bridge `/health` endpoint instead of treating a
+  configured URL as enough.
 - `@agenticmail/cli`, `@agenticmail/openclaw`, `@agenticmail/codex`, and
   `@agenticmail/claudecode` expose wrapper bins for the same bridge runner.
 

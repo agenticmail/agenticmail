@@ -105,6 +105,14 @@ async function setupTransport(baseUrl: string) {
   });
 }
 
+async function listenHostBridgeHealth(status = 200): Promise<string> {
+  const app = express();
+  app.get('/health', (_req, res) => {
+    res.status(status).json({ status: status >= 200 && status < 300 ? 'ok' : 'down' });
+  });
+  return listen(app);
+}
+
 describe('phone routes', () => {
   it('configures phone transport without leaking secrets', async () => {
     const db = createDb();
@@ -224,10 +232,12 @@ describe('phone routes', () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.XAI_API_KEY;
     const db = createDb();
+    const bridgeBaseUrl = await listenHostBridgeHealth();
+    const bridgeWsUrl = `${bridgeBaseUrl.replace(/^http:/, 'ws:')}/realtime?token=url-secret`;
     const baseUrl = await listen(createPhoneApp(db, {
       voiceRuntime: 'host_bridge',
       voiceHostBridge: {
-        url: 'ws://127.0.0.1:3999/realtime?token=url-secret',
+        url: bridgeWsUrl,
         token: 'bridge-token-secret',
       },
     }));
@@ -260,12 +270,65 @@ describe('phone routes', () => {
       hostBridge: {
         configured: true,
         tokenConfigured: true,
-        endpoint: 'ws://127.0.0.1:3999/realtime?token=***',
+        endpoint: bridgeWsUrl.replace('url-secret', '***'),
+        reachable: true,
+        healthUrl: `${bridgeBaseUrl}/health`,
+        healthStatus: 200,
         wireProtocol: 'openai_realtime_compatible_websocket',
       },
     });
     expect(JSON.stringify(ready.body)).not.toContain('bridge-token-secret');
     expect(JSON.stringify(ready.body)).not.toContain('url-secret');
+
+    if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = priorOpenAi;
+    if (priorXai === undefined) delete process.env.XAI_API_KEY;
+    else process.env.XAI_API_KEY = priorXai;
+    db.close();
+  });
+
+  it('keeps host bridge readiness red when the local bridge health check fails', async () => {
+    const priorOpenAi = process.env.OPENAI_API_KEY;
+    const priorXai = process.env.XAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    const db = createDb();
+    const bridgeBaseUrl = await listenHostBridgeHealth(503);
+    const bridgeWsUrl = `${bridgeBaseUrl.replace(/^http:/, 'ws:')}/realtime`;
+    const baseUrl = await listen(createPhoneApp(db, {
+      voiceRuntime: 'host_bridge',
+      voiceHostBridge: { url: bridgeWsUrl },
+    }));
+
+    await request(baseUrl, '/phone/transport/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: '46elks',
+        phoneNumber: '+43123456789',
+        username: 'user',
+        password: 'api-password-secret',
+        webhookBaseUrl: 'https://agenticmail.example.com',
+        webhookSecret: WEBHOOK_SECRET,
+        realtimeBridgeNumber: '+46700000000',
+        capabilities: ['call_control', 'realtime_media'],
+        supportedRegions: ['AT', 'DE'],
+      }),
+    });
+
+    const ready = await request(baseUrl, '/phone/readiness');
+    expect(ready.body).toMatchObject({
+      ready: false,
+      canPlaceTrackedCalls: true,
+      canHoldRealtimeConversation: false,
+      missing: expect.arrayContaining(['reachable voice host bridge health endpoint']),
+      hostBridge: {
+        configured: true,
+        reachable: false,
+        healthUrl: `${bridgeBaseUrl}/health`,
+        healthStatus: 503,
+      },
+    });
+    expect(ready.body.nextActions).toContain('Start the local bridge with agenticmail-voice-host-bridge or the OpenClaw/Codex/Claude Code wrapper bin.');
 
     if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = priorOpenAi;

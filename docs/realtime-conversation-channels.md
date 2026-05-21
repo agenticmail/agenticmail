@@ -79,7 +79,9 @@ The same runner is available from host packages as
 `agenticmail-codex-voice-host-bridge`, and
 `agenticmail-claudecode-voice-host-bridge`. Add
 `AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN` on both sides if the bridge should reject
-unauthenticated local clients.
+unauthenticated local clients. `phone_readiness` also checks the bridge's
+derived `/health` endpoint, so a configured URL does not count as ready unless
+the local bridge process is actually reachable.
 
 For an operator-facing "can I make a real live call now?" check, use `GET
 /api/agenticmail/phone/readiness`, `phone_readiness`, or
