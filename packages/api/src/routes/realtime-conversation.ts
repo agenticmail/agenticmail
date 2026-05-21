@@ -53,6 +53,16 @@ function createRealtimeConversationPlan(
   const telegram = telegramManager.getConfig(agentId);
   const phoneRealtimeMediaConfigured = !!phone?.capabilities.includes('realtime_media')
     && (phone.provider === '46elks' ? !!phone.realtimeBridgeNumber : phone.provider === 'twilio');
+  const selectedVoiceRuntime = (config.voiceRuntime && config.voiceRuntime.trim()) || 'openai';
+  const hostBridgeConfigured = selectedVoiceRuntime === 'host_bridge'
+    && !!requestString(config.voiceHostBridge?.url);
+  const embeddedVoiceRuntimeConfigured = !!config.openaiApiKey
+    || !!config.voiceProviderKeys?.[selectedVoiceRuntime]
+    || !!process.env.OPENAI_API_KEY
+    || (selectedVoiceRuntime === 'grok' && !!process.env.XAI_API_KEY);
+  const voiceRuntimeConfigured = selectedVoiceRuntime === 'host_bridge'
+    ? hostBridgeConfigured
+    : embeddedVoiceRuntimeConfigured;
   const telegramLinked = !!telegram?.enabled
     && !!telegram.botToken
     && (!!telegram.operatorChatId || telegram.allowedChatIds.length > 0);
@@ -66,6 +76,8 @@ function createRealtimeConversationPlan(
     ),
     realtimeMediaConfigured: requestBool(req, 'realtimeMediaConfigured')
       ?? (channel === 'phone' ? phoneRealtimeMediaConfigured : false),
+    voiceRuntimeConfigured: requestBool(req, 'voiceRuntimeConfigured')
+      ?? (channel === 'phone' ? voiceRuntimeConfigured : false),
     openaiRealtimeConfigured: requestBool(req, 'openaiRealtimeConfigured') ?? !!config.openaiApiKey,
     policyProvided: requestBool(req, 'policyProvided')
       ?? !!((req.body as Record<string, unknown> | undefined)?.policy),

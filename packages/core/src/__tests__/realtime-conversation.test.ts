@@ -35,19 +35,19 @@ describe('realtime conversation capabilities', () => {
     });
   });
 
-  it('allows phone realtime only when media, OpenAI, transport, and policy are present', () => {
+  it('allows phone realtime only when media, voice runtime, transport, and policy are present', () => {
     const blocked = planRealtimeConversationStart({
       channel: 'phone',
       transportConfigured: true,
       realtimeMediaConfigured: false,
-      openaiRealtimeConfigured: false,
+      voiceRuntimeConfigured: false,
       policyProvided: false,
     });
 
     expect(blocked.ok).toBe(false);
     expect(blocked.missing).toEqual(expect.arrayContaining([
       'realtime media transport',
-      'OpenAI Realtime API key',
+      'realtime voice runtime',
       'per-mission policy',
     ]));
 
@@ -55,7 +55,7 @@ describe('realtime conversation capabilities', () => {
       channel: 'phone',
       transportConfigured: true,
       realtimeMediaConfigured: true,
-      openaiRealtimeConfigured: true,
+      voiceRuntimeConfigured: true,
       policyProvided: true,
     })).toMatchObject({ ok: true, mode: 'duplex_audio' });
   });

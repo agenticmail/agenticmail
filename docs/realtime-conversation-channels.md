@@ -11,7 +11,7 @@ and Google Meet media/space adapters.
 
 | Channel | Status | Mode | Notes |
 | --- | --- | --- | --- |
-| Phone | Available | Duplex audio | Current executable path: phone mission -> carrier media stream -> `RealtimeVoiceBridge`. Requires realtime media, OpenAI Realtime, and a per-mission policy. |
+| Phone | Available | Duplex audio | Current executable path: phone mission -> carrier media stream -> `RealtimeVoiceBridge`. Requires realtime media, an embedded realtime provider or `host_bridge`, and a per-mission policy. |
 | Telegram | Available | Near-realtime text | Already usable as a user/agent message channel and operator escalation path. It is text-turn realtime, not audio realtime. |
 | Matrix | Available | Near-realtime text | Plain-text Matrix bot adapter over the Client-Server API: homeserver/token setup, allowed rooms, `m.room.message` send, `/sync` poll ingestion, transcript mirroring, and host wake prompts. E2EE rooms need a separate E2EE-capable bot runtime. |
 | WhatsApp | Planned | Near-realtime text | Must be opt-in and WhatsApp Business/template/session-window aware. It must not be treated as free-form SMS. |
@@ -25,7 +25,7 @@ Use `planRealtimeConversationStart()` before claiming a channel can start:
 - Planned adapters fail closed until their implementation exists.
 - Opt-in channels require user opt-in.
 - Matrix requires a configured homeserver/access token and a linked/allowed room.
-- Phone requires a configured transport, realtime media, OpenAI Realtime, and mission policy.
+- Phone requires a configured transport, realtime media, an embedded realtime provider key or `host_bridge`, and mission policy.
 - 46elks phone realtime also requires `realtimeBridgeNumber`, the 46elks websocket-number that outbound calls connect to.
 - WhatsApp additionally requires template/session-window approval.
 - Google Meet additionally requires operator approval to join or create a meeting.

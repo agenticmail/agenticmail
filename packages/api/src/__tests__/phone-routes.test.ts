@@ -74,15 +74,19 @@ function createDb() {
   return db;
 }
 
-function createPhoneApp(db: ReturnType<typeof createTestDatabase>): express.Express {
+function createPhoneApp(
+  db: ReturnType<typeof createTestDatabase>,
+  overrides: Partial<AgenticMailConfig> = {},
+): express.Express {
   const app = express();
+  const appConfig = { ...config, ...overrides } as AgenticMailConfig;
   app.use(express.json());
   app.use((req, _res, next) => {
     req.agent = { id: 'agent1', email: 'ralf@example.com' };
     next();
   });
-  app.use(createPhoneWebhookRoutes(db, config));
-  app.use(createPhoneRoutes(db, config));
+  app.use(createPhoneWebhookRoutes(db, appConfig));
+  app.use(createPhoneRoutes(db, appConfig));
   return app;
 }
 
@@ -211,6 +215,62 @@ describe('phone routes', () => {
 
     if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = priorOpenAi;
+    db.close();
+  });
+
+  it('reports host bridge readiness without requiring an AgenticMail model-provider key', async () => {
+    const priorOpenAi = process.env.OPENAI_API_KEY;
+    const priorXai = process.env.XAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db, {
+      voiceRuntime: 'host_bridge',
+      voiceHostBridge: {
+        url: 'ws://127.0.0.1:3999/realtime?token=url-secret',
+        token: 'bridge-token-secret',
+      },
+    }));
+
+    await request(baseUrl, '/phone/transport/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: '46elks',
+        phoneNumber: '+43123456789',
+        username: 'user',
+        password: 'api-password-secret',
+        webhookBaseUrl: 'https://agenticmail.example.com',
+        webhookSecret: WEBHOOK_SECRET,
+        realtimeBridgeNumber: '+46700000000',
+        capabilities: ['call_control', 'realtime_media'],
+        supportedRegions: ['AT', 'DE'],
+      }),
+    });
+
+    const ready = await request(baseUrl, '/phone/readiness');
+    expect(ready.body).toMatchObject({
+      ready: true,
+      canHoldRealtimeConversation: true,
+      voiceRuntimeMode: 'host_bridge',
+      voiceRuntime: {
+        id: 'host_bridge',
+        keyRequiredInAgenticMail: false,
+        keyConfigured: true,
+      },
+      hostBridge: {
+        configured: true,
+        tokenConfigured: true,
+        endpoint: 'ws://127.0.0.1:3999/realtime?token=***',
+        wireProtocol: 'openai_realtime_compatible_websocket',
+      },
+    });
+    expect(JSON.stringify(ready.body)).not.toContain('bridge-token-secret');
+    expect(JSON.stringify(ready.body)).not.toContain('url-secret');
+
+    if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = priorOpenAi;
+    if (priorXai === undefined) delete process.env.XAI_API_KEY;
+    else process.env.XAI_API_KEY = priorXai;
     db.close();
   });
 

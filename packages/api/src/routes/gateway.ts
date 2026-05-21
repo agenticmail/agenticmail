@@ -121,15 +121,15 @@ export function createGatewayRoutes(gatewayManager: GatewayManager): Router {
         {
           channel: 'realtime_voice',
           difficulty: 'Advanced',
-          description: 'Live voice calls — the realtime voice bridge connects a carrier media stream to a configured realtime voice runtime (OpenAI or Grok today) so the agent can hold a spoken conversation on a phone call.',
+          description: 'Live voice calls — the realtime voice bridge connects a carrier media stream to a configured realtime voice runtime (OpenAI, Grok, or host_bridge) so the agent can hold a spoken conversation on a phone call.',
           requirements: [
-            'A realtime voice API key: OPENAI_API_KEY for OpenAI or XAI_API_KEY / voiceProviderKeys.grok for Grok',
+            'A realtime voice runtime: OPENAI_API_KEY for OpenAI, XAI_API_KEY / voiceProviderKeys.grok for Grok, or AGENTICMAIL_VOICE_HOST_BRIDGE_URL / voiceHostBridge.url for host_bridge',
             'A phone transport configured (see the phone channel below)',
           ],
-          setup: 'Configure a voice runtime key, run phone_transport_setup for a realtime-capable carrier, then call phone_readiness until ready=true.',
+          setup: 'Configure a voice runtime or host bridge, run phone_transport_setup for a realtime-capable carrier, then call phone_readiness until ready=true.',
           pros: ['Agents can speak on live calls, not just place call-control missions'],
           cons: ['Requires a realtime voice provider API key', 'Needs a phone transport in place'],
-          note: 'Optional. When no voice runtime key is set, phone missions still place and track calls (call-control); only the spoken-conversation bridge is unavailable.',
+          note: 'Optional. When no voice runtime or host bridge is set, phone missions still place and track calls (call-control); only the spoken-conversation bridge is unavailable.',
         },
         {
           channel: 'phone',

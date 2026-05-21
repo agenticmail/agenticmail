@@ -32,6 +32,7 @@ export interface RealtimeConversationCapability {
 
 export interface RealtimeConversationStartContext {
   channel: string;
+  voiceRuntimeConfigured?: boolean;
   openaiRealtimeConfigured?: boolean;
   transportConfigured?: boolean;
   realtimeMediaConfigured?: boolean;
@@ -63,7 +64,7 @@ const CAPABILITIES: Record<RealtimeConversationChannel, RealtimeConversationCapa
     requiresOptIn: false,
     requiredRuntime: [
       'phone transport with realtime_media',
-      'OpenAI Realtime API key',
+      'embedded realtime provider key or host_bridge websocket',
       'per-mission call policy',
     ],
     notes: [
@@ -207,7 +208,9 @@ export function planRealtimeConversationStart(
 
   if (capability.mode === 'duplex_audio') {
     if (!context.realtimeMediaConfigured) missing.push('realtime media transport');
-    if (!context.openaiRealtimeConfigured) missing.push('OpenAI Realtime API key');
+    if (!(context.voiceRuntimeConfigured || context.openaiRealtimeConfigured)) {
+      missing.push('realtime voice runtime');
+    }
     if (!context.policyProvided) missing.push('per-mission policy');
   }
 

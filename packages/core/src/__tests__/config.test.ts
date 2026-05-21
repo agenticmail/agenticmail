@@ -52,4 +52,17 @@ describe('resolveConfig', () => {
     expect(config.api.port).toBe(5000);
     expect(config.api.host).toBe('0.0.0.0');
   });
+
+  it('reads host-owned voice bridge settings from env vars', () => {
+    process.env.AGENTICMAIL_VOICE_RUNTIME = 'host_bridge';
+    process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_URL = 'ws://127.0.0.1:3999/realtime';
+    process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN = 'bridge-token-secret';
+
+    const config = resolveConfig();
+    expect(config.voiceRuntime).toBe('host_bridge');
+    expect(config.voiceHostBridge).toEqual({
+      url: 'ws://127.0.0.1:3999/realtime',
+      token: 'bridge-token-secret',
+    });
+  });
 });

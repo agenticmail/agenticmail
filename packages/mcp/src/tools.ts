@@ -1233,7 +1233,7 @@ export const toolDefinitions = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id to check, e.g. openai or grok. Defaults to the configured install runtime.' },
+        voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id to check, e.g. openai, grok, or host_bridge. Defaults to the configured install runtime.' },
       },
     },
   },
@@ -1270,7 +1270,8 @@ export const toolDefinitions = [
         userOptedIn: { type: 'boolean', description: 'True only when the target user/chat/meeting has opted in or is already linked.' },
         transportConfigured: { type: 'boolean', description: 'Override inferred transport configuration, mainly for tests/future adapters.' },
         realtimeMediaConfigured: { type: 'boolean', description: 'Override inferred phone realtime-media capability.' },
-        openaiRealtimeConfigured: { type: 'boolean', description: 'Override inferred OpenAI Realtime API key availability.' },
+        voiceRuntimeConfigured: { type: 'boolean', description: 'Override inferred realtime voice runtime availability.' },
+        openaiRealtimeConfigured: { type: 'boolean', description: 'Deprecated alias for voiceRuntimeConfigured when checking the embedded OpenAI path.' },
       },
       required: ['channel'],
     },
@@ -1519,7 +1520,7 @@ export const toolDefinitions = [
         maxTimeShiftMinutes: { type: 'integer', description: 'Allowed appointment time shift before asking the operator.' },
         transcriptEnabled: { type: 'boolean', description: 'Defaults to true.' },
         recordingEnabled: { type: 'boolean', description: 'Defaults to false and still requires transport support.' },
-        voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id (e.g. "openai", "grok").' },
+        voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id (e.g. "openai", "grok", "host_bridge").' },
         voiceModel: { type: 'string', description: 'Optional realtime voice model override.' },
         voice: { type: 'string', description: 'Optional voice character override.' },
         voiceRuntimeRef: { type: 'string', description: 'Optional external voice runtime/session reference.' },
@@ -1611,7 +1612,7 @@ export const toolDefinitions = [
             // default; otherwise the provider default.
             voiceRuntime: {
               type: 'string',
-              description: 'Optional voice-runtime provider id (e.g. "openai", "grok"). Beats agent persona + install default.',
+              description: 'Optional voice-runtime provider id (e.g. "openai", "grok", "host_bridge"). Beats agent persona + install default.',
             },
             voiceModel: {
               type: 'string',
@@ -3887,6 +3888,7 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         userOptedIn: args.userOptedIn,
         transportConfigured: args.transportConfigured,
         realtimeMediaConfigured: args.realtimeMediaConfigured,
+        voiceRuntimeConfigured: args.voiceRuntimeConfigured,
         openaiRealtimeConfigured: args.openaiRealtimeConfigured,
       });
       return JSON.stringify(result, null, 2);

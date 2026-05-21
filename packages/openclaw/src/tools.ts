@@ -2530,7 +2530,7 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
   reg('agenticmail_phone_readiness', {
     description: 'Return the real phone-call readiness state for this agent: whether tracked calls and realtime conversations can actually run, exact missing setup items, and a safe test-call template.',
     parameters: {
-      voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id to check, e.g. openai or grok. Defaults to the configured install runtime.' },
+      voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id to check, e.g. openai, grok, or host_bridge. Defaults to the configured install runtime.' },
     },
     handler: async (params: any) => {
       try {
@@ -2584,7 +2584,8 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
       userOptedIn: { type: 'boolean', description: 'True only when the target user/chat/meeting has opted in or is already linked.' },
       transportConfigured: { type: 'boolean', description: 'Override inferred transport configuration, mainly for tests/future adapters.' },
       realtimeMediaConfigured: { type: 'boolean', description: 'Override inferred phone realtime-media capability.' },
-      openaiRealtimeConfigured: { type: 'boolean', description: 'Override inferred OpenAI Realtime API key availability.' },
+      voiceRuntimeConfigured: { type: 'boolean', description: 'Override inferred realtime voice runtime availability.' },
+      openaiRealtimeConfigured: { type: 'boolean', description: 'Deprecated alias for voiceRuntimeConfigured when checking the embedded OpenAI path.' },
     },
     handler: async (params: any) => {
       try {
@@ -2596,6 +2597,7 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
           userOptedIn: params.userOptedIn,
           transportConfigured: params.transportConfigured,
           realtimeMediaConfigured: params.realtimeMediaConfigured,
+          voiceRuntimeConfigured: params.voiceRuntimeConfigured,
           openaiRealtimeConfigured: params.openaiRealtimeConfigured,
         });
       } catch (err) { return { success: false, error: (err as Error).message }; }

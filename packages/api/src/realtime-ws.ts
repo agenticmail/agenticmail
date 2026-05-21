@@ -567,9 +567,9 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
   // Variable name kept as `openaiWs` for diff-friendliness; the bridge
   // class still refers to its OpenAI-side port by that field name since
   // the wire protocol is the same regardless of who's terminating it.
-  const openaiWs = new WebSocket(runtime.url, {
-    headers: { Authorization: `Bearer ${runtime.apiKey}` },
-  });
+  const openaiWs = new WebSocket(runtime.url, runtime.apiKey
+    ? { headers: { Authorization: `Bearer ${runtime.apiKey}` } }
+    : undefined);
   console.log(`[realtime-voice] mission=${mission.id} voice-runtime=${runtime.providerId} model=${runtime.model} voice=${runtime.voice} (${runtime.voiceSource}) key=${runtime.apiKeySource}`);
 
   const bridge = new RealtimeVoiceBridge({

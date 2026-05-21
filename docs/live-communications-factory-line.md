@@ -19,7 +19,9 @@ PR #48 now has the shared live-conversation substrate:
 
 What is not done yet:
 
-- AgenticMail does not yet provide a host-owned realtime voice runtime.
+- AgenticMail now exposes a `host_bridge` voice runtime contract. The host
+  bridge endpoint must still be implemented by OpenClaw/CLI to complete the
+  host-owned live reasoning loop.
 - WhatsApp and Google Meet adapters are still planned, not executable.
 - The phone bridge can use embedded realtime providers, but OpenClaw still
   needs a cleaner path where it owns the live reasoning loop and provider keys.
@@ -181,7 +183,7 @@ must be implemented as a real media sidecar, not as a fake REST wrapper.
 | Order | Slice | Outcome |
 | --- | --- | --- |
 | 1 | Commit and keep PR #48 readiness doctor green | We can diagnose real phone readiness from OpenClaw/MCP. |
-| 2 | Phone `host_bridge` runtime contract | AgenticMail no longer has to own the live AI key for OpenClaw deployments. |
+| 2 | Phone `host_bridge` runtime contract | In progress: AgenticMail no longer has to own the live AI key for OpenClaw deployments. |
 | 3 | OpenClaw bridge runner | OpenClaw can act as the live conversation brain. |
 | 4 | Operator query/approval flow | The agent can pause, ask the operator, resume, and record approvals. |
 | 5 | Guided phone smoke test | One command proves "this install can call and converse". |
@@ -216,4 +218,3 @@ Keep this as contributor work:
 - Do not open public issues for private security details.
 - Keep commits small enough for maintainers to review, but large enough that
   each commit has a working test boundary.
-

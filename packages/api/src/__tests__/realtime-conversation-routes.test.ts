@@ -73,7 +73,7 @@ describe('realtime conversation routes', () => {
     ]);
     expect(result.body.startPlans.phone.missing).toEqual(expect.arrayContaining([
       'Phone call transport configuration',
-      'OpenAI Realtime API key',
+      'realtime voice runtime',
       'per-mission policy',
     ]));
     expect(result.body.startPlans.whatsapp.missing).toContain('WhatsApp adapter implementation');
@@ -84,6 +84,40 @@ describe('realtime conversation routes', () => {
   it('allows phone realtime when the runtime and mission policy gate are present', async () => {
     const db = createDb();
     const config = { masterKey: 'mk', openaiApiKey: 'sk-test' } as AgenticMailConfig;
+    const phoneManager = new PhoneManager(db as any, config.masterKey);
+    phoneManager.savePhoneTransportConfig('agent1', {
+      provider: '46elks',
+      phoneNumber: '+43123456789',
+      username: 'user',
+      password: 'api-password-secret',
+      webhookBaseUrl: 'https://agenticmail.example.com',
+      webhookSecret: 'hook-secret-abcdefghijklmnop',
+      apiUrl: 'https://api.46elks.com/a1',
+      realtimeBridgeNumber: '+46700000000',
+      capabilities: ['call_control', 'realtime_media'],
+      supportedRegions: ['AT', 'DE', 'EU'],
+      configuredAt: new Date().toISOString(),
+    });
+    const baseUrl = await listen(createApp(db, config));
+
+    const result = await request(baseUrl, '/conversation/realtime/plan', {
+      method: 'POST',
+      body: JSON.stringify({ channel: 'phone', policyProvided: true }),
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body.plan).toMatchObject({ ok: true, channel: 'phone', mode: 'duplex_audio' });
+
+    db.close();
+  });
+
+  it('allows phone realtime with a host-owned voice bridge instead of an AgenticMail provider key', async () => {
+    const db = createDb();
+    const config = {
+      masterKey: 'mk',
+      voiceRuntime: 'host_bridge',
+      voiceHostBridge: { url: 'ws://127.0.0.1:3999/realtime' },
+    } as AgenticMailConfig;
     const phoneManager = new PhoneManager(db as any, config.masterKey);
     phoneManager.savePhoneTransportConfig('agent1', {
       provider: '46elks',

@@ -156,6 +156,20 @@ function voiceProviderConfigured(provider: VoiceProvider, config: AgenticMailCon
   };
 }
 
+function redactEndpoint(endpoint?: string): string | undefined {
+  const raw = requestString(endpoint);
+  if (!raw) return undefined;
+  try {
+    const parsed = new URL(raw);
+    for (const key of Array.from(parsed.searchParams.keys())) {
+      if (/token|secret|key|auth|password/i.test(key)) parsed.searchParams.set(key, '***');
+    }
+    return parsed.toString();
+  } catch {
+    return raw.replace(/(token|secret|key|auth|password)=([^&\s]+)/gi, '$1=***');
+  }
+}
+
 function buildPhoneReadiness(
   cfg: PhoneTransportConfig | null,
   config: AgenticMailConfig,
@@ -166,6 +180,11 @@ function buildPhoneReadiness(
   const providers = listVoiceProviders();
   const provider = providers.find((item) => item.id === voiceRuntime);
   const providerKeys = provider ? voiceProviderConfigured(provider, config) : null;
+  const providerKeyRequired = provider?.apiKeyRequired !== false;
+  const hostBridgeEndpoint = requestString(config.voiceHostBridge?.url);
+  const hostBridgeTokenConfigured = !!requestString(config.voiceHostBridge?.token)
+    || !!requestString(process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN);
+  const hostBridgeConfigured = voiceRuntime === 'host_bridge' && !!hostBridgeEndpoint;
   const missing: string[] = [];
   const warnings: string[] = [];
 
@@ -179,18 +198,27 @@ function buildPhoneReadiness(
   }
   if (!provider) {
     missing.push(`known voice runtime provider "${voiceRuntime}"`);
-  } else if (!providerKeys?.configured) {
+  } else if (voiceRuntime === 'host_bridge') {
+    if (!hostBridgeEndpoint) missing.push('AGENTICMAIL_VOICE_HOST_BRIDGE_URL or voiceHostBridge.url');
+  } else if (providerKeyRequired && !providerKeys?.configured) {
     missing.push(`${provider.apiKeyEnvVar} or voiceProviderKeys.${provider.id}`);
   }
 
   const canPlaceTrackedCalls = !!cfg && cfg.capabilities.includes('call_control');
   const realtimeTransportReady = phoneRealtimeReady(cfg);
-  const canHoldRealtimeConversation = canPlaceTrackedCalls && realtimeTransportReady && !!providerKeys?.configured;
+  const runtimeReady = voiceRuntime === 'host_bridge' ? hostBridgeConfigured : !!providerKeys?.configured;
+  const canHoldRealtimeConversation = canPlaceTrackedCalls && realtimeTransportReady && runtimeReady;
   const testRegionAllowlist = cfg?.supportedRegions?.length ? cfg.supportedRegions : ['WORLD'];
+  const runtimeSetupAction = voiceRuntime === 'host_bridge'
+    ? 'Configure AGENTICMAIL_VOICE_HOST_BRIDGE_URL or voiceHostBridge.url for an OpenClaw/CLI-owned realtime websocket.'
+    : provider
+      ? `Configure ${provider.apiKeyEnvVar} or voiceProviderKeys.${provider.id} for the selected voice runtime.`
+      : 'Select a registered voice runtime such as "openai" or "grok".';
   return {
     ready: canHoldRealtimeConversation,
     canPlaceTrackedCalls,
     canHoldRealtimeConversation,
+    voiceRuntimeMode: voiceRuntime === 'host_bridge' ? 'host_bridge' : 'embedded_realtime',
     missing,
     warnings,
     transport: cfg ? redactPhoneTransportConfig(cfg) : null,
@@ -199,12 +227,21 @@ function buildPhoneReadiness(
       displayName: provider.displayName,
       defaultModel: provider.defaultModel,
       apiKeyEnvVar: provider.apiKeyEnvVar,
-      keyConfigured: providerKeys?.configured ?? false,
+      keyRequiredInAgenticMail: providerKeyRequired,
+      keyConfigured: providerKeyRequired ? (providerKeys?.configured ?? false) : hostBridgeTokenConfigured,
       keySources: providerKeys?.sources,
       defaultVoice: provider.defaultVoice,
       configuredVoice: requestString(config.voiceProviderVoices?.[provider.id]) || undefined,
       customVoicesSupported: !!provider.customVoicesSupported,
     } : { id: voiceRuntime, keyConfigured: false },
+    hostBridge: voiceRuntime === 'host_bridge'
+      ? {
+          configured: hostBridgeConfigured,
+          endpoint: redactEndpoint(hostBridgeEndpoint),
+          tokenConfigured: hostBridgeTokenConfigured,
+          wireProtocol: 'openai_realtime_compatible_websocket',
+        }
+      : undefined,
     nextActions: canHoldRealtimeConversation
       ? [
           'Start a real test call with agenticmail_call_phone_safe / call_phone_safe.',
@@ -214,9 +251,7 @@ function buildPhoneReadiness(
       : [
           'Run agenticmail_phone_transport_setup with provider credentials, public webhookBaseUrl, webhookSecret, capabilities ["call_control","realtime_media"], and supportedRegions.',
           'For 46elks realtime, also set realtimeBridgeNumber to your 46elks websocket-number.',
-          provider
-            ? `Configure ${provider.apiKeyEnvVar} or voiceProviderKeys.${provider.id} for the selected voice runtime.`
-            : 'Select a registered voice runtime such as "openai" or "grok".',
+          runtimeSetupAction,
           'Run agenticmail_phone_readiness again until ready=true.',
         ],
     testCallTemplate: {
@@ -488,14 +523,21 @@ export function createPhoneRoutes(
       const providers = listVoiceProviders().map((provider) => {
         const keyState = voiceProviderConfigured(provider, config);
         const configuredVoice = requestString(config.voiceProviderVoices?.[provider.id]) || undefined;
+        const isHostBridge = provider.id === 'host_bridge';
         return {
           id: provider.id,
           displayName: provider.displayName,
           description: provider.description,
-          websocketBaseUrl: provider.websocketBaseUrl,
+          websocketBaseUrl: isHostBridge
+            ? redactEndpoint(provider.resolveWebsocketBaseUrl?.(config))
+            : provider.websocketBaseUrl,
           defaultModel: provider.defaultModel,
           apiKeyEnvVar: provider.apiKeyEnvVar,
-          keyConfigured: keyState.configured,
+          keyRequiredInAgenticMail: provider.apiKeyRequired !== false,
+          keyConfigured: provider.apiKeyRequired === false
+            ? !!requestString(config.voiceHostBridge?.token)
+              || !!requestString(process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN)
+            : keyState.configured,
           keySources: keyState.sources,
           voices: provider.voices,
           defaultVoice: provider.defaultVoice,
