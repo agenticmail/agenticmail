@@ -129,6 +129,34 @@ function sendPhoneError(res: Response, err: unknown): void {
   res.status(errorStatus(err)).json({ error: (err as Error).message });
 }
 
+function phoneRealtimeReady(cfg: ReturnType<PhoneManager['getPhoneTransportConfig']>): boolean {
+  if (!cfg?.capabilities.includes('realtime_media')) return false;
+  if (cfg.provider === '46elks') return !!cfg.realtimeBridgeNumber;
+  return cfg.provider === 'twilio';
+}
+
+function phoneSetupNextSteps(cfg: ReturnType<PhoneManager['getPhoneTransportConfig']>): string[] {
+  const steps = [
+    'Phone transport is configured for call_control.',
+    'Calls can now be started with /calls/start or the phone tool surface.',
+  ];
+  if (!cfg?.capabilities.includes('realtime_media')) {
+    steps.push('Realtime media is not enabled on this transport config.');
+    return steps;
+  }
+  if (cfg.provider === 'twilio') {
+    steps.push('Twilio calls will stream through the realtime voice WebSocket when OPENAI_API_KEY is configured.');
+    return steps;
+  }
+  if (cfg.provider === '46elks' && cfg.realtimeBridgeNumber) {
+    steps.push('46elks outbound calls will connect to the configured realtimeBridgeNumber.');
+    steps.push('Configure that 46elks websocket-number voice_start to wss://<your-host>/api/agenticmail/calls/realtime?token=<webhookSecret>.');
+    return steps;
+  }
+  steps.push('For 46elks realtime outbound calls, set realtimeBridgeNumber to your 46elks websocket-number.');
+  return steps;
+}
+
 export function createPhoneWebhookRoutes(
   db: ReturnType<typeof import('@agenticmail/core').getDatabase>,
   config: AgenticMailConfig,
@@ -282,11 +310,7 @@ export function createPhoneRoutes(
       res.json({
         success: true,
         transport: redactPhoneTransportConfig(cfg),
-        nextSteps: [
-          'Phone transport is configured for call_control.',
-          'Calls can now be started with /calls/start or the phone tool surface.',
-          'Realtime conversation is not connected in this slice; started calls remain mission-tracked call-control events.',
-        ],
+        nextSteps: phoneSetupNextSteps(cfg),
       });
     } catch (err) {
       sendPhoneError(res, err);
@@ -305,7 +329,11 @@ export function createPhoneRoutes(
         phoneNumber: cfg?.phoneNumber ?? null,
         capabilities: cfg?.capabilities ?? [],
         supportedRegions: cfg?.supportedRegions ?? [],
-        realtimeReady: !!cfg?.capabilities.includes('realtime_media'),
+        realtimeBridgeNumber: cfg?.realtimeBridgeNumber ?? null,
+        realtimeBridgeConfigured: cfg?.provider === '46elks'
+          ? !!cfg?.realtimeBridgeNumber
+          : !!cfg?.capabilities.includes('realtime_media'),
+        realtimeReady: phoneRealtimeReady(cfg),
       });
     } catch (err) {
       sendPhoneError(res, err);

@@ -1212,6 +1212,7 @@ export const toolDefinitions = [
         webhookBaseUrl: { type: 'string', description: 'Public HTTPS base URL for AgenticMail phone webhooks' },
         webhookSecret: { type: 'string', description: 'Shared secret included on provider webhook URLs (at least 24 characters)' },
         apiUrl: { type: 'string', description: 'Optional provider API base URL override (46elks or Twilio REST root)' },
+        realtimeBridgeNumber: { type: 'string', description: '46elks only: websocket-number in E.164 format used for realtime outbound calls when capabilities include "realtime_media".' },
         capabilities: { type: 'array', items: { type: 'string' }, description: 'Transport capabilities, e.g. ["call_control"] or ["call_control","realtime_media"]' },
         supportedRegions: { type: 'array', items: { type: 'string' }, description: 'Supported region scopes: AT, DE, EU, WORLD' },
       },
@@ -3632,6 +3633,7 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         webhookBaseUrl: args.webhookBaseUrl,
         webhookSecret: args.webhookSecret,
         apiUrl: args.apiUrl,
+        realtimeBridgeNumber: args.realtimeBridgeNumber,
         capabilities: args.capabilities,
         supportedRegions: args.supportedRegions,
       });

@@ -133,6 +133,7 @@ describe('tool catalogue ↔ tool definitions', () => {
     // Twilio without overloading the generic username/password fields.
     expect((tool!.inputSchema.properties as Record<string, any>).accountSid).toBeTruthy();
     expect((tool!.inputSchema.properties as Record<string, any>).authToken).toBeTruthy();
+    expect((tool!.inputSchema.properties as Record<string, any>).realtimeBridgeNumber).toBeTruthy();
   });
 
   it('total catalogued tool count matches the real tool count minus meta-tools', () => {

@@ -38,6 +38,8 @@ describe('OpenClaw phone tool surface', () => {
     expect(callTool.parameters.required).toEqual(expect.arrayContaining(['to', 'task', 'policy']));
     expect(callTool.parameters.properties.dryRun.type).toBe('boolean');
     expect(callTool.parameters.properties._account.type).toBe('string');
+    const setupTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_phone_transport_setup');
+    expect(setupTool.parameters.properties.realtimeBridgeNumber.type).toBe('string');
   });
 
   it('exposes channel-neutral realtime conversation gates', () => {

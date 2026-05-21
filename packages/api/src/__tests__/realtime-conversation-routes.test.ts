@@ -93,6 +93,7 @@ describe('realtime conversation routes', () => {
       webhookBaseUrl: 'https://agenticmail.example.com',
       webhookSecret: 'hook-secret-abcdefghijklmnop',
       apiUrl: 'https://api.46elks.com/a1',
+      realtimeBridgeNumber: '+46700000000',
       capabilities: ['call_control', 'realtime_media'],
       supportedRegions: ['AT', 'DE', 'EU'],
       configuredAt: new Date().toISOString(),

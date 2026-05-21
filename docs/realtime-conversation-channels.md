@@ -20,6 +20,7 @@ Use `planRealtimeConversationStart()` before claiming a channel can start:
 - Planned adapters fail closed until their implementation exists.
 - Opt-in channels require user opt-in.
 - Phone requires a configured transport, realtime media, OpenAI Realtime, and mission policy.
+- 46elks phone realtime also requires `realtimeBridgeNumber`, the 46elks websocket-number that outbound calls connect to.
 - WhatsApp additionally requires template/session-window approval.
 - Google Meet additionally requires operator approval to join or create a meeting.
 
@@ -32,5 +33,18 @@ The API exposes the same gate for host integrations:
 MCP hosts use `realtime_conversation_capabilities` and `realtime_conversation_plan`.
 OpenClaw hosts use `agenticmail_realtime_conversation_capabilities` and
 `agenticmail_realtime_conversation_plan`.
+
+## 46elks Realtime Bridge Number
+
+For 46elks, `realtime_media` is not enough by itself. The provider expects a
+normal voice number to connect to a separate websocket-number. Configure the
+phone transport with:
+
+- `capabilities: ["call_control", "realtime_media"]`
+- `realtimeBridgeNumber: "+46..."` pointing at the 46elks websocket-number
+- the websocket-number's `voice_start` set to `wss://<host>/api/agenticmail/calls/realtime?token=<webhookSecret>`
+
+Twilio does not need this bridge-number field because its voice webhook returns
+TwiML with `<Connect><Stream>` directly.
 
 This keeps the roadmap broad enough for Telegram, Matrix, WhatsApp, and Google Meet while the actual product path remains honest: phone realtime first, then channel adapters.

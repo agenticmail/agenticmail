@@ -121,6 +121,38 @@ describe('phone routes', () => {
     db.close();
   });
 
+  it('reports 46elks realtime readiness only when a bridge number is configured', async () => {
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+
+    const setup = await request(baseUrl, '/phone/transport/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: '46elks',
+        phoneNumber: '+43123456789',
+        username: 'user',
+        password: 'api-password-secret',
+        webhookBaseUrl: 'https://agenticmail.example.com',
+        webhookSecret: WEBHOOK_SECRET,
+        realtimeBridgeNumber: '+46700000000',
+        capabilities: ['call_control', 'realtime_media'],
+        supportedRegions: ['AT', 'DE'],
+      }),
+    });
+    expect(setup.status).toBe(200);
+    expect(setup.body.nextSteps).toContain('46elks outbound calls will connect to the configured realtimeBridgeNumber.');
+
+    const capabilities = await request(baseUrl, '/phone/capabilities');
+    expect(capabilities.body).toMatchObject({
+      provider: '46elks',
+      realtimeBridgeNumber: '+46700000000',
+      realtimeBridgeConfigured: true,
+      realtimeReady: true,
+    });
+
+    db.close();
+  });
+
   it('rejects a transport setup with a weak webhook secret', async () => {
     const db = createDb();
     const baseUrl = await listen(createPhoneApp(db));

@@ -284,6 +284,32 @@ describe('PhoneManager', () => {
     }
   });
 
+  it('routes 46elks realtime outbound missions to the configured websocket bridge number', async () => {
+    const db = createDb();
+    dbs.push(db);
+    const manager = new PhoneManager(db);
+    manager.savePhoneTransportConfig('agent1', buildPhoneTransportConfig({
+      provider: '46elks',
+      phoneNumber: '+43123456789',
+      username: 'user',
+      password: 'api-password-secret',
+      webhookBaseUrl: 'https://agenticmail.example.com',
+      webhookSecret: WEBHOOK_SECRET,
+      realtimeBridgeNumber: '+46700000000',
+      capabilities: ['call_control', 'realtime_media'],
+      supportedRegions: ['AT', 'DE'],
+    }));
+
+    const result = await manager.startMission('agent1', {
+      to: '+436641234567',
+      task: 'Reserve a table for two',
+      policy,
+    }, { dryRun: true });
+
+    expect(result.providerRequest.body.voice_start).toBe(JSON.stringify({ connect: '+46700000000' }));
+    expect(result.providerRequest.body.whenhangup).toContain('/calls/webhook/46elks/hangup');
+  });
+
   // ─── Operator queries (ask_operator, v0.9.53) ─────────
 
   async function startDryRunMission(manager: PhoneManager) {

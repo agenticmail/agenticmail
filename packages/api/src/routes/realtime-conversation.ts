@@ -51,6 +51,8 @@ function createRealtimeConversationPlan(
 ) {
   const phone = phoneManager.getPhoneTransportConfig(agentId);
   const telegram = telegramManager.getConfig(agentId);
+  const phoneRealtimeMediaConfigured = !!phone?.capabilities.includes('realtime_media')
+    && (phone.provider === '46elks' ? !!phone.realtimeBridgeNumber : phone.provider === 'twilio');
   const telegramLinked = !!telegram?.enabled
     && !!telegram.botToken
     && (!!telegram.operatorChatId || telegram.allowedChatIds.length > 0);
@@ -63,7 +65,7 @@ function createRealtimeConversationPlan(
           : false
     ),
     realtimeMediaConfigured: requestBool(req, 'realtimeMediaConfigured')
-      ?? (channel === 'phone' ? !!phone?.capabilities.includes('realtime_media') : false),
+      ?? (channel === 'phone' ? phoneRealtimeMediaConfigured : false),
     openaiRealtimeConfigured: requestBool(req, 'openaiRealtimeConfigured') ?? !!config.openaiApiKey,
     policyProvided: requestBool(req, 'policyProvided')
       ?? !!((req.body as Record<string, unknown> | undefined)?.policy),
