@@ -466,6 +466,27 @@ export type {
   MemoryStats, CreateMemoryInput, UpdateMemoryInput, MemoryQueryOptions,
 } from './memory/index.js';
 
+// Channel-neutral realtime conversation capabilities. Phone is the
+// first executable duplex-audio transport; Telegram is text-turn
+// available; Matrix, WhatsApp, and Google Meet are intentionally
+// represented as planned/gated so future adapters share one contract
+// without false availability claims.
+export {
+  REALTIME_CONVERSATION_CHANNELS,
+  getRealtimeConversationCapability,
+  isRealtimeConversationChannel,
+  listRealtimeConversationCapabilities,
+  planRealtimeConversationStart,
+} from './conversation/index.js';
+export type {
+  RealtimeConversationCapability,
+  RealtimeConversationChannel,
+  RealtimeConversationMode,
+  RealtimeConversationStartContext,
+  RealtimeConversationStartPlan,
+  RealtimeConversationStatus,
+} from './conversation/index.js';
+
 // Skill library — JSON how-to-act-like-a-skilled-human bundles agents
 // load on demand during phone calls. Built-in skills ship in the
 // `skills/built-in/` folder; user-contributed ones live in
