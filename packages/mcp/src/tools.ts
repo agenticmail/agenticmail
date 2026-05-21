@@ -1308,6 +1308,17 @@ export const toolDefinitions = [
         subject: { type: 'string', description: 'Optional short session subject.' },
         initialMessage: { type: 'string', description: 'Optional first Telegram message to send immediately.' },
         policy: { type: 'object', description: 'Required for phone sessions: phone mission policy.' },
+        policyPreset: { type: 'string', enum: ['safe_default', 'reservation', 'support'], description: 'Phone only: safe policy preset. Use this instead of raw policy for normal calls.' },
+        regionAllowlist: { type: 'array', items: { type: 'string', enum: ['AT', 'DE', 'EU', 'WORLD'] }, description: 'Phone only: allowed dial regions.' },
+        maxCallDurationSeconds: { type: 'integer', description: 'Phone only: positive call-duration cap. Server hard ceiling still applies.' },
+        maxCostPerMission: { type: 'number', description: 'Phone only: non-negative mission cost cap. Server hard ceiling still applies.' },
+        maxAttempts: { type: 'integer', description: 'Phone only: positive attempt cap. Server hard ceiling still applies.' },
+        maxTimeShiftMinutes: { type: 'integer', description: 'Phone only: allowed appointment time shift before asking the operator.' },
+        transcriptEnabled: { type: 'boolean', description: 'Phone only: defaults to true for safe presets.' },
+        recordingEnabled: { type: 'boolean', description: 'Phone only: defaults to false and still requires transport support.' },
+        voiceRuntime: { type: 'string', description: 'Phone only: optional voice-runtime provider id.' },
+        voiceModel: { type: 'string', description: 'Phone only: optional voice model override.' },
+        voice: { type: 'string', description: 'Phone only: optional voice character override.' },
         dryRun: { type: 'boolean', description: 'Phone only: create a mission/session without calling the carrier.' },
         operatorApproved: { type: 'boolean', description: 'Future gated channels only: explicit operator approval.' },
         userOptedIn: { type: 'boolean', description: 'Future opt-in channels only: explicit target opt-in.' },
@@ -1469,6 +1480,34 @@ export const toolDefinitions = [
         since: { type: 'string', description: 'Optional Matrix sync token override. Omit to use saved syncToken.' },
         timeoutMs: { type: 'number', description: 'Matrix /sync timeout in milliseconds, max 30000.' },
       },
+    },
+  },
+  {
+    name: 'call_phone_safe',
+    description: [
+      'Start a tracked outbound phone mission with a built-in safe policy preset. Prefer this for normal OpenClaw/Codex/Gemini phone tasks; use call_phone only when the operator supplied an exact raw policy JSON.',
+      'The generated policy still forbids payment details and contract commitments, routes over-limit cost / sensitive personal data / unclear alternatives to the operator, enables transcripts by default, and disables recording by default.',
+    ].join('\n'),
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        to: { type: 'string', description: 'Target phone number in E.164 format (e.g. +43123456789)' },
+        task: { type: 'string', description: 'Concrete call objective, e.g. "reserve a table for two at 19:30"' },
+        policyPreset: { type: 'string', enum: ['safe_default', 'reservation', 'support'], description: 'Safe policy preset. Defaults to safe_default.' },
+        regionAllowlist: { type: 'array', items: { type: 'string', enum: ['AT', 'DE', 'EU', 'WORLD'] }, description: 'Allowed dial regions. Defaults to ["WORLD"].' },
+        maxCallDurationSeconds: { type: 'integer', description: 'Positive call-duration cap. Server hard ceiling still applies.' },
+        maxCostPerMission: { type: 'number', description: 'Non-negative mission cost cap. Server hard ceiling still applies.' },
+        maxAttempts: { type: 'integer', description: 'Positive attempt cap. Server hard ceiling still applies.' },
+        maxTimeShiftMinutes: { type: 'integer', description: 'Allowed appointment time shift before asking the operator.' },
+        transcriptEnabled: { type: 'boolean', description: 'Defaults to true.' },
+        recordingEnabled: { type: 'boolean', description: 'Defaults to false and still requires transport support.' },
+        voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id (e.g. "openai", "grok").' },
+        voiceModel: { type: 'string', description: 'Optional realtime voice model override.' },
+        voice: { type: 'string', description: 'Optional voice character override.' },
+        voiceRuntimeRef: { type: 'string', description: 'Optional external voice runtime/session reference.' },
+        dryRun: { type: 'boolean', description: 'When true, store the mission without calling the provider.' },
+      },
+      required: ['to', 'task'],
     },
   },
   {
@@ -3858,6 +3897,17 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         subject: args.subject,
         initialMessage: args.initialMessage,
         policy: args.policy,
+        policyPreset: args.policyPreset,
+        regionAllowlist: args.regionAllowlist,
+        maxCallDurationSeconds: args.maxCallDurationSeconds,
+        maxCostPerMission: args.maxCostPerMission,
+        maxAttempts: args.maxAttempts,
+        maxTimeShiftMinutes: args.maxTimeShiftMinutes,
+        transcriptEnabled: args.transcriptEnabled,
+        recordingEnabled: args.recordingEnabled,
+        voiceRuntime: args.voiceRuntime,
+        voiceModel: args.voiceModel,
+        voice: args.voice,
         dryRun: args.dryRun,
         operatorApproved: args.operatorApproved,
         userOptedIn: args.userOptedIn,
@@ -3972,6 +4022,27 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
       const result = await apiRequest('POST', '/matrix/poll', {
         since: args.since,
         timeoutMs: args.timeoutMs,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'call_phone_safe': {
+      const result = await apiRequest('POST', '/calls/start', {
+        to: args.to,
+        task: args.task,
+        policyPreset: args.policyPreset ?? 'safe_default',
+        regionAllowlist: args.regionAllowlist,
+        maxCallDurationSeconds: args.maxCallDurationSeconds,
+        maxCostPerMission: args.maxCostPerMission,
+        maxAttempts: args.maxAttempts,
+        maxTimeShiftMinutes: args.maxTimeShiftMinutes,
+        transcriptEnabled: args.transcriptEnabled,
+        recordingEnabled: args.recordingEnabled,
+        voiceRuntime: args.voiceRuntime,
+        voiceModel: args.voiceModel,
+        voice: args.voice,
+        voiceRuntimeRef: args.voiceRuntimeRef,
+        dryRun: args.dryRun,
       });
       return JSON.stringify(result, null, 2);
     }

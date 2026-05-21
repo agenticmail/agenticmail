@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildPhoneMissionPolicy,
   classifyPhoneNumberRisk,
   inferPhoneRegion,
   isPhoneRegionAllowed,
@@ -38,6 +39,48 @@ const transport: PhoneTransportProfile = {
 };
 
 describe('phone mission policy validation', () => {
+  it('builds safe preset policies for host tools without custom JSON', () => {
+    const built = buildPhoneMissionPolicy({
+      preset: 'reservation',
+      regionAllowlist: ['AT', 'DE', 'EU'],
+      maxCallDurationSeconds: 1200,
+      maxCostPerMission: 1.5,
+      maxTimeShiftMinutes: 45,
+      voiceRuntime: 'openai',
+      voice: 'cedar',
+    });
+
+    expect(validatePhoneMissionPolicy(built).ok).toBe(true);
+    expect(built).toMatchObject({
+      policyVersion: 1,
+      regionAllowlist: ['AT', 'DE', 'EU'],
+      maxCallDurationSeconds: 1200,
+      maxCostPerMission: 1.5,
+      maxAttempts: 2,
+      transcriptEnabled: true,
+      recordingEnabled: false,
+      confirmPolicy: {
+        paymentDetails: 'never',
+        contractCommitment: 'never',
+        costOverLimit: 'needs_operator',
+        sensitivePersonalData: 'needs_operator',
+        unclearAlternative: 'needs_operator',
+      },
+      alternativePolicy: { maxTimeShiftMinutes: 45 },
+      voiceRuntime: 'openai',
+      voice: 'cedar',
+    });
+  });
+
+  it('rejects invalid safe-policy overrides instead of silently defaulting them', () => {
+    expect(() => buildPhoneMissionPolicy({
+      regionAllowlist: ['Mars' as any],
+    })).toThrow(/regionAllowlist/);
+    expect(() => buildPhoneMissionPolicy({
+      maxCostPerMission: -1,
+    })).toThrow(/maxCostPerMission/);
+  });
+
   it('accepts a complete OpenClaw-provided mission policy', () => {
     const result = validatePhoneMissionPolicy(policy);
 

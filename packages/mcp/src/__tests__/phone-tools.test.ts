@@ -73,6 +73,33 @@ describe('MCP phone tool dispatch', () => {
     }));
   });
 
+  it('starts phone missions with a safe policy preset', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ success: true, mission: { id: 'phn_safe' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = JSON.parse(await handleToolCall('call_phone_safe', {
+      to: '+43123456789',
+      task: 'Reserve a table for two at 19:30.',
+      policyPreset: 'reservation',
+      regionAllowlist: ['AT', 'DE', 'EU'],
+      maxCostPerMission: 1.5,
+      dryRun: true,
+    }));
+
+    expect(result).toEqual({ success: true, mission: { id: 'phn_safe' } });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/calls/start', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        to: '+43123456789',
+        task: 'Reserve a table for two at 19:30.',
+        policyPreset: 'reservation',
+        regionAllowlist: ['AT', 'DE', 'EU'],
+        maxCostPerMission: 1.5,
+        dryRun: true,
+      }),
+    }));
+  });
+
   it('reads one phone mission by id', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ mission: { id: 'phn_1', status: 'dialing' } }));
     vi.stubGlobal('fetch', fetchMock);

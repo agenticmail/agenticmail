@@ -42,13 +42,17 @@ The API exposes the same gate for host integrations:
 MCP hosts use `realtime_conversation_capabilities` and `realtime_conversation_plan`.
 They use `conversation_list`, `conversation_get`, `conversation_context`,
 `conversation_start`, `conversation_send`, `conversation_messages`, and
-`conversation_end` for active sessions.
+`conversation_end` for active sessions. For ordinary phone calls, MCP hosts can
+use `call_phone_safe` to start a mission with a built-in safe policy preset
+instead of handcrafting the full policy JSON.
 OpenClaw hosts use `agenticmail_realtime_conversation_capabilities` and
 `agenticmail_realtime_conversation_plan`.
 They use `agenticmail_conversation_list`, `agenticmail_conversation_get`,
 `agenticmail_conversation_context`, `agenticmail_conversation_start`,
 `agenticmail_conversation_send`, `agenticmail_conversation_messages`, and
-`agenticmail_conversation_end` for active sessions.
+`agenticmail_conversation_end` for active sessions. For ordinary calls,
+OpenClaw hosts should prefer `agenticmail_call_phone_safe`; `agenticmail_call_phone`
+remains the raw-policy escape hatch.
 
 ## Conversation Sessions
 
@@ -78,7 +82,10 @@ Conversation sessions are the runtime ledger above the individual transports:
 - Phone sessions wrap a tracked phone mission and record the mission id as the
   session's external reference. They are created both by
   `conversation_start(channel: "phone")` and by the legacy `/calls/start`
-  / `call_phone` path, so older host tools still get the same ledger. The audio
+  / `call_phone` path, so older host tools still get the same ledger. Phone
+  starts can pass either a full raw `policy` or a safe `policyPreset`
+  (`safe_default`, `reservation`, `support`) plus optional limits such as
+  `regionAllowlist`, `maxCostPerMission`, and `maxTimeShiftMinutes`. The audio
   conversation still runs through the carrier WebSocket -> `RealtimeVoiceBridge`
   path. Realtime bridge transcript entries are mirrored into the active
   conversation session so `conversation_context` can show caller, agent, and

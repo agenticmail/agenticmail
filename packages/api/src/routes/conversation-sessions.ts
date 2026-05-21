@@ -16,6 +16,7 @@ import {
   type ConversationSessionStatus,
   type RealtimeConversationChannel,
 } from '@agenticmail/core';
+import { requestPhonePolicyPreset, resolvePhoneMissionPolicy } from '../phone-policy.js';
 
 type Db = ReturnType<typeof import('@agenticmail/core').getDatabase>;
 
@@ -402,7 +403,8 @@ export function createConversationSessionRoutes(
 
   async function startPhoneSession(req: Request, res: Response, agentId: string): Promise<Response> {
     const phone = phoneManager.getPhoneTransportConfig(agentId);
-    const policy = req.body?.policy;
+    const policy = resolvePhoneMissionPolicy(req.body);
+    const policyPreset = requestPhonePolicyPreset(req.body);
     const plan = planRealtimeConversationStart({
       channel: 'phone',
       transportConfigured: !!phone,
@@ -420,7 +422,7 @@ export function createConversationSessionRoutes(
     const result = await phoneManager.startMission(agentId, {
       to,
       task,
-      policy,
+      policy: policy as any,
       voiceRuntimeRef: requestString(req.body?.voiceRuntimeRef) || undefined,
     }, {
       dryRun: req.body?.dryRun === true,
@@ -437,6 +439,7 @@ export function createConversationSessionRoutes(
         missionId: result.mission.id,
         provider: result.mission.provider,
         dryRun: req.body?.dryRun === true,
+        policyPreset,
       },
     });
     const message = sessions.recordMessage({

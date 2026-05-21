@@ -242,6 +242,47 @@ describe('phone routes', () => {
     db.close();
   });
 
+  it('starts a mission from a safe policy preset without raw policy JSON', async () => {
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+    await setupTransport(baseUrl);
+
+    const started = await request(baseUrl, '/calls/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        to: '+436641234567',
+        task: 'Reserve dinner for two at 19:30',
+        policyPreset: 'reservation',
+        maxCostPerMission: 1.5,
+        maxTimeShiftMinutes: 45,
+        dryRun: true,
+      }),
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.mission.policy).toMatchObject({
+      policyVersion: 1,
+      maxCostPerMission: 1.5,
+      maxAttempts: 2,
+      transcriptEnabled: true,
+      recordingEnabled: false,
+      alternativePolicy: { maxTimeShiftMinutes: 45 },
+      confirmPolicy: {
+        paymentDetails: 'never',
+        contractCommitment: 'never',
+        costOverLimit: 'needs_operator',
+        sensitivePersonalData: 'needs_operator',
+        unclearAlternative: 'needs_operator',
+      },
+    });
+    expect(started.body.conversationSession.metadata).toMatchObject({
+      policyPreset: 'reservation',
+      dryRun: true,
+    });
+
+    db.close();
+  });
+
   it('authenticates 46elks voice-start and hangup webhooks', async () => {
     const db = createDb();
     const baseUrl = await listen(createPhoneApp(db));

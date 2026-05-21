@@ -32,6 +32,7 @@ describe('OpenClaw phone tool surface', () => {
       'agenticmail_conversation_send',
       'agenticmail_conversation_messages',
       'agenticmail_conversation_end',
+      'agenticmail_call_phone_safe',
       'agenticmail_call_phone',
       'agenticmail_call_status',
       'agenticmail_call_transcript',
@@ -45,6 +46,11 @@ describe('OpenClaw phone tool surface', () => {
   });
 
   it('keeps high-risk call start fields explicit and required', () => {
+    const safeCallTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_call_phone_safe');
+    expect(safeCallTool.parameters.required).toEqual(expect.arrayContaining(['to', 'task']));
+    expect(safeCallTool.parameters.properties.policyPreset.type).toBe('string');
+    expect(safeCallTool.parameters.properties.regionAllowlist.type).toBe('array');
+
     const callTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_call_phone');
 
     expect(callTool.parameters.required).toEqual(expect.arrayContaining(['to', 'task', 'policy']));

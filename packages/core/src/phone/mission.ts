@@ -3,6 +3,9 @@ import { normalizePhoneNumber } from '../sms/manager.js';
 export const PHONE_REGION_SCOPES = ['AT', 'DE', 'EU', 'WORLD'] as const;
 export type PhoneRegionScope = typeof PHONE_REGION_SCOPES[number];
 
+export const PHONE_MISSION_POLICY_PRESETS = ['safe_default', 'reservation', 'support'] as const;
+export type PhoneMissionPolicyPreset = typeof PHONE_MISSION_POLICY_PRESETS[number];
+
 export const TELEPHONY_TRANSPORT_CAPABILITIES = [
   'sms',
   'call_control',
@@ -204,6 +207,22 @@ export interface OpenClawPhoneMissionPolicy {
   voice?: string;
 }
 
+export interface BuildPhoneMissionPolicyInput {
+  preset?: PhoneMissionPolicyPreset;
+  regionAllowlist?: PhoneRegionScope[];
+  maxCallDurationSeconds?: number;
+  maxCostPerMission?: number;
+  maxAttempts?: number;
+  transcriptEnabled?: boolean;
+  recordingEnabled?: boolean;
+  maxTimeShiftMinutes?: number;
+  extensionPolicy?: PhoneExtensionPolicy;
+  callbackPolicy?: PhoneCallbackPolicy;
+  voiceRuntime?: string;
+  voiceModel?: string;
+  voice?: string;
+}
+
 export interface StartPhoneMissionInput {
   to: string;
   task: string;
@@ -299,6 +318,49 @@ function readRegionList(value: unknown): PhoneRegionScope[] | null {
   const regions = value.filter(isPhoneRegionScope);
   if (regions.length !== value.length) return null;
   return Array.from(new Set(regions));
+}
+
+function readPolicyPreset(value: unknown): PhoneMissionPolicyPreset {
+  if (value === undefined || value === null || value === '') return 'safe_default';
+  if (typeof value === 'string' && (PHONE_MISSION_POLICY_PRESETS as readonly string[]).includes(value)) {
+    return value as PhoneMissionPolicyPreset;
+  }
+  throw new Error(`policyPreset must be one of: ${PHONE_MISSION_POLICY_PRESETS.join(', ')}`);
+}
+
+function readOptionalRegionList(value: unknown, field: string): PhoneRegionScope[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = readRegionList(value);
+  if (!parsed) throw new Error(`${field} must contain at least one of: ${PHONE_REGION_SCOPES.join(', ')}`);
+  return parsed;
+}
+
+function readOptionalPositiveInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = readPositiveInteger(value);
+  if (parsed === null) throw new Error(`${field} must be a positive integer`);
+  return parsed;
+}
+
+function readOptionalNonNegativeInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = readNonNegativeNumber(value);
+  if (parsed === null || !Number.isInteger(parsed)) throw new Error(`${field} must be a non-negative integer`);
+  return parsed;
+}
+
+function readOptionalNonNegativeNumber(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = readNonNegativeNumber(value);
+  if (parsed === null) throw new Error(`${field} must be a non-negative number`);
+  return parsed;
+}
+
+function readOptionalBoolean(value: unknown, field: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = readBoolean(value);
+  if (parsed === null) throw new Error(`${field} must be boolean`);
+  return parsed;
 }
 
 function readCapabilityList(value: unknown): TelephonyTransportCapability[] | null {
@@ -420,6 +482,20 @@ function validateCallbackPolicy(value: unknown): PhoneMissionValidationIssue[] {
   return issues;
 }
 
+function readOptionalExtensionPolicy(value: unknown): PhoneExtensionPolicy | undefined {
+  if (value === undefined) return undefined;
+  const issues = validateExtensionPolicy(value);
+  if (issues.length > 0) throw new Error(issues.map((item) => `${item.field}: ${item.message}`).join('; '));
+  return value as PhoneExtensionPolicy;
+}
+
+function readOptionalCallbackPolicy(value: unknown): PhoneCallbackPolicy | undefined {
+  if (value === undefined) return undefined;
+  const issues = validateCallbackPolicy(value);
+  if (issues.length > 0) throw new Error(issues.map((item) => `${item.field}: ${item.message}`).join('; '));
+  return value as PhoneCallbackPolicy;
+}
+
 /**
  * Resolve the effective extension policy: caller's value (if any),
  * clamped DOWN to the server ceiling on each field. The server cap
@@ -442,6 +518,91 @@ export function resolveCallbackPolicy(input: PhoneCallbackPolicy | undefined): P
     allowAutoCallback: src.allowAutoCallback,
     maxCallbackChain: Math.min(src.maxCallbackChain, PHONE_SERVER_MAX_CALLBACK_CHAIN),
   };
+}
+
+const PHONE_POLICY_PRESET_DEFAULTS: Record<PhoneMissionPolicyPreset, Omit<OpenClawPhoneMissionPolicy,
+  'policyVersion' | 'confirmPolicy' | 'alternativePolicy'>> = {
+  safe_default: {
+    regionAllowlist: ['WORLD'],
+    maxCallDurationSeconds: 600,
+    maxCostPerMission: 2,
+    maxAttempts: 1,
+    transcriptEnabled: true,
+    recordingEnabled: false,
+    extensionPolicy: DEFAULT_EXTENSION_POLICY,
+    callbackPolicy: DEFAULT_CALLBACK_POLICY,
+  },
+  reservation: {
+    regionAllowlist: ['WORLD'],
+    maxCallDurationSeconds: 900,
+    maxCostPerMission: 2,
+    maxAttempts: 2,
+    transcriptEnabled: true,
+    recordingEnabled: false,
+    extensionPolicy: DEFAULT_EXTENSION_POLICY,
+    callbackPolicy: DEFAULT_CALLBACK_POLICY,
+  },
+  support: {
+    regionAllowlist: ['WORLD'],
+    maxCallDurationSeconds: 1800,
+    maxCostPerMission: 3,
+    maxAttempts: 1,
+    transcriptEnabled: true,
+    recordingEnabled: false,
+    extensionPolicy: DEFAULT_EXTENSION_POLICY,
+    callbackPolicy: DEFAULT_CALLBACK_POLICY,
+  },
+};
+
+/**
+ * Build a complete, validator-compatible phone mission policy from a
+ * small preset + optional operator limits. This is the ergonomics layer
+ * for host tools such as OpenClaw/Codex/Gemini: agents can request a
+ * normal call without handcrafting the full safety JSON, while the
+ * fixed confirmPolicy still prevents payments, contracts, over-limit
+ * costs, sensitive-data disclosure, and unclear alternatives from being
+ * self-approved by the model.
+ */
+export function buildPhoneMissionPolicy(input: BuildPhoneMissionPolicyInput = {}): OpenClawPhoneMissionPolicy {
+  const raw = input as Record<string, unknown>;
+  const preset = readPolicyPreset(raw.preset);
+  const defaults = PHONE_POLICY_PRESET_DEFAULTS[preset];
+  const regionAllowlist = readOptionalRegionList(raw.regionAllowlist, 'regionAllowlist') ?? defaults.regionAllowlist;
+  const maxCallDurationSeconds = readOptionalPositiveInteger(raw.maxCallDurationSeconds, 'maxCallDurationSeconds')
+    ?? defaults.maxCallDurationSeconds;
+  const maxCostPerMission = readOptionalNonNegativeNumber(raw.maxCostPerMission, 'maxCostPerMission')
+    ?? defaults.maxCostPerMission;
+  const maxAttempts = readOptionalPositiveInteger(raw.maxAttempts, 'maxAttempts') ?? defaults.maxAttempts;
+  const transcriptEnabled = readOptionalBoolean(raw.transcriptEnabled, 'transcriptEnabled') ?? defaults.transcriptEnabled;
+  const recordingEnabled = readOptionalBoolean(raw.recordingEnabled, 'recordingEnabled') ?? defaults.recordingEnabled;
+  const maxTimeShiftMinutes = readOptionalNonNegativeInteger(raw.maxTimeShiftMinutes, 'maxTimeShiftMinutes')
+    ?? (preset === 'support' ? 0 : 30);
+
+  const policy: OpenClawPhoneMissionPolicy = {
+    policyVersion: 1,
+    regionAllowlist,
+    maxCallDurationSeconds,
+    maxCostPerMission,
+    maxAttempts,
+    transcriptEnabled,
+    recordingEnabled,
+    confirmPolicy: {
+      paymentDetails: 'never',
+      contractCommitment: 'never',
+      costOverLimit: 'needs_operator',
+      sensitivePersonalData: 'needs_operator',
+      unclearAlternative: 'needs_operator',
+    },
+    alternativePolicy: { maxTimeShiftMinutes },
+    extensionPolicy: resolveExtensionPolicy(readOptionalExtensionPolicy(raw.extensionPolicy) ?? defaults.extensionPolicy),
+    callbackPolicy: resolveCallbackPolicy(readOptionalCallbackPolicy(raw.callbackPolicy) ?? defaults.callbackPolicy),
+  };
+
+  if (typeof raw.voiceRuntime === 'string' && raw.voiceRuntime.trim()) policy.voiceRuntime = raw.voiceRuntime.trim();
+  if (typeof raw.voiceModel === 'string' && raw.voiceModel.trim()) policy.voiceModel = raw.voiceModel.trim();
+  if (typeof raw.voice === 'string' && raw.voice.trim()) policy.voice = raw.voice.trim();
+
+  return policy;
 }
 
 export function validatePhoneMissionPolicy(policy: unknown): PhoneMissionValidationResult {

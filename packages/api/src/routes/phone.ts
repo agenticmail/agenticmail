@@ -11,6 +11,7 @@ import {
   type PhoneMissionState,
   type PhoneCallMission,
 } from '@agenticmail/core';
+import { requestPhonePolicyPreset, resolvePhoneMissionPolicy } from '../phone-policy.js';
 
 function requestString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -375,11 +376,13 @@ export function createPhoneRoutes(
     try {
       const agent = getAgent(req, res);
       if (!agent) return;
+      const policy = resolvePhoneMissionPolicy(req.body);
+      const policyPreset = requestPhonePolicyPreset(req.body);
 
       const result = await phoneManager.startMission(agent.id, {
         to: req.body?.to,
         task: req.body?.task,
-        policy: req.body?.policy,
+        policy: policy as any,
         voiceRuntimeRef: req.body?.voiceRuntimeRef,
       }, {
         dryRun: req.body?.dryRun === true,
@@ -396,6 +399,7 @@ export function createPhoneRoutes(
           missionId: result.mission.id,
           provider: result.mission.provider,
           dryRun: req.body?.dryRun === true,
+          policyPreset,
         },
       });
       const conversationMessage = conversations.recordMessage({

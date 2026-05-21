@@ -83,6 +83,7 @@ describe('tool catalogue ↔ tool definitions', () => {
     expect(TOOL_SETS.phone).toEqual([
       'phone_transport_setup',
       'phone_capabilities',
+      'call_phone_safe',
       'call_phone',
       'call_status',
       'call_transcript',
