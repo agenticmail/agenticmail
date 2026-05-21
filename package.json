@@ -6,8 +6,9 @@
     "agenticmail"
   ],
   "scripts": {
-    "build": "npm run build:core && npm run build:mcp && npm run build:api && npm run build:claudecode && npm run build:codex && npm run build:openclaw && npm run build:cli",
+    "build": "npm run build:core && npm run build:voice-host-bridge && npm run build:mcp && npm run build:api && npm run build:claudecode && npm run build:codex && npm run build:openclaw && npm run build:cli",
     "build:core":       "npm run build --workspace=@agenticmail/core --if-present",
+    "build:voice-host-bridge": "npm run build --workspace=@agenticmail/voice-host-bridge --if-present",
     "build:mcp":        "npm run build --workspace=@agenticmail/mcp --if-present",
     "build:api":        "npm run build --workspace=@agenticmail/api --if-present",
     "build:claudecode": "npm run build --workspace=@agenticmail/claudecode --if-present",

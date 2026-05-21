@@ -17,14 +17,21 @@ PR #48 now has the shared live-conversation substrate:
 - Phone readiness doctor for "can this deployment place a real tracked call?"
   and "can it hold a realtime spoken conversation?"
 
+What is now executable:
+
+- AgenticMail exposes a `host_bridge` voice runtime contract.
+- `@agenticmail/voice-host-bridge` runs the localhost WebSocket bridge that
+  AgenticMail connects to in `host_bridge` mode.
+- `@agenticmail/cli`, `@agenticmail/openclaw`, `@agenticmail/codex`, and
+  `@agenticmail/claudecode` expose wrapper bins for the same bridge runner.
+
 What is not done yet:
 
-- AgenticMail now exposes a `host_bridge` voice runtime contract. The host
-  bridge endpoint must still be implemented by OpenClaw/CLI to complete the
-  host-owned live reasoning loop.
+- The first bridge runner is an OpenAI-Realtime-compatible proxy. It moves the
+  live provider key into the host process and works with OpenAI/XAI-compatible
+  realtime providers, but it does not yet implement a custom Codex/OpenClaw
+  speech pipeline from STT + host LLM + TTS.
 - WhatsApp and Google Meet adapters are still planned, not executable.
-- The phone bridge can use embedded realtime providers, but OpenClaw still
-  needs a cleaner path where it owns the live reasoning loop and provider keys.
 
 ## Boundary Decision
 
@@ -83,17 +90,27 @@ Factory slices:
 
 1. Keep PR #48 readiness doctor green and visible.
 2. Add `host_bridge` runtime mode to phone config and readiness.
-3. Add a normalized realtime event protocol:
+3. Add the local host bridge runner:
+   - `agenticmail-voice-host-bridge`
+   - `agenticmail-openclaw-voice-host-bridge`
+   - `agenticmail-codex-voice-host-bridge`
+   - `agenticmail-claudecode-voice-host-bridge`
+4. Configure AgenticMail for the runner:
+   - `AGENTICMAIL_VOICE_RUNTIME=host_bridge`
+   - `AGENTICMAIL_VOICE_HOST_BRIDGE_URL=ws://127.0.0.1:3999/realtime`
+   - optional `AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN=<shared token>`
+5. Add a normalized realtime event protocol:
    - inbound audio frame
    - outbound audio frame
    - partial/final transcript
    - tool request
    - policy/approval request
    - hangup/cancel/summary
-4. Add an OpenClaw bridge runner in `packages/openclaw` that receives phone
-   events, owns the live AI/tool loop, and returns audio/control events.
-5. Add operator query/approval endpoints and wire them into phone sessions.
-6. Add a guided test call command that runs readiness, starts a safe call, and
+6. Add an OpenClaw-native bridge runner mode that receives phone events, owns
+   the live AI/tool loop, and returns audio/control events without requiring an
+   OpenAI-compatible upstream.
+7. Add operator query/approval endpoints and wire them into phone sessions.
+8. Add a guided test call command that runs readiness, starts a safe call, and
    prints the linked conversation session id.
 
 Definition of done:
@@ -183,13 +200,14 @@ must be implemented as a real media sidecar, not as a fake REST wrapper.
 | Order | Slice | Outcome |
 | --- | --- | --- |
 | 1 | Commit and keep PR #48 readiness doctor green | We can diagnose real phone readiness from OpenClaw/MCP. |
-| 2 | Phone `host_bridge` runtime contract | In progress: AgenticMail no longer has to own the live AI key for OpenClaw deployments. |
-| 3 | OpenClaw bridge runner | OpenClaw can act as the live conversation brain. |
-| 4 | Operator query/approval flow | The agent can pause, ask the operator, resume, and record approvals. |
-| 5 | Guided phone smoke test | One command proves "this install can call and converse". |
-| 6 | WhatsApp `meta_cloud` adapter | First non-Telegram/non-Matrix external messaging channel. |
-| 7 | Google Meet space + artifact adapter | Meeting setup/transcript value without pretending live AV is done. |
-| 8 | Google Meet media sidecar | Real live meeting audio path into the same host bridge. |
+| 2 | Phone `host_bridge` runtime contract | Done: AgenticMail no longer has to own the live AI key for OpenClaw deployments. |
+| 3 | Local host bridge runner | Done: localhost WebSocket proxy with CLI/OpenClaw/Codex/Claude Code wrapper bins. |
+| 4 | Host-native speech pipeline | OpenClaw/Codex/Claude Code can act as the live conversation brain without an OpenAI-compatible upstream. |
+| 5 | Operator query/approval flow | The agent can pause, ask the operator, resume, and record approvals. |
+| 6 | Guided phone smoke test | One command proves "this install can call and converse". |
+| 7 | WhatsApp `meta_cloud` adapter | First non-Telegram/non-Matrix external messaging channel. |
+| 8 | Google Meet space + artifact adapter | Meeting setup/transcript value without pretending live AV is done. |
+| 9 | Google Meet media sidecar | Real live meeting audio path into the same host bridge. |
 
 ## Testing Gate
 

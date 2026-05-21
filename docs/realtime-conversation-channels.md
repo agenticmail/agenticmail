@@ -65,6 +65,21 @@ Voice runtime selection is provider-registry based. `GET
 default models, voice catalogue, and key readiness without returning secrets.
 Per-call `voiceRuntime`, `voiceModel`, and `voice` fields can be passed through
 `call_phone_safe`, raw `call_phone`, or `conversation_start(channel: "phone")`.
+For host-owned provider keys, run a local bridge and select `host_bridge`:
+
+```bash
+OPENAI_API_KEY=sk-... agenticmail-voice-host-bridge
+
+AGENTICMAIL_VOICE_RUNTIME=host_bridge
+AGENTICMAIL_VOICE_HOST_BRIDGE_URL=ws://127.0.0.1:3999/realtime
+```
+
+The same runner is available from host packages as
+`agenticmail-openclaw-voice-host-bridge`,
+`agenticmail-codex-voice-host-bridge`, and
+`agenticmail-claudecode-voice-host-bridge`. Add
+`AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN` on both sides if the bridge should reject
+unauthenticated local clients.
 
 For an operator-facing "can I make a real live call now?" check, use `GET
 /api/agenticmail/phone/readiness`, `phone_readiness`, or

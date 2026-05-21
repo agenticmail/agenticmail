@@ -5,6 +5,9 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "agenticmail-openclaw-voice-host-bridge": "dist/src/voice-host-bridge-bin.js"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -28,13 +31,14 @@
     ]
   },
   "scripts": {
-    "build": "tsup index.ts --format esm,cjs --dts --clean",
+    "build": "tsup index.ts src/voice-host-bridge-bin.ts --format esm,cjs --dts --clean",
     "test": "vitest run --passWithNoTests",
     "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agenticmail/core": "^0.9.26"
+    "@agenticmail/core": "^0.9.26",
+    "@agenticmail/voice-host-bridge": "^0.1.0"
   },
   "devDependencies": {
     "tsup": "^8.4.0",
