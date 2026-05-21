@@ -1170,7 +1170,7 @@ export function registerTools(
   // --- Gateway tools (always use master key, no session override) ---
 
   reg('agenticmail_setup_guide', {
-    description: 'Get a comparison of email setup modes (Relay vs Domain) AND the optional channels — realtime voice (OPENAI_API_KEY), phone call-control with a 46elks-vs-Twilio provider choice, and the Telegram channel — with difficulty levels, requirements, and step-by-step instructions. Show this to users who want to set up real internet email, voice calls, phone, or Telegram to help them choose.',
+    description: 'Get a comparison of email setup modes (Relay vs Domain) AND the optional channels — realtime voice providers, phone call-control with a 46elks-vs-Twilio provider choice, phone_readiness, and Telegram — with difficulty levels, requirements, and step-by-step instructions. Show this to users who want to set up real internet email, voice calls, phone, or Telegram to help them choose.',
     parameters: {},
     handler: async () => {
       try {
@@ -2523,6 +2523,22 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
       try {
         const c = await ctxForParams(ctx, params);
         return await apiRequest(c, 'GET', '/phone/capabilities');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_phone_readiness', {
+    description: 'Return the real phone-call readiness state for this agent: whether tracked calls and realtime conversations can actually run, exact missing setup items, and a safe test-call template.',
+    parameters: {
+      voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id to check, e.g. openai or grok. Defaults to the configured install runtime.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        if (params.voiceRuntime) query.set('voiceRuntime', String(params.voiceRuntime));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/phone/readiness${suffix}`);
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });

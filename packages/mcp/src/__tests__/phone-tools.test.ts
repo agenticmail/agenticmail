@@ -112,6 +112,18 @@ describe('MCP phone tool dispatch', () => {
     }));
   });
 
+  it('checks phone readiness through the phone API', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ready: true, missing: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = JSON.parse(await handleToolCall('phone_readiness', { voiceRuntime: 'grok' }));
+
+    expect(result).toEqual({ ready: true, missing: [] });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/phone/readiness?voiceRuntime=grok', expect.objectContaining({
+      method: 'GET',
+    }));
+  });
+
   it('reads one phone mission by id', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ mission: { id: 'phn_1', status: 'dialing' } }));
     vi.stubGlobal('fetch', fetchMock);

@@ -23,6 +23,7 @@ describe('OpenClaw phone tool surface', () => {
     expect(names).toEqual(expect.arrayContaining([
       'agenticmail_phone_transport_setup',
       'agenticmail_phone_capabilities',
+      'agenticmail_phone_readiness',
       'agenticmail_phone_voice_providers',
       'agenticmail_realtime_conversation_capabilities',
       'agenticmail_realtime_conversation_plan',
@@ -51,6 +52,8 @@ describe('OpenClaw phone tool surface', () => {
     expect(safeCallTool.parameters.required).toEqual(expect.arrayContaining(['to', 'task']));
     expect(safeCallTool.parameters.properties.policyPreset.type).toBe('string');
     expect(safeCallTool.parameters.properties.regionAllowlist.type).toBe('array');
+    const readinessTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_phone_readiness');
+    expect(readinessTool.parameters.properties.voiceRuntime.type).toBe('string');
     const voiceProviderTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_phone_voice_providers');
     expect(voiceProviderTool.parameters.properties._account.type).toBe('string');
 

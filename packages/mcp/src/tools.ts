@@ -623,7 +623,7 @@ export const toolDefinitions = [
   },
   {
     name: 'setup_guide',
-    description: 'Get a comparison of email setup modes (Relay vs Domain) AND the optional channels — realtime voice (OPENAI_API_KEY), phone call-control with a 46elks-vs-Twilio provider choice, and the Telegram channel — each with difficulty levels, requirements, pros/cons, and step-by-step instructions. Show this to users who want to set up real internet email, voice calls, phone, or Telegram.',
+    description: 'Get a comparison of email setup modes (Relay vs Domain) AND the optional channels — realtime voice providers, phone call-control with a 46elks-vs-Twilio provider choice, phone_readiness, and Telegram — each with difficulty levels, requirements, pros/cons, and step-by-step instructions. Show this to users who want to set up real internet email, voice calls, phone, or Telegram.',
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -1225,6 +1225,16 @@ export const toolDefinitions = [
     inputSchema: {
       type: 'object' as const,
       properties: {},
+    },
+  },
+  {
+    name: 'phone_readiness',
+    description: 'Return the real phone-call readiness state for this agent: whether tracked calls and realtime conversations can actually run, exact missing setup items, and a safe test-call template.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id to check, e.g. openai or grok. Defaults to the configured install runtime.' },
+      },
     },
   },
   {
@@ -3843,6 +3853,14 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
 
     case 'phone_capabilities': {
       const result = await apiRequest('GET', '/phone/capabilities');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'phone_readiness': {
+      const query = new URLSearchParams();
+      if (args.voiceRuntime) query.set('voiceRuntime', String(args.voiceRuntime));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/phone/readiness${suffix}`);
       return JSON.stringify(result, null, 2);
     }
 

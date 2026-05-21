@@ -11,6 +11,8 @@ import {
   type AgenticMailConfig,
   type PhoneMissionState,
   type PhoneCallMission,
+  type PhoneTransportConfig,
+  type VoiceProvider,
 } from '@agenticmail/core';
 import { requestPhonePolicyPreset, resolvePhoneMissionPolicy } from '../phone-policy.js';
 
@@ -137,6 +139,100 @@ function phoneRealtimeReady(cfg: ReturnType<PhoneManager['getPhoneTransportConfi
   if (!cfg?.capabilities.includes('realtime_media')) return false;
   if (cfg.provider === '46elks') return !!cfg.realtimeBridgeNumber;
   return cfg.provider === 'twilio';
+}
+
+function voiceProviderConfigured(provider: VoiceProvider, config: AgenticMailConfig): {
+  configured: boolean;
+  sources: { legacyConfig: boolean; voiceProviderKeys: boolean; env: boolean };
+} {
+  const legacyConfig = provider.apiKeyConfigField
+    ? !!requestString((config as any)[provider.apiKeyConfigField])
+    : false;
+  const voiceProviderKeys = !!requestString(config.voiceProviderKeys?.[provider.id]);
+  const env = !!requestString(process.env[provider.apiKeyEnvVar]);
+  return {
+    configured: legacyConfig || voiceProviderKeys || env,
+    sources: { legacyConfig, voiceProviderKeys, env },
+  };
+}
+
+function buildPhoneReadiness(
+  cfg: PhoneTransportConfig | null,
+  config: AgenticMailConfig,
+  requestedRuntime?: string,
+): Record<string, unknown> {
+  const defaultRuntime = (config.voiceRuntime && config.voiceRuntime.trim()) || 'openai';
+  const voiceRuntime = requestString(requestedRuntime) || defaultRuntime;
+  const providers = listVoiceProviders();
+  const provider = providers.find((item) => item.id === voiceRuntime);
+  const providerKeys = provider ? voiceProviderConfigured(provider, config) : null;
+  const missing: string[] = [];
+  const warnings: string[] = [];
+
+  if (!cfg) {
+    missing.push('phone transport');
+  } else {
+    if (!cfg.capabilities.includes('call_control')) missing.push('phone transport with call_control');
+    if (!cfg.capabilities.includes('realtime_media')) missing.push('phone transport with realtime_media');
+    if (cfg.provider === '46elks' && !cfg.realtimeBridgeNumber) missing.push('46elks realtimeBridgeNumber');
+    if (!cfg.webhookBaseUrl.startsWith('https://')) warnings.push('webhookBaseUrl should be public HTTPS for provider callbacks');
+  }
+  if (!provider) {
+    missing.push(`known voice runtime provider "${voiceRuntime}"`);
+  } else if (!providerKeys?.configured) {
+    missing.push(`${provider.apiKeyEnvVar} or voiceProviderKeys.${provider.id}`);
+  }
+
+  const canPlaceTrackedCalls = !!cfg && cfg.capabilities.includes('call_control');
+  const realtimeTransportReady = phoneRealtimeReady(cfg);
+  const canHoldRealtimeConversation = canPlaceTrackedCalls && realtimeTransportReady && !!providerKeys?.configured;
+  const testRegionAllowlist = cfg?.supportedRegions?.length ? cfg.supportedRegions : ['WORLD'];
+  return {
+    ready: canHoldRealtimeConversation,
+    canPlaceTrackedCalls,
+    canHoldRealtimeConversation,
+    missing,
+    warnings,
+    transport: cfg ? redactPhoneTransportConfig(cfg) : null,
+    voiceRuntime: provider ? {
+      id: provider.id,
+      displayName: provider.displayName,
+      defaultModel: provider.defaultModel,
+      apiKeyEnvVar: provider.apiKeyEnvVar,
+      keyConfigured: providerKeys?.configured ?? false,
+      keySources: providerKeys?.sources,
+      defaultVoice: provider.defaultVoice,
+      configuredVoice: requestString(config.voiceProviderVoices?.[provider.id]) || undefined,
+      customVoicesSupported: !!provider.customVoicesSupported,
+    } : { id: voiceRuntime, keyConfigured: false },
+    nextActions: canHoldRealtimeConversation
+      ? [
+          'Start a real test call with agenticmail_call_phone_safe / call_phone_safe.',
+          'Use policyPreset "safe_default" or "reservation"; keep dryRun false for a real call.',
+          'Use agenticmail_conversation_context or agenticmail_call_transcript to inspect the live call ledger.',
+        ]
+      : [
+          'Run agenticmail_phone_transport_setup with provider credentials, public webhookBaseUrl, webhookSecret, capabilities ["call_control","realtime_media"], and supportedRegions.',
+          'For 46elks realtime, also set realtimeBridgeNumber to your 46elks websocket-number.',
+          provider
+            ? `Configure ${provider.apiKeyEnvVar} or voiceProviderKeys.${provider.id} for the selected voice runtime.`
+            : 'Select a registered voice runtime such as "openai" or "grok".',
+          'Run agenticmail_phone_readiness again until ready=true.',
+        ],
+    testCallTemplate: {
+      tool: 'agenticmail_call_phone_safe',
+      mcpTool: 'call_phone_safe',
+      params: {
+        to: '+43123456789',
+        task: 'Say hello, confirm you can hear the other party, then end the call.',
+        policyPreset: 'safe_default',
+        regionAllowlist: testRegionAllowlist,
+        maxCostPerMission: 1,
+        maxCallDurationSeconds: 180,
+        dryRun: false,
+      },
+    },
+  };
 }
 
 function phoneSetupNextSteps(cfg: ReturnType<PhoneManager['getPhoneTransportConfig']>): string[] {
@@ -373,17 +469,24 @@ export function createPhoneRoutes(
     }
   });
 
+  router.get('/phone/readiness', (req: Request, res: Response) => {
+    try {
+      const agent = getAgent(req, res);
+      if (!agent) return;
+      const cfg = phoneManager.getPhoneTransportConfig(agent.id);
+      res.json(buildPhoneReadiness(cfg, config, requestString(req.query.voiceRuntime)));
+    } catch (err) {
+      sendPhoneError(res, err);
+    }
+  });
+
   router.get('/phone/voice/providers', (req: Request, res: Response) => {
     try {
       const agent = getAgent(req, res);
       if (!agent) return;
       const defaultRuntime = (config.voiceRuntime && config.voiceRuntime.trim()) || 'openai';
       const providers = listVoiceProviders().map((provider) => {
-        const legacyConfigured = provider.apiKeyConfigField
-          ? !!requestString((config as any)[provider.apiKeyConfigField])
-          : false;
-        const mapConfigured = !!requestString(config.voiceProviderKeys?.[provider.id]);
-        const envConfigured = !!requestString(process.env[provider.apiKeyEnvVar]);
+        const keyState = voiceProviderConfigured(provider, config);
         const configuredVoice = requestString(config.voiceProviderVoices?.[provider.id]) || undefined;
         return {
           id: provider.id,
@@ -392,12 +495,8 @@ export function createPhoneRoutes(
           websocketBaseUrl: provider.websocketBaseUrl,
           defaultModel: provider.defaultModel,
           apiKeyEnvVar: provider.apiKeyEnvVar,
-          keyConfigured: legacyConfigured || mapConfigured || envConfigured,
-          keySources: {
-            legacyConfig: legacyConfigured,
-            voiceProviderKeys: mapConfigured,
-            env: envConfigured,
-          },
+          keyConfigured: keyState.configured,
+          keySources: keyState.sources,
           voices: provider.voices,
           defaultVoice: provider.defaultVoice,
           configuredVoice,

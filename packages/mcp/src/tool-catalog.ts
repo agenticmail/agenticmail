@@ -149,6 +149,7 @@ export const TOOL_SETS = {
   phone: [
     'phone_transport_setup',
     'phone_capabilities',
+    'phone_readiness',
     'phone_voice_providers',
     'call_phone_safe',
     'call_phone',

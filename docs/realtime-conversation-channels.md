@@ -61,6 +61,12 @@ default models, voice catalogue, and key readiness without returning secrets.
 Per-call `voiceRuntime`, `voiceModel`, and `voice` fields can be passed through
 `call_phone_safe`, raw `call_phone`, or `conversation_start(channel: "phone")`.
 
+For an operator-facing "can I make a real live call now?" check, use `GET
+/api/agenticmail/phone/readiness`, `phone_readiness`, or
+`agenticmail_phone_readiness`. The response separates tracked call-control from
+full realtime conversation readiness, lists exact missing setup items, and
+returns a safe `call_phone_safe` test-call template.
+
 ## Conversation Sessions
 
 Conversation sessions are the runtime ledger above the individual transports:

@@ -158,6 +158,62 @@ describe('phone routes', () => {
     db.close();
   });
 
+  it('reports phone readiness for OpenClaw test-call setup', async () => {
+    const priorOpenAi = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-test-secret';
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+
+    const missing = await request(baseUrl, '/phone/readiness');
+    expect(missing.status).toBe(200);
+    expect(missing.body).toMatchObject({
+      ready: false,
+      canPlaceTrackedCalls: false,
+      canHoldRealtimeConversation: false,
+      missing: expect.arrayContaining(['phone transport']),
+    });
+
+    await request(baseUrl, '/phone/transport/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: '46elks',
+        phoneNumber: '+43123456789',
+        username: 'user',
+        password: 'api-password-secret',
+        webhookBaseUrl: 'https://agenticmail.example.com',
+        webhookSecret: WEBHOOK_SECRET,
+        realtimeBridgeNumber: '+46700000000',
+        capabilities: ['call_control', 'realtime_media'],
+        supportedRegions: ['AT', 'DE'],
+      }),
+    });
+
+    const ready = await request(baseUrl, '/phone/readiness');
+    expect(ready.body).toMatchObject({
+      ready: true,
+      canPlaceTrackedCalls: true,
+      canHoldRealtimeConversation: true,
+      missing: [],
+      voiceRuntime: {
+        id: 'openai',
+        keyConfigured: true,
+      },
+      testCallTemplate: {
+        tool: 'agenticmail_call_phone_safe',
+        params: {
+          policyPreset: 'safe_default',
+          regionAllowlist: ['AT', 'DE'],
+          dryRun: false,
+        },
+      },
+    });
+    expect(JSON.stringify(ready.body)).not.toContain('sk-test-secret');
+
+    if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = priorOpenAi;
+    db.close();
+  });
+
   it('lists voice runtime providers without exposing secrets', async () => {
     const priorXai = process.env.XAI_API_KEY;
     process.env.XAI_API_KEY = 'xai-secret';
