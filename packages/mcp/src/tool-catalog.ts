@@ -162,6 +162,8 @@ export const TOOL_SETS = {
   realtime: [
     'realtime_conversation_capabilities',
     'realtime_conversation_plan',
+    'conversation_list',
+    'conversation_get',
     'conversation_start',
     'conversation_send',
     'conversation_messages',

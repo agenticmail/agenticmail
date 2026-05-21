@@ -1258,6 +1258,30 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'conversation_list',
+    description: 'List live conversation sessions for the current agent. Use this to find active Telegram/phone sessions before sending or reading turns.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', enum: ['active', 'ended', 'failed'], description: 'Optional session status filter.' },
+        channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Optional conversation channel filter.' },
+        limit: { type: 'number', description: 'Maximum sessions to return (1-100, default 20).' },
+        offset: { type: 'number', description: 'Pagination offset (default 0).' },
+      },
+    },
+  },
+  {
+    name: 'conversation_get',
+    description: 'Read one live conversation session by id, including status, channel, peer, goal, and external transport reference.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
     name: 'conversation_start',
     description: 'Start a live conversation session. Telegram is executable now; phone starts a tracked phone mission; Matrix, WhatsApp, and Google Meet fail closed until adapters ship.',
     inputSchema: {
@@ -3722,6 +3746,22 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         realtimeMediaConfigured: args.realtimeMediaConfigured,
         openaiRealtimeConfigured: args.openaiRealtimeConfigured,
       });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_list': {
+      const query = new URLSearchParams();
+      for (const key of ['status', 'channel', 'limit', 'offset']) {
+        if (args[key] !== undefined) query.set(key, String(args[key]));
+      }
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/conversation/sessions${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_get': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const result = await apiRequest('GET', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}`);
       return JSON.stringify(result, null, 2);
     }
 

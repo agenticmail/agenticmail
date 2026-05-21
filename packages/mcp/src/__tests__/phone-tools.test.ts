@@ -111,10 +111,24 @@ describe('MCP phone tool dispatch', () => {
       if (String(url).endsWith('/conversation/sessions/start')) {
         return jsonResponse({ success: true, session: { id: 'conv_1' } });
       }
+      if (String(url).includes('/conversation/sessions?')) {
+        return jsonResponse({ sessions: [{ id: 'conv_1', status: 'active' }], count: 1 });
+      }
+      if (String(url).endsWith('/conversation/sessions/conv_1')) {
+        return jsonResponse({ session: { id: 'conv_1', status: 'active' } });
+      }
       return jsonResponse({ success: true, message: { id: 'cmsg_1' } });
     });
     vi.stubGlobal('fetch', fetchMock);
 
+    const listed = JSON.parse(await handleToolCall('conversation_list', {
+      status: 'active',
+      channel: 'telegram',
+      limit: 10,
+    }));
+    const loaded = JSON.parse(await handleToolCall('conversation_get', {
+      sessionId: 'conv_1',
+    }));
     const started = JSON.parse(await handleToolCall('conversation_start', {
       channel: 'telegram',
       chatId: '42',
@@ -125,8 +139,16 @@ describe('MCP phone tool dispatch', () => {
       text: 'next',
     }));
 
+    expect(listed.sessions).toEqual([{ id: 'conv_1', status: 'active' }]);
+    expect(loaded.session.id).toBe('conv_1');
     expect(started.session.id).toBe('conv_1');
     expect(sent.message.id).toBe('cmsg_1');
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions?status=active&channel=telegram&limit=10', expect.objectContaining({
+      method: 'GET',
+    }));
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions/conv_1', expect.objectContaining({
+      method: 'GET',
+    }));
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions/start', expect.objectContaining({
       method: 'POST',
     }));

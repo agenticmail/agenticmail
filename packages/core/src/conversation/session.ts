@@ -263,7 +263,7 @@ export class ConversationSessionManager {
     const session = this.getSession(agentId, sessionId);
     if (!session) throw new Error('conversation session not found');
     return (this.db.prepare(
-      'SELECT * FROM conversation_messages WHERE agent_id = ? AND session_id = ? ORDER BY created_at ASC, id ASC',
+      'SELECT * FROM conversation_messages WHERE agent_id = ? AND session_id = ? ORDER BY created_at ASC, rowid ASC',
     ).all(agentId, sessionId) as any[]).map(rowToMessage);
   }
 

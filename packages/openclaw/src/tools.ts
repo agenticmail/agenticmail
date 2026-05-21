@@ -2575,6 +2575,41 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
     },
   });
 
+  reg('agenticmail_conversation_list', {
+    description: 'List live conversation sessions for the current agent. Use this to find active Telegram/phone sessions before sending or reading turns.',
+    parameters: {
+      status: { type: 'string', description: 'Optional status filter: active, ended, or failed.' },
+      channel: { type: 'string', description: 'Optional channel filter: phone, telegram, matrix, whatsapp, or google_meet.' },
+      limit: { type: 'number', description: 'Maximum sessions to return (1-100, default 20).' },
+      offset: { type: 'number', description: 'Pagination offset (default 0).' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        for (const key of ['status', 'channel', 'limit', 'offset']) {
+          if (params[key] !== undefined) query.set(key, String(params[key]));
+        }
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/conversation/sessions${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_get', {
+    description: 'Read one live conversation session by id, including status, channel, peer, goal, and external transport reference.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        return await apiRequest(c, 'GET', `/conversation/sessions/${encodeURIComponent(params.sessionId)}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   reg('agenticmail_conversation_start', {
     description: 'Start a live conversation session. Telegram is executable now; phone starts a tracked phone mission; Matrix, WhatsApp, and Google Meet fail closed until adapters ship.',
     parameters: {
