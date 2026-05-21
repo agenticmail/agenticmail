@@ -162,6 +162,10 @@ export const TOOL_SETS = {
   realtime: [
     'realtime_conversation_capabilities',
     'realtime_conversation_plan',
+    'conversation_start',
+    'conversation_send',
+    'conversation_messages',
+    'conversation_end',
   ],
 
   /** Telegram channel — bot setup, send/list messages, poll for updates. */
@@ -286,6 +290,8 @@ export const TOOL_TO_SET: Record<string, ToolSetName> = (() => {
 const PROMOTED_TO_ESSENTIAL: readonly string[] = [
   'call_phone',
   'realtime_conversation_plan',
+  'conversation_start',
+  'conversation_send',
   'telegram_send',
   'memory',
   'memory_context',

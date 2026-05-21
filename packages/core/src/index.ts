@@ -477,8 +477,15 @@ export {
   isRealtimeConversationChannel,
   listRealtimeConversationCapabilities,
   planRealtimeConversationStart,
+  ConversationSessionManager,
 } from './conversation/index.js';
 export type {
+  ConversationMessage,
+  ConversationMessageDirection,
+  ConversationSession,
+  ConversationSessionStatus,
+  CreateConversationSessionInput,
+  RecordConversationMessageInput,
   RealtimeConversationCapability,
   RealtimeConversationChannel,
   RealtimeConversationMode,

@@ -6,6 +6,17 @@ export {
   planRealtimeConversationStart,
 } from './realtime.js';
 
+export { ConversationSessionManager } from './session.js';
+
+export type {
+  ConversationMessage,
+  ConversationMessageDirection,
+  ConversationSession,
+  ConversationSessionStatus,
+  CreateConversationSessionInput,
+  RecordConversationMessageInput,
+} from './session.js';
+
 export type {
   RealtimeConversationCapability,
   RealtimeConversationChannel,

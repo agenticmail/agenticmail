@@ -1257,6 +1257,63 @@ export const toolDefinitions = [
       required: ['channel'],
     },
   },
+  {
+    name: 'conversation_start',
+    description: 'Start a live conversation session. Telegram is executable now; phone starts a tracked phone mission; Matrix, WhatsApp, and Google Meet fail closed until adapters ship.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Conversation channel.' },
+        chatId: { type: 'string', description: 'Telegram chat id. Alias: peer.' },
+        peer: { type: 'string', description: 'Generic peer id: Telegram chat id, phone number, future Matrix room, etc.' },
+        to: { type: 'string', description: 'Phone target number in E.164 format. Alias: peer.' },
+        goal: { type: 'string', description: 'Conversation objective.' },
+        task: { type: 'string', description: 'Phone task/objective. Alias: goal.' },
+        subject: { type: 'string', description: 'Optional short session subject.' },
+        initialMessage: { type: 'string', description: 'Optional first Telegram message to send immediately.' },
+        policy: { type: 'object', description: 'Required for phone sessions: phone mission policy.' },
+        dryRun: { type: 'boolean', description: 'Phone only: create a mission/session without calling the carrier.' },
+        operatorApproved: { type: 'boolean', description: 'Future gated channels only: explicit operator approval.' },
+        userOptedIn: { type: 'boolean', description: 'Future opt-in channels only: explicit target opt-in.' },
+      },
+      required: ['channel'],
+    },
+  },
+  {
+    name: 'conversation_send',
+    description: 'Send one text turn into an active live conversation session. Currently executable for Telegram sessions.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+        text: { type: 'string', description: 'Message text to send.' },
+      },
+      required: ['sessionId', 'text'],
+    },
+  },
+  {
+    name: 'conversation_messages',
+    description: 'Read the transcript/message ledger for a conversation session.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'conversation_end',
+    description: 'End a live conversation session and mark it ended or failed.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+        status: { type: 'string', enum: ['ended', 'failed'], description: 'Terminal status (default: ended).' },
+      },
+      required: ['sessionId'],
+    },
+  },
 
   // --- Telegram Channel ---
   {
@@ -3664,6 +3721,46 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         transportConfigured: args.transportConfigured,
         realtimeMediaConfigured: args.realtimeMediaConfigured,
         openaiRealtimeConfigured: args.openaiRealtimeConfigured,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_start': {
+      const result = await apiRequest('POST', '/conversation/sessions/start', {
+        channel: args.channel,
+        chatId: args.chatId,
+        peer: args.peer,
+        to: args.to,
+        goal: args.goal,
+        task: args.task,
+        subject: args.subject,
+        initialMessage: args.initialMessage,
+        policy: args.policy,
+        dryRun: args.dryRun,
+        operatorApproved: args.operatorApproved,
+        userOptedIn: args.userOptedIn,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_send': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const result = await apiRequest('POST', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}/messages`, {
+        text: args.text,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_messages': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const result = await apiRequest('GET', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}/messages`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_end': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const result = await apiRequest('POST', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}/end`, {
+        status: args.status,
       });
       return JSON.stringify(result, null, 2);
     }

@@ -21,6 +21,7 @@ import {
   TelegramManager,
   TelegramApiError,
   PhoneManager,
+  ConversationSessionManager,
   getTelegramMe,
   sendTelegramMessage,
   setTelegramWebhook,
@@ -82,6 +83,7 @@ interface InboundResult {
 function processInboundMessage(
   telegramManager: TelegramManager,
   phoneManager: PhoneManager,
+  conversationManager: ConversationSessionManager,
   agentId: string,
   config: TelegramConfig,
   parsed: ParsedTelegramMessage,
@@ -102,6 +104,22 @@ function processInboundMessage(
     fromUsername: parsed.fromUsername,
     updateId: parsed.updateId,
   });
+  const session = conversationManager.findActiveSessionByPeer(agentId, 'telegram', parsed.chatId);
+  if (session) {
+    conversationManager.recordMessage({
+      sessionId: session.id,
+      agentId,
+      channel: 'telegram',
+      direction: 'inbound',
+      text: parsed.text,
+      externalMessageId: String(parsed.messageId),
+      metadata: {
+        telegramMessageId: parsed.messageId,
+        fromId: parsed.fromId,
+        updateId: parsed.updateId,
+      },
+    });
+  }
 
   // Operator-query answering — only ever from the operator's own chat.
   const operatorChatId = config.operatorChatId ? String(config.operatorChatId).trim() : '';
@@ -207,6 +225,7 @@ export function createTelegramWebhookRoutes(
   const router = Router();
   const telegramManager = new TelegramManager(db as any, config.masterKey);
   const phoneManager = new PhoneManager(db as any, config.masterKey);
+  const conversationManager = new ConversationSessionManager(db as any);
 
   router.post('/telegram/webhook', async (req: Request, res: Response) => {
     const provided = requestString(req.get('x-telegram-bot-api-secret-token'));
@@ -230,7 +249,7 @@ export function createTelegramWebhookRoutes(
 
     let result: InboundResult;
     try {
-      result = processInboundMessage(telegramManager, phoneManager, match.agentId, match.config, parsed);
+      result = processInboundMessage(telegramManager, phoneManager, conversationManager, match.agentId, match.config, parsed);
     } catch (err) {
       return res.status(500).json({ error: (err as Error).message });
     }
@@ -267,6 +286,7 @@ export function createTelegramRoutes(
   const router = Router();
   const telegramManager = new TelegramManager(db as any, config.masterKey);
   const phoneManager = new PhoneManager(db as any, config.masterKey);
+  const conversationManager = new ConversationSessionManager(db as any);
 
   // GET /telegram/config — current config (credentials redacted).
   router.get('/telegram/config', (req: Request, res: Response) => {
@@ -528,7 +548,7 @@ export function createTelegramRoutes(
         const parsed = parseTelegramUpdate(update);
         if (!parsed) continue;
         if (!isTelegramChatAllowed(cfg, parsed.chatId)) continue;
-        const result = processInboundMessage(telegramManager, phoneManager, agent.id, cfg, parsed);
+        const result = processInboundMessage(telegramManager, phoneManager, conversationManager, agent.id, cfg, parsed);
         if (result.recorded) recorded++;
         if (result.answeredQueryId) answered++;
         if (result.confirmation) {

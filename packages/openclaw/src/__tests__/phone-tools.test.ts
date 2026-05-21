@@ -25,6 +25,10 @@ describe('OpenClaw phone tool surface', () => {
       'agenticmail_phone_capabilities',
       'agenticmail_realtime_conversation_capabilities',
       'agenticmail_realtime_conversation_plan',
+      'agenticmail_conversation_start',
+      'agenticmail_conversation_send',
+      'agenticmail_conversation_messages',
+      'agenticmail_conversation_end',
       'agenticmail_call_phone',
       'agenticmail_call_status',
       'agenticmail_call_transcript',
@@ -48,5 +52,7 @@ describe('OpenClaw phone tool surface', () => {
     expect(planTool.parameters.required).toEqual(expect.arrayContaining(['channel']));
     expect(planTool.parameters.properties.policyProvided.type).toBe('boolean');
     expect(planTool.parameters.properties.operatorApproved.type).toBe('boolean');
+    const startTool = collectRegisteredTools().find((tool) => tool.name === 'agenticmail_conversation_start');
+    expect(startTool.parameters.required).toEqual(expect.arrayContaining(['channel']));
   });
 });

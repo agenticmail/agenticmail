@@ -107,6 +107,10 @@ describe('tool catalogue ↔ tool definitions', () => {
     expect(TOOL_SETS.realtime).toEqual([
       'realtime_conversation_capabilities',
       'realtime_conversation_plan',
+      'conversation_start',
+      'conversation_send',
+      'conversation_messages',
+      'conversation_end',
     ]);
   });
 

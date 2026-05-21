@@ -29,10 +29,32 @@ The API exposes the same gate for host integrations:
 - `GET /api/agenticmail/conversation/realtime/capabilities`
 - `GET /api/agenticmail/conversation/realtime/capabilities?channel=phone`
 - `POST /api/agenticmail/conversation/realtime/plan`
+- `POST /api/agenticmail/conversation/sessions/start`
+- `POST /api/agenticmail/conversation/sessions/:id/messages`
+- `GET /api/agenticmail/conversation/sessions/:id/messages`
+- `POST /api/agenticmail/conversation/sessions/:id/end`
 
 MCP hosts use `realtime_conversation_capabilities` and `realtime_conversation_plan`.
+They use `conversation_start`, `conversation_send`, `conversation_messages`, and
+`conversation_end` for active sessions.
 OpenClaw hosts use `agenticmail_realtime_conversation_capabilities` and
 `agenticmail_realtime_conversation_plan`.
+They use `agenticmail_conversation_start`, `agenticmail_conversation_send`,
+`agenticmail_conversation_messages`, and `agenticmail_conversation_end` for
+active sessions.
+
+## Conversation Sessions
+
+Conversation sessions are the runtime ledger above the individual transports:
+
+- Telegram sessions are executable now. Starting a session can send an initial
+  message, later `conversation_send` calls send more text turns, and inbound
+  Telegram webhooks/polls append replies to the same session transcript.
+- Phone sessions wrap a tracked phone mission and record the mission id as the
+  session's external reference. The audio conversation still runs through the
+  carrier WebSocket -> `RealtimeVoiceBridge` path.
+- Matrix, WhatsApp, and Google Meet remain planned and fail closed through the
+  same start gate until their adapters exist.
 
 ## 46elks Realtime Bridge Number
 

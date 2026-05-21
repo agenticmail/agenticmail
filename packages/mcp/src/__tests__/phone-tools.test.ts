@@ -105,4 +105,33 @@ describe('MCP phone tool dispatch', () => {
       }),
     }));
   });
+
+  it('starts and sends conversation sessions through the API', async () => {
+    const fetchMock = vi.fn(async (url: unknown) => {
+      if (String(url).endsWith('/conversation/sessions/start')) {
+        return jsonResponse({ success: true, session: { id: 'conv_1' } });
+      }
+      return jsonResponse({ success: true, message: { id: 'cmsg_1' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const started = JSON.parse(await handleToolCall('conversation_start', {
+      channel: 'telegram',
+      chatId: '42',
+      initialMessage: 'hi',
+    }));
+    const sent = JSON.parse(await handleToolCall('conversation_send', {
+      sessionId: 'conv_1',
+      text: 'next',
+    }));
+
+    expect(started.session.id).toBe('conv_1');
+    expect(sent.message.id).toBe('cmsg_1');
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions/start', expect.objectContaining({
+      method: 'POST',
+    }));
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions/conv_1/messages', expect.objectContaining({
+      method: 'POST',
+    }));
+  });
 });

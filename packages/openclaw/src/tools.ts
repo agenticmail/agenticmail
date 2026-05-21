@@ -2575,6 +2575,91 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
     },
   });
 
+  reg('agenticmail_conversation_start', {
+    description: 'Start a live conversation session. Telegram is executable now; phone starts a tracked phone mission; Matrix, WhatsApp, and Google Meet fail closed until adapters ship.',
+    parameters: {
+      channel: { type: 'string', required: true, description: 'Conversation channel: phone, telegram, matrix, whatsapp, or google_meet.' },
+      chatId: { type: 'string', description: 'Telegram chat id. Alias: peer.' },
+      peer: { type: 'string', description: 'Generic peer id: Telegram chat id, phone number, future Matrix room, etc.' },
+      to: { type: 'string', description: 'Phone target number in E.164 format. Alias: peer.' },
+      goal: { type: 'string', description: 'Conversation objective.' },
+      task: { type: 'string', description: 'Phone task/objective. Alias: goal.' },
+      subject: { type: 'string', description: 'Optional short session subject.' },
+      initialMessage: { type: 'string', description: 'Optional first Telegram message to send immediately.' },
+      policy: { type: 'object', description: 'Required for phone sessions: phone mission policy.' },
+      dryRun: { type: 'boolean', description: 'Phone only: create a mission/session without calling the carrier.' },
+      operatorApproved: { type: 'boolean', description: 'Future gated channels only: explicit operator approval.' },
+      userOptedIn: { type: 'boolean', description: 'Future opt-in channels only: explicit target opt-in.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/conversation/sessions/start', {
+          channel: params.channel,
+          chatId: params.chatId,
+          peer: params.peer,
+          to: params.to,
+          goal: params.goal,
+          task: params.task,
+          subject: params.subject,
+          initialMessage: params.initialMessage,
+          policy: params.policy,
+          dryRun: params.dryRun,
+          operatorApproved: params.operatorApproved,
+          userOptedIn: params.userOptedIn,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_send', {
+    description: 'Send one text turn into an active live conversation session. Currently executable for Telegram sessions.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+      text: { type: 'string', required: true, description: 'Message text to send.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        return await apiRequest(c, 'POST', `/conversation/sessions/${encodeURIComponent(params.sessionId)}/messages`, {
+          text: params.text,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_messages', {
+    description: 'Read the transcript/message ledger for a conversation session.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        return await apiRequest(c, 'GET', `/conversation/sessions/${encodeURIComponent(params.sessionId)}/messages`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_end', {
+    description: 'End a live conversation session and mark it ended or failed.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+      status: { type: 'string', description: 'Terminal status: ended or failed (default: ended).' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        return await apiRequest(c, 'POST', `/conversation/sessions/${encodeURIComponent(params.sessionId)}/end`, {
+          status: params.status,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   // --- Telegram Channel ---
 
   reg('agenticmail_telegram_setup', {
