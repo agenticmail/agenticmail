@@ -45,11 +45,11 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   PhoneManager,
+  ConversationSessionManager,
   AgentMemoryManager,
   MailSender,
   RealtimeVoiceBridge,
   buildRealtimeSessionConfig,
-  buildOpenAIRealtimeUrl,
   resolveVoiceRuntime,
   DEFAULT_REALTIME_MODEL,
   parseElksRealtimeMessage,
@@ -107,6 +107,34 @@ export { ELKS_REALTIME_WS_PATH, TWILIO_REALTIME_WS_PATH } from '@agenticmail/cor
 const HELLO_TIMEOUT_MS = 15_000;
 /** OpenAI socket must open within this window or the call is failed. */
 const OPENAI_CONNECT_TIMEOUT_MS = 15_000;
+
+export function mirrorPhoneTranscriptEntryToConversation(
+  conversationManager: ConversationSessionManager,
+  mission: Pick<PhoneCallMission, 'id' | 'agentId'>,
+  entry: PhoneMissionTranscriptEntry,
+  conversationSessionId?: string | null,
+): string | null {
+  const sessionId = conversationSessionId ?? conversationManager
+    .findActiveSessionByExternalRef(mission.agentId, 'phone', mission.id)?.id ?? null;
+  if (!sessionId) return null;
+  const text = typeof entry.text === 'string' ? entry.text.trim() : '';
+  if (!text) return sessionId;
+
+  conversationManager.recordMessage({
+    sessionId,
+    agentId: mission.agentId,
+    channel: 'phone',
+    direction: entry.source === 'agent' ? 'outbound' : entry.source === 'provider' ? 'inbound' : 'system',
+    text,
+    metadata: {
+      missionId: mission.id,
+      source: entry.source,
+      at: entry.at,
+      ...(entry.metadata ?? {}),
+    },
+  });
+  return sessionId;
+}
 
 /** Constant-time string compare that never throws on length mismatch. */
 function safeEqual(a: string, b: string): boolean {
@@ -509,7 +537,24 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
     PHONE_SERVER_MAX_CALL_DURATION_SECONDS,
   );
   const transcript: PhoneMissionTranscriptEntry[] = [];
-  const record = (entry: PhoneMissionTranscriptEntry) => transcript.push(entry);
+  const conversationManager = new ConversationSessionManager(db as any);
+  let conversationSessionId: string | null | undefined;
+  const recordConversationTranscript = (entry: PhoneMissionTranscriptEntry) => {
+    try {
+      conversationSessionId = mirrorPhoneTranscriptEntryToConversation(
+        conversationManager,
+        mission,
+        entry,
+        conversationSessionId,
+      );
+    } catch (err) {
+      console.warn('[realtime-voice] conversation transcript persist failed:', (err as Error)?.message ?? err);
+    }
+  };
+  const record = (entry: PhoneMissionTranscriptEntry) => {
+    transcript.push(entry);
+    recordConversationTranscript(entry);
+  };
 
   const executor = createVoiceToolExecutor({
     mission, phoneManager, memory, config, db,
@@ -590,6 +635,13 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
         phoneManager.recordRealtimeActivity(mission.id, transcript.splice(0), 'completed');
       } catch (err) {
         console.error('[realtime-voice] transcript persist failed:', (err as Error)?.message ?? err);
+      }
+      if (conversationSessionId) {
+        try {
+          conversationManager.endSession(mission.agentId, conversationSessionId, 'ended');
+        } catch (err) {
+          console.warn('[realtime-voice] conversation session end failed:', (err as Error)?.message ?? err);
+        }
       }
       // Skip the legacy operator-query callback flag when the agent
       // has already scheduled its OWN callback. The two paths would

@@ -62,7 +62,9 @@ Conversation sessions are the runtime ledger above the individual transports:
   waking the host for another turn.
 - Phone sessions wrap a tracked phone mission and record the mission id as the
   session's external reference. The audio conversation still runs through the
-  carrier WebSocket -> `RealtimeVoiceBridge` path.
+  carrier WebSocket -> `RealtimeVoiceBridge` path. Realtime bridge transcript
+  entries are mirrored into the active conversation session so
+  `conversation_context` can show caller, agent, and system turns.
 - Matrix, WhatsApp, and Google Meet remain planned and fail closed through the
   same start gate until their adapters exist.
 

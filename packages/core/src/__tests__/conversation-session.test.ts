@@ -20,6 +20,7 @@ describe('conversation sessions', () => {
       agentId: 'agent1',
       channel: 'telegram',
       peer: '42',
+      externalRef: 'tg-thread-42',
       goal: 'Coordinate reservation details',
     });
     const outbound = manager.recordMessage({
@@ -40,6 +41,7 @@ describe('conversation sessions', () => {
 
     expect(outbound.id).toMatch(/^cmsg_/);
     expect(manager.findActiveSessionByPeer('agent1', 'telegram', '42')?.id).toBe(session.id);
+    expect(manager.findActiveSessionByExternalRef('agent1', 'telegram', 'tg-thread-42')?.id).toBe(session.id);
     expect(manager.listMessages('agent1', session.id).map((m) => m.text)).toEqual([
       'I will check that.',
       'Thanks.',
@@ -48,6 +50,7 @@ describe('conversation sessions', () => {
     const ended = manager.endSession('agent1', session.id);
     expect(ended.status).toBe('ended');
     expect(manager.findActiveSessionByPeer('agent1', 'telegram', '42')).toBeNull();
+    expect(manager.findActiveSessionByExternalRef('agent1', 'telegram', 'tg-thread-42')).toBeNull();
 
     db.close();
   });

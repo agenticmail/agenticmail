@@ -224,6 +224,22 @@ export class ConversationSessionManager {
     return row ? rowToSession(row) : null;
   }
 
+  findActiveSessionByExternalRef(
+    agentId: string,
+    channel: RealtimeConversationChannel,
+    externalRef: string,
+  ): ConversationSession | null {
+    const ref = trimString(externalRef);
+    if (!ref) return null;
+    const row = this.db.prepare(`
+      SELECT * FROM conversation_sessions
+      WHERE agent_id = ? AND channel = ? AND external_ref = ? AND status = 'active'
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT 1
+    `).get(agentId, channel, ref);
+    return row ? rowToSession(row) : null;
+  }
+
   recordMessage(input: RecordConversationMessageInput): ConversationMessage {
     const text = typeof input.text === 'string' ? input.text : '';
     if (!input.sessionId) throw new Error('sessionId is required');
