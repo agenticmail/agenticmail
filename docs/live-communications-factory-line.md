@@ -110,11 +110,23 @@ Factory slices:
    - tool request
    - policy/approval request
    - hangup/cancel/summary
-6. Add an OpenClaw-native bridge runner mode that receives phone events, owns
+6. Keep the product CLI centralized:
+   - `agenticmail live setup`
+   - `agenticmail live doctor`
+   - `agenticmail live bridge --for openclaw`
+   - host package binaries stay convenience aliases only.
+7. Make every live session tenant-aware:
+   - tenant/account id
+   - agent id
+   - host integration id (`openclaw`, `hermes`, `codex`, `claudecode`)
+   - channel/session id
+   - operator approval scope
+   - budget/policy scope
+8. Add an OpenClaw-native bridge runner mode that receives phone events, owns
    the live AI/tool loop, and returns audio/control events without requiring an
    OpenAI-compatible upstream.
-7. Add operator query/approval endpoints and wire them into phone sessions.
-8. Add a guided test call command that runs readiness, starts a safe call, and
+9. Add operator query/approval endpoints and wire them into phone sessions.
+10. Add a guided test call command that runs readiness, starts a safe call, and
    prints the linked conversation session id.
 
 Definition of done:

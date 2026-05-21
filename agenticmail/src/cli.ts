@@ -5864,6 +5864,323 @@ async function cmdTunnel() {
   }
 }
 
+type LiveHostIntegration = 'generic' | 'openclaw' | 'hermes' | 'codex' | 'claudecode';
+
+const LIVE_HOST_INTEGRATIONS: LiveHostIntegration[] = ['generic', 'openclaw', 'hermes', 'codex', 'claudecode'];
+
+function normalizeLiveHost(value: string | undefined): LiveHostIntegration {
+  const normalized = (value || 'generic').trim().toLowerCase().replace(/_/g, '-');
+  if (normalized === 'claude-code') return 'claudecode';
+  if (LIVE_HOST_INTEGRATIONS.includes(normalized as LiveHostIntegration)) {
+    return normalized as LiveHostIntegration;
+  }
+  throw new Error(`Unknown live host "${value}". Known: ${LIVE_HOST_INTEGRATIONS.join(', ')}`);
+}
+
+function readArg(args: string[], names: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    for (const name of names) {
+      if (arg === name) {
+        const value = args[i + 1];
+        if (!value || value.startsWith('--')) throw new Error(`${name} requires a value`);
+        return value;
+      }
+      const prefix = `${name}=`;
+      if (arg.startsWith(prefix)) return arg.slice(prefix.length);
+    }
+  }
+  return undefined;
+}
+
+function hasArg(args: string[], names: string[]): boolean {
+  return args.some((arg) => names.includes(arg));
+}
+
+function stripArgs(args: string[], names: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    const matched = names.find((name) => arg === name || arg.startsWith(`${name}=`));
+    if (!matched) {
+      out.push(arg);
+      continue;
+    }
+    if (arg === matched) i += 1;
+  }
+  return out;
+}
+
+function printLiveHelp() {
+  log('');
+  log(`  ${c.pinkBg(' AgenticMail Live ')}`);
+  log('');
+  log(`  ${c.bold('Usage:')}`);
+  log(`    ${c.green('agenticmail live setup')} ${c.dim('[--url ws://127.0.0.1:3999/realtime] [--token <secret>]')}`);
+  log(`    ${c.green('agenticmail live doctor')} ${c.dim('[--voice-runtime host_bridge]')}`);
+  log(`    ${c.green('agenticmail live bridge')} ${c.dim('[--for openclaw|hermes|codex|claudecode] [bridge options]')}`);
+  log('');
+  log(`  ${c.bold('Intent:')}`);
+  log('    One product surface for phone, Telegram/Matrix, WhatsApp, and Meet readiness.');
+  log('    Host CLIs stay thin aliases; OpenClaw/Hermes/Codex are selected as integrations.');
+  log('');
+  log(`  ${c.bold('Examples:')}`);
+  log(`    ${c.green('agenticmail live setup --token "$AGENTICMAIL_LIVE_TOKEN"')}`);
+  log(`    ${c.green('agenticmail live bridge --for openclaw --provider openai --token "$AGENTICMAIL_LIVE_TOKEN"')}`);
+  log(`    ${c.green('agenticmail live doctor')}`);
+  log('');
+}
+
+function readAgenticMailConfig(): (SetupConfig & {
+  voiceRuntime?: string;
+  voiceHostBridge?: { url?: string; token?: string };
+}) | null {
+  const configPath = join(homedir(), '.agenticmail', 'config.json');
+  if (!existsSync(configPath)) return null;
+  return JSON.parse(readFileSync(configPath, 'utf-8'));
+}
+
+async function cmdLiveSetup(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Live Setup ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live setup [--url <ws-url>] [--token <secret>] [--no-token]`);
+    log('');
+    log('  Writes host_bridge runtime config into ~/.agenticmail/config.json.');
+    log('  The provider API key stays in the host bridge process, not in AgenticMail.');
+    log('');
+    return;
+  }
+
+  const configPath = join(homedir(), '.agenticmail', 'config.json');
+  if (!existsSync(configPath)) {
+    fail(`AgenticMail is not set up yet — no config at ${c.dim(configPath)}.`);
+    info(`Run ${c.green('agenticmail setup')} first.`);
+    process.exit(1);
+  }
+
+  const config = JSON.parse(readFileSync(configPath, 'utf-8')) as SetupConfig & {
+    voiceRuntime?: string;
+    voiceHostBridge?: { url?: string; token?: string };
+  };
+  const url = readArg(args, ['--url', '--bridge-url'])
+    || process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_URL
+    || config.voiceHostBridge?.url
+    || 'ws://127.0.0.1:3999/realtime';
+  const token = hasArg(args, ['--no-token'])
+    ? ''
+    : readArg(args, ['--token'])
+      || process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN
+      || config.voiceHostBridge?.token
+      || '';
+
+  config.voiceRuntime = 'host_bridge';
+  config.voiceHostBridge = { url };
+  if (token) config.voiceHostBridge.token = token;
+
+  writeFileSync(configPath, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
+
+  log('');
+  ok(`Configured live voice runtime: ${c.cyan('host_bridge')}`);
+  info(`Bridge URL: ${c.cyan(url)}`);
+  info(token ? 'Bridge token: configured' : 'Bridge token: not configured');
+  log('');
+  log(`  ${c.bold('Start a host bridge:')}`);
+  log(`    ${c.green(`agenticmail live bridge --for openclaw --provider openai${token ? ' --token <same-token>' : ''}`)}`);
+  log('');
+}
+
+async function fetchLiveJson(
+  url: string,
+  apiKey: string | undefined,
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const resp = await fetch(url, {
+    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+    signal: AbortSignal.timeout(3_000),
+  });
+  let data: any = null;
+  try { data = await resp.json(); } catch { /* non-json response */ }
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+async function cmdLiveDoctor(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Live Doctor ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live doctor [--voice-runtime host_bridge]`);
+    log('');
+    return;
+  }
+
+  const runtime = readArg(args, ['--voice-runtime', '--runtime']) || 'host_bridge';
+  const config = readAgenticMailConfig();
+  const { apiUrl } = readApiUrlFromConfig();
+
+  log('');
+  log(`  ${c.bold('AgenticMail Live Doctor')}`);
+  log('');
+
+  if (!config) {
+    fail(`No AgenticMail config found at ${c.dim(join(homedir(), '.agenticmail', 'config.json'))}.`);
+    info(`Run ${c.green('agenticmail setup')} first.`);
+    log('');
+    process.exit(1);
+  }
+
+  log(`  ${c.dim('API:')}           ${c.cyan(apiUrl)}`);
+  log(`  ${c.dim('Voice runtime:')} ${c.cyan(config.voiceRuntime || '(unset)')} ${c.dim('(checking ' + runtime + ')')}`);
+  log(`  ${c.dim('Host bridge:')}   ${c.cyan(config.voiceHostBridge?.url || '(unset)')}`);
+  log('');
+
+  let apiHealthy = false;
+  try {
+    const health = await fetchLiveJson(`${apiUrl}/api/agenticmail/health`, undefined);
+    apiHealthy = health.ok;
+    health.ok ? ok('API health endpoint is reachable') : fail(`API health returned HTTP ${health.status}`);
+  } catch (err) {
+    fail(`API health endpoint is not reachable: ${(err as Error).message}`);
+  }
+
+  const bridgeUrl = config.voiceHostBridge?.url;
+  if (bridgeUrl) {
+    try {
+      const healthUrl = new URL(bridgeUrl);
+      healthUrl.protocol = healthUrl.protocol === 'wss:' ? 'https:' : 'http:';
+      healthUrl.pathname = '/health';
+      healthUrl.search = '';
+      const health = await fetchLiveJson(healthUrl.toString(), undefined);
+      health.ok ? ok(`Host bridge health is reachable at ${healthUrl.toString()}`) : fail(`Host bridge health returned HTTP ${health.status}`);
+    } catch (err) {
+      fail(`Host bridge health is not reachable: ${(err as Error).message}`);
+    }
+  } else {
+    fail('No host bridge URL configured');
+    info(`Configure it with ${c.green('agenticmail live setup')}.`);
+  }
+
+  if (!apiHealthy) {
+    log('');
+    return;
+  }
+
+  const agent = await resolveAgentApiKey(config);
+  if (!agent) {
+    fail('No agent API key available for per-agent live readiness checks');
+    info(`Start the API and ensure at least one agent exists, then rerun ${c.green('agenticmail live doctor')}.`);
+    log('');
+    return;
+  }
+
+  try {
+    const phone = await fetchLiveJson(
+      `${apiUrl}/api/agenticmail/phone/readiness?voiceRuntime=${encodeURIComponent(runtime)}`,
+      agent.apiKey,
+    );
+    if (phone.ok) {
+      const data = phone.data || {};
+      data.canHoldRealtimeConversation
+        ? ok(`Phone realtime conversation ready for ${c.cyan(agent.name)}`)
+        : fail(`Phone realtime conversation not ready for ${c.cyan(agent.name)}`);
+      if (Array.isArray(data.missing) && data.missing.length) {
+        info(`Missing: ${data.missing.join(', ')}`);
+      }
+    } else {
+      fail(`Phone readiness returned HTTP ${phone.status}`);
+    }
+  } catch (err) {
+    fail(`Phone readiness check failed: ${(err as Error).message}`);
+  }
+
+  try {
+    const meet = await fetchLiveJson(
+      `${apiUrl}/api/agenticmail/conversation/realtime/capabilities?channel=google_meet&operatorApproved=true&userOptedIn=true`,
+      agent.apiKey,
+    );
+    if (meet.ok) {
+      const plan = meet.data?.startPlan;
+      plan?.ok
+        ? ok('Google Meet realtime start gate is ready')
+        : fail('Google Meet realtime start gate is not ready yet');
+      if (Array.isArray(plan?.missing) && plan.missing.length) {
+        info(`Meet missing: ${plan.missing.join(', ')}`);
+      }
+    } else {
+      fail(`Google Meet capability check returned HTTP ${meet.status}`);
+    }
+  } catch (err) {
+    fail(`Google Meet capability check failed: ${(err as Error).message}`);
+  }
+
+  log('');
+}
+
+async function cmdLiveBridge(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Live Bridge ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live bridge [--for <host>] [voice-host-bridge options]`);
+    log('');
+    log(`  ${c.bold('Hosts:')} ${LIVE_HOST_INTEGRATIONS.join(', ')}`);
+    log('');
+    log(`  ${c.bold('Examples:')}`);
+    log(`    ${c.green('agenticmail live bridge --for openclaw --provider openai --token <secret>')}`);
+    log(`    ${c.green('agenticmail live bridge hermes --provider xai --token <secret>')}`);
+    log('');
+    return;
+  }
+
+  let forwarded = stripArgs(args, ['--for', '--integration', '--agent-host']);
+  let integration = normalizeLiveHost(readArg(args, ['--for', '--integration', '--agent-host']));
+  if (forwarded[0] && !forwarded[0].startsWith('-')) {
+    const maybeHost = forwarded[0].toLowerCase();
+    if (LIVE_HOST_INTEGRATIONS.includes(normalizeLiveHost(maybeHost))) {
+      integration = normalizeLiveHost(maybeHost);
+      forwarded = forwarded.slice(1);
+    }
+  }
+
+  info(`Live host integration: ${c.cyan(integration)}`);
+  const mod = await import('@agenticmail/voice-host-bridge/cli').catch((err) => {
+    throw new Error(`Could not load @agenticmail/voice-host-bridge. Install optional deps or run npm install: ${(err as Error).message}`);
+  }) as { runVoiceHostBridgeCli?: (argv?: string[], env?: NodeJS.ProcessEnv, io?: { log: (msg: string) => void; error: (msg: string) => void }) => Promise<number> };
+  if (typeof mod.runVoiceHostBridgeCli !== 'function') {
+    throw new Error('@agenticmail/voice-host-bridge/cli does not export runVoiceHostBridgeCli');
+  }
+  const code = await mod.runVoiceHostBridgeCli(forwarded, process.env, console);
+  if (code !== 0) process.exit(code);
+}
+
+async function cmdLive() {
+  const args = process.argv.slice(3);
+  const sub = (args[0] || 'doctor').toLowerCase();
+  const rest = args.slice(1);
+  if (sub === 'help' || sub === '--help' || sub === '-h') {
+    printLiveHelp();
+    return;
+  }
+  switch (sub) {
+    case 'setup':
+    case 'use-host-bridge':
+      await cmdLiveSetup(rest);
+      return;
+    case 'doctor':
+    case 'status':
+      await cmdLiveDoctor(rest);
+      return;
+    case 'bridge':
+    case 'host-bridge':
+      await cmdLiveBridge(rest);
+      return;
+    default:
+      fail(`Unknown live subcommand: ${sub}`);
+      printLiveHelp();
+      process.exit(1);
+  }
+}
+
 async function cmdService() {
   const subCmd = process.argv[3] || 'status';
   const svc = new ServiceManager();
@@ -6124,6 +6441,10 @@ switch (process.argv[2]) {
   case 'status':
     cmdStatus().then(() => { process.exit(0); }).catch(err => { console.error(err); process.exit(1); });
     break;
+  case 'live':
+  case 'realtime':
+    cmdLive().then(() => { process.exit(0); }).catch(err => { console.error(err); process.exit(1); });
+    break;
   case 'openclaw':
     cmdOpenClaw().catch(err => { console.error(err); process.exit(1); });
     break;
@@ -6183,6 +6504,7 @@ switch (process.argv[2]) {
     log(`    ${c.green('agenticmail start')}     Start the server`);
     log(`    ${c.green('agenticmail stop')}      Stop the server`);
     log(`    ${c.green('agenticmail status')}    See what's running`);
+    log(`    ${c.green('agenticmail live')}      Live communications setup/doctor/bridge ${c.dim('(phone now, Meet/WhatsApp next)')}`);
     log(`    ${c.green('agenticmail shell')}     Drop into the interactive REPL (44 commands)`);
     log(`    ${c.green('agenticmail web')}       Open the Gmail-style web UI in your browser`);
     log(`    ${c.green('agenticmail openclaw')}  Set up AgenticMail for OpenClaw`);
