@@ -48,6 +48,61 @@ export function applySpawnMinTimeout(
   };
 }
 
+function toolsAllowDecision(value: unknown): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  const entries = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[\s,]+/)
+      : undefined;
+  if (!entries) return undefined;
+
+  const normalized = entries
+    .map((entry) => String(entry).trim().toLowerCase())
+    .filter(Boolean);
+  if (normalized.length === 0) return false;
+
+  return normalized.some((entry) =>
+    entry === '*'
+    || entry === 'agenticmail'
+    || entry === 'agenticmail_*'
+    || entry.startsWith('agenticmail_')
+    || entry.includes('@agenticmail')
+    || entry.includes('/agenticmail')
+  );
+}
+
+function readToolsAllow(source: unknown): unknown {
+  if (!source || typeof source !== 'object') return undefined;
+  const record = source as Record<string, unknown>;
+  const tools = record.tools;
+  const toolPolicy = record.toolPolicy;
+  const direct = record.toolsAllow
+    ?? record.allowedTools
+    ?? record.toolAllow
+    ?? (tools && typeof tools === 'object' ? (tools as Record<string, unknown>).allow : undefined)
+    ?? (toolPolicy && typeof toolPolicy === 'object' ? (toolPolicy as Record<string, unknown>).toolsAllow : undefined);
+  if (direct !== undefined) return direct;
+
+  for (const key of ['cron', 'cronConfig', 'job', 'config', 'run', 'session']) {
+    const nested = record[key];
+    if (nested && nested !== source && typeof nested === 'object') {
+      const value = readToolsAllow(nested);
+      if (value !== undefined) return value;
+    }
+  }
+
+  return undefined;
+}
+
+export function agenticmailAllowedByToolsScope(...sources: unknown[]): boolean {
+  for (const source of sources) {
+    const decision = toolsAllowDecision(readToolsAllow(source));
+    if (decision !== undefined) return decision;
+  }
+  return true;
+}
+
 /**
  * Sub-agent email account registry.
  * Maps OpenClaw session keys to their provisioned AgenticMail accounts.
@@ -228,6 +283,23 @@ function activate(api: any): void {
   const pluginConfig = api?.pluginConfig ?? config;
   const inboxInjectionConfig = resolveInboxInjectionConfig(pluginConfig);
   const spawnMinTimeoutSeconds = resolveSpawnMinTimeoutSeconds(pluginConfig);
+  const agenticmailScopeAllowed = (event: unknown, context: unknown): boolean => {
+    const ctxRecord = context && typeof context === 'object' ? context as Record<string, unknown> : {};
+    const eventRecord = event && typeof event === 'object' ? event as Record<string, unknown> : {};
+    return agenticmailAllowedByToolsScope(
+      event,
+      eventRecord.cron,
+      eventRecord.cronConfig,
+      eventRecord.job,
+      eventRecord.config,
+      context,
+      ctxRecord.cron,
+      ctxRecord.cronConfig,
+      ctxRecord.job,
+      ctxRecord.config,
+      pluginConfig,
+    );
+  };
 
   // Resolve OpenClaw agent identity for email From header
   let ownerName: string | undefined;
@@ -610,7 +682,8 @@ function activate(api: any): void {
   // Side effects ONLY: auto-provision email accounts for sub-agents,
   // send intro emails, start SSE watchers. No prompt mutation here —
   // that's handled by before_prompt_build below.
-  api.on('before_agent_start', async (_event: any, context: any) => {
+  api.on('before_agent_start', async (event: any, context: any) => {
+    if (!agenticmailScopeAllowed(event, context)) return;
     recordOpenClawHostSession(context, 'before_agent_start');
 
     const sessionKey: string = context?.sessionKey ?? '';
@@ -785,7 +858,8 @@ function activate(api: any): void {
   // All prompt/context injection lives here (replaces legacy prependContext
   // from before_agent_start). Uses prependSystemContext for static guidance
   // (cacheable across turns) and prependContext for dynamic per-turn content.
-  api.on('before_prompt_build', async (_event: any, context: any) => {
+  api.on('before_prompt_build', async (event: any, context: any) => {
+    if (!agenticmailScopeAllowed(event, context)) return;
     recordOpenClawHostSession(context, 'before_prompt_build');
 
     const sessionKey: string = context?.sessionKey ?? '';
@@ -1007,6 +1081,7 @@ function activate(api: any): void {
   // tool params when the hook has session context. The main injection path is
   // the tool factory in registerTools() which always has the session key.
   api.on('before_tool_call', async (event: any, context: any) => {
+    if (!agenticmailScopeAllowed(event, context)) return;
     recordOpenClawHostSession(context, 'before_tool_call');
 
     const toolName: string = event?.toolName ?? '';

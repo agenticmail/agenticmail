@@ -373,6 +373,9 @@ Unread inbox context is configurable:
 - `inboxInjectionMode: "required"` preserves proactive read-first behavior
 - `inboxInjectionIncludePreview: true` adds a short message body preview
 - `spawnMinTimeoutSeconds: 60` allows short `sessions_spawn` calls; `0` disables timeout changes entirely
+- Cron/session `toolsAllow` scopes are respected: if a run explicitly allows
+  only non-AgenticMail tools such as `["exec"]`, the plugin skips AgenticMail
+  prompt/context injection and spawn-timeout hook changes for that run
 
 ---
 
