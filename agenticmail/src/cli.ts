@@ -5920,6 +5920,8 @@ function printLiveHelp() {
   log(`    ${c.green('agenticmail live doctor')} ${c.dim('[--voice-runtime host_bridge]')}`);
   log(`    ${c.green('agenticmail live bridge')} ${c.dim('[--for openclaw|hermes|codex|claudecode] [bridge options]')}`);
   log(`    ${c.green('agenticmail live meet-sidecar')} ${c.dim('[--token <secret>] [sidecar options]')}`);
+  log(`    ${c.green('agenticmail live meet-setup')} ${c.dim('--access-token <token> --consent --developer-preview [--sidecar-url http://127.0.0.1:4999]')}`);
+  log(`    ${c.green('agenticmail live meet-readiness')}`);
   log(`    ${c.green('agenticmail live test meet')} ${c.dim('--link <meet-url> [--topic <text>] [--project-ref <id>] [--start] [--join]')}`);
   log('');
   log(`  ${c.bold('Intent:')}`);
@@ -6198,6 +6200,127 @@ async function cmdLiveMeetSidecar(args: string[]) {
   if (code !== 0) process.exit(code);
 }
 
+async function resolveLiveAgentOrExit(): Promise<{ apiUrl: string; agent: { name: string; apiKey: string } }> {
+  const config = readAgenticMailConfig();
+  if (!config) {
+    fail(`No AgenticMail config found at ${c.dim(join(homedir(), '.agenticmail', 'config.json'))}.`);
+    info(`Run ${c.green('agenticmail setup')} first.`);
+    process.exit(1);
+  }
+  const agent = await resolveAgentApiKey(config);
+  if (!agent) {
+    fail('No agent API key available.');
+    info('Start the API and ensure at least one agent exists, then rerun this command.');
+    process.exit(1);
+  }
+  const { apiUrl } = readApiUrlFromConfig();
+  return { apiUrl, agent };
+}
+
+async function cmdLiveMeetSetup(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Google Meet Setup ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live meet-setup --access-token <token> --consent --developer-preview [options]`);
+    log('');
+    log(`  ${c.bold('Options:')}`);
+    log(`    ${c.green('--sidecar-url <url>')}       Default: http://127.0.0.1:4999`);
+    log(`    ${c.green('--sidecar-token <token>')}   Token shared with agenticmail live meet-sidecar --token`);
+    log(`    ${c.green('--participant-name <name>')} Display name for the Meet participant`);
+    log(`    ${c.green('--allowed-domain <domain>')} Repeatable domain restriction`);
+    log(`    ${c.green('--behavior-mode <mode>')}    listen_only, answer_when_asked, operator_directed`);
+    log(`    ${c.green('--verify-space <code>')}     Optional Meet space/code to verify OAuth access`);
+    log(`    ${c.green('--no-verify')}               Store config without spaces.get verification`);
+    log('');
+    return;
+  }
+  const accessToken = readArg(args, ['--access-token', '--google-token', '--token']);
+  if (!accessToken) {
+    fail('--access-token is required.');
+    process.exit(1);
+  }
+  const consentPolicyAccepted = hasArg(args, ['--consent', '--consent-policy-accepted']);
+  const mediaApiDeveloperPreview = hasArg(args, ['--developer-preview', '--media-api-developer-preview']);
+  if (!consentPolicyAccepted) {
+    fail('--consent is required before enabling live Meet media.');
+    process.exit(1);
+  }
+  if (!mediaApiDeveloperPreview) {
+    fail('--developer-preview is required before enabling live Meet media.');
+    process.exit(1);
+  }
+  const allowedDomains = args
+    .flatMap((arg, index) => {
+      if (arg === '--allowed-domain' || arg === '--allowed-domains') return args[index + 1] && !args[index + 1]!.startsWith('--') ? [args[index + 1]!] : [];
+      if (arg.startsWith('--allowed-domain=')) return [arg.slice('--allowed-domain='.length)];
+      if (arg.startsWith('--allowed-domains=')) return arg.slice('--allowed-domains='.length).split(',');
+      return [];
+    })
+    .map((domain) => domain.trim())
+    .filter(Boolean);
+  const { apiUrl, agent } = await resolveLiveAgentOrExit();
+  const result = await postLiveJson(
+    `${apiUrl}/api/agenticmail/meet/setup`,
+    agent.apiKey,
+    {
+      accessToken,
+      participantName: readArg(args, ['--participant-name', '--name']),
+      allowedDomains,
+      defaultBehaviorMode: readArg(args, ['--behavior-mode', '--mode']),
+      mediaApiDeveloperPreview,
+      mediaSidecarUrl: readArg(args, ['--sidecar-url', '--media-sidecar-url']) || 'http://127.0.0.1:4999',
+      mediaSidecarToken: readArg(args, ['--sidecar-token', '--media-sidecar-token']),
+      consentPolicyAccepted,
+      verifySpace: readArg(args, ['--verify-space', '--meeting-code']),
+      verify: hasArg(args, ['--no-verify']) ? false : undefined,
+    },
+  );
+  if (!result.ok) {
+    fail(`Google Meet setup returned HTTP ${result.status}`);
+    if (result.data?.error) info(String(result.data.error));
+    process.exit(1);
+  }
+  ok(`Google Meet configured for ${c.cyan(agent.name)}`);
+  const readiness = result.data?.readiness;
+  if (readiness) {
+    info(`Spaces/artifacts: ${readiness.canReadArtifacts ? 'ready' : 'not ready'}`);
+    info(`Live media: ${readiness.canUseLiveMedia ? 'ready' : 'not ready'}`);
+    if (Array.isArray(readiness.missing) && readiness.missing.length) info(`Missing: ${readiness.missing.join(', ')}`);
+    if (Array.isArray(readiness.warnings) && readiness.warnings.length) info(`Warnings: ${readiness.warnings.join(', ')}`);
+  }
+  log('');
+}
+
+async function cmdLiveMeetReadiness(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Google Meet Readiness ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live meet-readiness`);
+    log('');
+    return;
+  }
+  const { apiUrl, agent } = await resolveLiveAgentOrExit();
+  const result = await fetchLiveJson(`${apiUrl}/api/agenticmail/meet/readiness`, agent.apiKey);
+  if (!result.ok) {
+    fail(`Google Meet readiness returned HTTP ${result.status}`);
+    if (result.data?.error) info(String(result.data.error));
+    process.exit(1);
+  }
+  const readiness = result.data?.readiness || {};
+  readiness.canUseLiveMedia
+    ? ok(`Google Meet live media ready for ${c.cyan(agent.name)}`)
+    : fail(`Google Meet live media not ready for ${c.cyan(agent.name)}`);
+  info(`Configured: ${readiness.configured ? 'yes' : 'no'}`);
+  info(`Enabled: ${readiness.enabled ? 'yes' : 'no'}`);
+  info(`Spaces: ${readiness.canCreateSpaces ? 'ready' : 'not ready'}`);
+  info(`Artifacts: ${readiness.canReadArtifacts ? 'ready' : 'not ready'}`);
+  if (Array.isArray(readiness.missing) && readiness.missing.length) info(`Missing: ${readiness.missing.join(', ')}`);
+  if (Array.isArray(readiness.warnings) && readiness.warnings.length) info(`Warnings: ${readiness.warnings.join(', ')}`);
+  log('');
+}
+
 async function cmdLiveTest(args: string[]) {
   const target = (args[0] || '').toLowerCase();
   const rest = args.slice(1);
@@ -6369,6 +6492,14 @@ async function cmdLive() {
     case 'meet-sidecar':
     case 'meet':
       await cmdLiveMeetSidecar(rest);
+      return;
+    case 'meet-setup':
+    case 'setup-meet':
+      await cmdLiveMeetSetup(rest);
+      return;
+    case 'meet-readiness':
+    case 'meet-status':
+      await cmdLiveMeetReadiness(rest);
       return;
     case 'test':
       await cmdLiveTest(rest);
