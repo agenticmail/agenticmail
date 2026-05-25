@@ -2,8 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
 import WebSocket from 'ws';
-import { createTestDatabase } from '@agenticmail/core';
-import { createRealtimeVoiceServer, REALTIME_WS_PATH } from '../realtime-ws.js';
+import { ConversationSessionManager, createTestDatabase } from '@agenticmail/core';
+import {
+  createRealtimeVoiceServer,
+  mirrorPhoneTranscriptEntryToConversation,
+  REALTIME_WS_PATH,
+} from '../realtime-ws.js';
 
 /**
  * Exercises the realtime-voice WebSocket *glue* — upgrade path
@@ -75,5 +79,51 @@ describe('realtime voice WebSocket server', () => {
     ws.send(JSON.stringify({ t: 'hello', callid: 'unknown-call', from: '+46766861234', to: '+12125550100' }));
     await once(ws, 'close');
     expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it('mirrors phone transcript entries into an active conversation session', () => {
+    const db = createTestDatabase();
+    db.prepare(`
+      INSERT INTO agents (id, name, email, api_key, stalwart_principal, metadata)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('agent1', 'ralf', 'ralf@example.com', 'ak_test', 'principal1', '{}');
+    const conversations = new ConversationSessionManager(db as any);
+    const session = conversations.createSession({
+      agentId: 'agent1',
+      channel: 'phone',
+      peer: '+43123456789',
+      externalRef: 'phn_1',
+    });
+    const mission = { id: 'phn_1', agentId: 'agent1' };
+
+    let cached = mirrorPhoneTranscriptEntryToConversation(conversations, mission, {
+      at: '2026-05-21T00:00:00.000Z',
+      source: 'provider',
+      text: 'Hello, how can I help?',
+      metadata: { speaker: 'caller' },
+    });
+    cached = mirrorPhoneTranscriptEntryToConversation(conversations, mission, {
+      at: '2026-05-21T00:00:01.000Z',
+      source: 'agent',
+      text: 'I would like to reserve a table.',
+    }, cached);
+    cached = mirrorPhoneTranscriptEntryToConversation(conversations, mission, {
+      at: '2026-05-21T00:00:02.000Z',
+      source: 'system',
+      text: 'Realtime voice bridge ended (agent_request).',
+    }, cached);
+
+    expect(cached).toBe(session.id);
+    expect(conversations.listMessages('agent1', session.id).map((m) => [m.direction, m.text])).toEqual([
+      ['inbound', 'Hello, how can I help?'],
+      ['outbound', 'I would like to reserve a table.'],
+      ['system', 'Realtime voice bridge ended (agent_request).'],
+    ]);
+    expect(conversations.listMessages('agent1', session.id)[0].metadata).toMatchObject({
+      missionId: 'phn_1',
+      source: 'provider',
+      speaker: 'caller',
+    });
+    db.close();
   });
 });

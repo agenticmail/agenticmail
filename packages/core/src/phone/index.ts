@@ -175,6 +175,8 @@ export {
   DEFAULT_EXTENSION_POLICY,
   DEFAULT_CALLBACK_POLICY,
   PHONE_TASK_MAX_LENGTH,
+  PHONE_MISSION_POLICY_PRESETS,
+  buildPhoneMissionPolicy,
   classifyPhoneNumberRisk,
   inferPhoneRegion,
   isPhoneRegionAllowed,
@@ -186,6 +188,7 @@ export {
 } from './mission.js';
 export type {
   OpenClawPhoneMissionPolicy,
+  BuildPhoneMissionPolicyInput,
   PhoneAlternativePolicy,
   PhoneCallbackPolicy,
   PhoneConfirmPolicy,
@@ -197,6 +200,7 @@ export type {
   PhoneMissionValidationResult,
   PhoneNumberRisk,
   PhoneRegionScope,
+  PhoneMissionPolicyPreset,
   PhoneTransportProfile,
   StartPhoneMissionInput,
   TelephonyTransportCapability,

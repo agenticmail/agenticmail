@@ -8,7 +8,9 @@
   "bin": {
     "agenticmail-claudecode": "dist/cli.js",
     "agenticmail-claudecode-dispatcher": "dist/dispatcher-bin.js",
-    "agenticmail-mail-hook": "dist/mail-hook.js"
+    "agenticmail-mail-hook": "dist/mail-hook.js",
+    "agenticmail-claudecode-voice-host-bridge": "dist/voice-host-bridge-bin.js",
+    "agenticmail-claudecode-meet-sidecar": "dist/meet-sidecar-bin.js"
   },
   "exports": {
     ".": {
@@ -41,7 +43,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts src/install.ts src/uninstall.ts src/status.ts src/http-routes.ts src/dispatcher.ts src/dispatcher-bin.ts src/dispatcher-tuning.ts src/mail-hook.ts --format esm --dts --clean",
+    "build": "tsup src/index.ts src/cli.ts src/install.ts src/uninstall.ts src/status.ts src/http-routes.ts src/dispatcher.ts src/dispatcher-bin.ts src/dispatcher-tuning.ts src/mail-hook.ts src/voice-host-bridge-bin.ts src/meet-sidecar-bin.ts --format esm --dts --clean",
     "test": "vitest run --passWithNoTests",
     "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run build"
@@ -49,6 +51,7 @@
   "dependencies": {
     "@agenticmail/core": "^0.9.37",
     "@agenticmail/mcp": "^0.9.26",
+    "@agenticmail/voice-host-bridge": "^0.1.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.140"
   },
   "peerDependencies": {

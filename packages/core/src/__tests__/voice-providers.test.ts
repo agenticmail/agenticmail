@@ -30,10 +30,11 @@ function baseConfig(overrides: Partial<AgenticMailConfig> = {}): AgenticMailConf
 }
 
 describe('voice-provider registry — bundled providers', () => {
-  it('registers OpenAI and Grok at module load', () => {
+  it('registers OpenAI, Grok, and host bridge at module load', () => {
     const ids = listVoiceProviders().map((p) => p.id).sort();
     expect(ids).toContain('openai');
     expect(ids).toContain('grok');
+    expect(ids).toContain('host_bridge');
   });
 
   it('OpenAI uses the gpt-realtime endpoint + legacy openaiApiKey config field', () => {
@@ -53,17 +54,28 @@ describe('voice-provider registry — bundled providers', () => {
     expect(p!.apiKeyEnvVar).toBe('XAI_API_KEY');
     expect(p!.apiKeyConfigField).toBeUndefined();
   });
+
+  it('host_bridge is key-optional and config-url driven', () => {
+    const p = getVoiceProvider('host_bridge');
+    expect(p).toBeDefined();
+    expect(p!.apiKeyEnvVar).toBe('AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN');
+    expect(p!.apiKeyRequired).toBe(false);
+    expect(p!.defaultModel).toBe('host-owned');
+  });
 });
 
 describe('resolveVoiceRuntime — key resolution', () => {
   const PRIOR_OPENAI = process.env.OPENAI_API_KEY;
   const PRIOR_XAI = process.env.XAI_API_KEY;
+  const PRIOR_HOST_TOKEN = process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN;
 
   afterEach(() => {
     if (PRIOR_OPENAI === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = PRIOR_OPENAI;
     if (PRIOR_XAI === undefined) delete process.env.XAI_API_KEY;
     else process.env.XAI_API_KEY = PRIOR_XAI;
+    if (PRIOR_HOST_TOKEN === undefined) delete process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN;
+    else process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN = PRIOR_HOST_TOKEN;
   });
 
   it('default provider id "openai" wins when no id is passed', () => {
@@ -119,8 +131,39 @@ describe('resolveVoiceRuntime — key resolution', () => {
     expect(r.url).toContain('model=gpt-realtime-mini');
   });
 
+  it('host_bridge resolves to a configured host websocket without a model provider key', () => {
+    delete process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN;
+    const cfg = baseConfig({
+      voiceHostBridge: {
+        url: 'ws://127.0.0.1:3999/realtime',
+      },
+    });
+    const r = resolveVoiceRuntime('host_bridge', cfg);
+    expect(r.providerId).toBe('host_bridge');
+    expect(r.url).toBe('ws://127.0.0.1:3999/realtime?model=host-owned');
+    expect(r.apiKey).toBe('');
+    expect(r.apiKeySource).toBe('not required');
+  });
+
+  it('host_bridge can pass an optional bearer token to the host bridge', () => {
+    const cfg = baseConfig({
+      voiceHostBridge: {
+        url: 'ws://127.0.0.1:3999/realtime?tenant=ralf',
+        token: 'bridge-token-secret',
+      },
+    });
+    const r = resolveVoiceRuntime('host_bridge', cfg);
+    expect(r.url).toBe('ws://127.0.0.1:3999/realtime?tenant=ralf&model=host-owned');
+    expect(r.apiKey).toBe('bridge-token-secret');
+    expect(r.apiKeySource).toBe('config.voiceHostBridge.token');
+  });
+
   it('throws a clear error for unknown provider ids', () => {
     expect(() => resolveVoiceRuntime('cartesia', baseConfig({}))).toThrow(/Unknown voice runtime/);
+  });
+
+  it('throws when host_bridge is selected but no bridge URL is configured', () => {
+    expect(() => resolveVoiceRuntime('host_bridge', baseConfig({}))).toThrow(/no websocket URL is configured/);
   });
 
   it('throws when the selected provider has no key configured anywhere', () => {

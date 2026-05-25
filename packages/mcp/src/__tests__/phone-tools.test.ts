@@ -73,6 +73,57 @@ describe('MCP phone tool dispatch', () => {
     }));
   });
 
+  it('starts phone missions with a safe policy preset', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ success: true, mission: { id: 'phn_safe' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = JSON.parse(await handleToolCall('call_phone_safe', {
+      to: '+43123456789',
+      task: 'Reserve a table for two at 19:30.',
+      policyPreset: 'reservation',
+      regionAllowlist: ['AT', 'DE', 'EU'],
+      maxCostPerMission: 1.5,
+      dryRun: true,
+    }));
+
+    expect(result).toEqual({ success: true, mission: { id: 'phn_safe' } });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/calls/start', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        to: '+43123456789',
+        task: 'Reserve a table for two at 19:30.',
+        policyPreset: 'reservation',
+        regionAllowlist: ['AT', 'DE', 'EU'],
+        maxCostPerMission: 1.5,
+        dryRun: true,
+      }),
+    }));
+  });
+
+  it('lists voice runtime providers through the phone API', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ providers: [{ id: 'openai' }], defaultRuntime: 'openai' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = JSON.parse(await handleToolCall('phone_voice_providers', {}));
+
+    expect(result).toEqual({ providers: [{ id: 'openai' }], defaultRuntime: 'openai' });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/phone/voice/providers', expect.objectContaining({
+      method: 'GET',
+    }));
+  });
+
+  it('checks phone readiness through the phone API', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ready: true, missing: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = JSON.parse(await handleToolCall('phone_readiness', { voiceRuntime: 'grok' }));
+
+    expect(result).toEqual({ ready: true, missing: [] });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/phone/readiness?voiceRuntime=grok', expect.objectContaining({
+      method: 'GET',
+    }));
+  });
+
   it('reads one phone mission by id', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ mission: { id: 'phn_1', status: 'dialing' } }));
     vi.stubGlobal('fetch', fetchMock);
@@ -82,6 +133,94 @@ describe('MCP phone tool dispatch', () => {
     expect(result).toEqual({ mission: { id: 'phn_1', status: 'dialing' } });
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/calls/phn_1', expect.objectContaining({
       method: 'GET',
+    }));
+  });
+
+  it('checks realtime conversation start gates through the API', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      plan: { ok: true, channel: 'phone', mode: 'duplex_audio', missing: [] },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = JSON.parse(await handleToolCall('realtime_conversation_plan', {
+      channel: 'phone',
+      policyProvided: true,
+    }));
+
+    expect(result.plan).toEqual({ ok: true, channel: 'phone', mode: 'duplex_audio', missing: [] });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/realtime/plan', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        channel: 'phone',
+        policyProvided: true,
+      }),
+    }));
+  });
+
+  it('starts and sends conversation sessions through the API', async () => {
+    const fetchMock = vi.fn(async (url: unknown) => {
+      if (String(url).endsWith('/conversation/sessions/start')) {
+        return jsonResponse({ success: true, session: { id: 'conv_1' } });
+      }
+      if (String(url).includes('/conversation/sessions?')) {
+        return jsonResponse({ sessions: [{ id: 'conv_1', status: 'active' }], count: 1 });
+      }
+      if (String(url).endsWith('/conversation/sessions/conv_1')) {
+        return jsonResponse({ session: { id: 'conv_1', status: 'active' } });
+      }
+      if (String(url).includes('/conversation/sessions/conv_1/context')) {
+        return jsonResponse({
+          session: { id: 'conv_1', status: 'active' },
+          messages: [{ id: 'cmsg_1', text: 'hi' }],
+          count: 1,
+          totalMessages: 1,
+        });
+      }
+      return jsonResponse({ success: true, message: { id: 'cmsg_1' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const listed = JSON.parse(await handleToolCall('conversation_list', {
+      status: 'active',
+      channel: 'telegram',
+      limit: 10,
+    }));
+    const loaded = JSON.parse(await handleToolCall('conversation_get', {
+      sessionId: 'conv_1',
+    }));
+    const context = JSON.parse(await handleToolCall('conversation_context', {
+      sessionId: 'conv_1',
+      messageLimit: 25,
+    }));
+    const started = JSON.parse(await handleToolCall('conversation_start', {
+      channel: 'telegram',
+      chatId: '42',
+      initialMessage: 'hi',
+    }));
+    const sent = JSON.parse(await handleToolCall('conversation_send', {
+      sessionId: 'conv_1',
+      text: 'next',
+    }));
+
+    expect(listed.sessions).toEqual([{ id: 'conv_1', status: 'active' }]);
+    expect(loaded.session.id).toBe('conv_1');
+    expect(context.messages).toEqual([{ id: 'cmsg_1', text: 'hi' }]);
+    expect(started.session.id).toBe('conv_1');
+    expect(sent.message.id).toBe('cmsg_1');
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions?status=active&channel=telegram&limit=10', expect.objectContaining({
+      method: 'GET',
+    }));
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions/conv_1', expect.objectContaining({
+      method: 'GET',
+    }));
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions/conv_1/context?messageLimit=25', expect.objectContaining({
+      method: 'GET',
+    }));
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions/start', expect.objectContaining({
+      method: 'POST',
+    }));
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/agenticmail/conversation/sessions/conv_1/messages', expect.objectContaining({
+      method: 'POST',
     }));
   });
 });

@@ -9,6 +9,9 @@
     "agenticmail": "dist/cli.js",
     "agenticmail-claudecode": "dist/bin-claudecode.js",
     "agenticmail-codex": "dist/bin-codex.js",
+    "agenticmail-hermes-voice-host-bridge": "dist/bin-hermes-voice-host-bridge.js",
+    "agenticmail-voice-host-bridge": "dist/bin-voice-host-bridge.js",
+    "agenticmail-meet-sidecar": "dist/bin-meet-sidecar.js",
     "agenticmail-telegram-bridge": "telegram-bridge/bridge.mjs"
   },
   "exports": {
@@ -26,7 +29,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/cli.ts src/bin-claudecode.ts src/bin-codex.ts --format esm --dts --clean --external @agenticmail/claudecode --external @agenticmail/codex && npm run copy-public",
+    "build": "tsup src/index.ts src/cli.ts src/bin-claudecode.ts src/bin-codex.ts src/bin-hermes-voice-host-bridge.ts src/bin-voice-host-bridge.ts src/bin-meet-sidecar.ts --format esm --dts --clean --external @agenticmail/claudecode --external @agenticmail/codex --external @agenticmail/hermes --external @agenticmail/voice-host-bridge && npm run copy-public",
     "copy-public": "mkdir -p dist/public && cp -R ../packages/api/public/. dist/public/",
     "test": "vitest run --passWithNoTests",
     "preuninstall": "node scripts/uninstall.mjs",
@@ -39,7 +42,9 @@
   },
   "optionalDependencies": {
     "@agenticmail/claudecode": "^0.2.31",
-    "@agenticmail/codex": "^0.1.25"
+    "@agenticmail/codex": "^0.1.25",
+    "@agenticmail/hermes": "^0.1.0",
+    "@agenticmail/voice-host-bridge": "^0.1.0"
   },
   "devDependencies": {
     "tsup": "^8.4.0",

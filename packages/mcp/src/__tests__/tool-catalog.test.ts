@@ -83,6 +83,9 @@ describe('tool catalogue ↔ tool definitions', () => {
     expect(TOOL_SETS.phone).toEqual([
       'phone_transport_setup',
       'phone_capabilities',
+      'phone_readiness',
+      'phone_voice_providers',
+      'call_phone_safe',
       'call_phone',
       'call_status',
       'call_transcript',
@@ -100,6 +103,45 @@ describe('tool catalogue ↔ tool definitions', () => {
       'telegram_send',
       'telegram_messages',
       'telegram_poll',
+    ]);
+  });
+
+  it('matrix set exposes the Matrix channel surface', () => {
+    expect(TOOL_SETS.matrix).toEqual([
+      'matrix_setup',
+      'matrix_config',
+      'matrix_send',
+      'matrix_messages',
+      'matrix_poll',
+    ]);
+  });
+
+  it('meet set exposes the Google Meet channel surface', () => {
+    expect(TOOL_SETS.meet).toEqual([
+      'meet_setup',
+      'meet_config',
+      'meet_readiness',
+      'meet_disable',
+      'meet_space_create',
+      'meet_space_get',
+      'meet_conference_records',
+      'meet_transcripts',
+      'meet_artifacts_import',
+      'meet_live_join',
+    ]);
+  });
+
+  it('realtime set exposes channel-neutral conversation readiness tools', () => {
+    expect(TOOL_SETS.realtime).toEqual([
+      'realtime_conversation_capabilities',
+      'realtime_conversation_plan',
+      'conversation_list',
+      'conversation_get',
+      'conversation_context',
+      'conversation_start',
+      'conversation_send',
+      'conversation_messages',
+      'conversation_end',
     ]);
   });
 
@@ -126,6 +168,7 @@ describe('tool catalogue ↔ tool definitions', () => {
     // Twilio without overloading the generic username/password fields.
     expect((tool!.inputSchema.properties as Record<string, any>).accountSid).toBeTruthy();
     expect((tool!.inputSchema.properties as Record<string, any>).authToken).toBeTruthy();
+    expect((tool!.inputSchema.properties as Record<string, any>).realtimeBridgeNumber).toBeTruthy();
   });
 
   it('total catalogued tool count matches the real tool count minus meta-tools', () => {

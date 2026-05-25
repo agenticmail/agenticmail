@@ -135,6 +135,7 @@ export {
   formatOperatorQueryTelegramMessage,
   parseTelegramOperatorReply,
   TELEGRAM_OPERATOR_QUERY_TAG,
+  recordTelegramConversationInbound,
 } from './telegram/index.js';
 export type {
   TelegramApiOptions,
@@ -151,7 +152,69 @@ export type {
   OperatorQueryNotificationInput,
   ParsedOperatorReply,
   OperatorReplyKind,
+  TelegramConversationContext,
 } from './telegram/index.js';
+
+// Matrix channel — unencrypted bot/room adapter over the Matrix
+// Client-Server API. It stores per-agent homeserver/token config,
+// supports m.room.message sends, and polls /sync for allowed rooms.
+export {
+  MatrixApiError,
+  MATRIX_MESSAGE_LIMIT,
+  getMatrixWhoami,
+  sendMatrixMessage,
+  getMatrixSync,
+  parseMatrixSyncMessages,
+  MatrixManager,
+  buildMatrixConfig,
+  recordMatrixConversationInbound,
+  redactMatrixConfig,
+  isMatrixRoomAllowed,
+} from './matrix/index.js';
+export type {
+  MatrixApiOptions,
+  MatrixWhoami,
+  SendMatrixMessageResult,
+  MatrixSyncOptions,
+  ParsedMatrixMessage,
+  MatrixConfig,
+  MatrixConversationContext,
+  MatrixMessage,
+} from './matrix/index.js';
+
+// Google Meet — per-agent setup, REST meeting-space/artifact calls, and
+// readiness gates for the separate live media runtime.
+export {
+  GOOGLE_MEET_API_BASE,
+  GOOGLE_MEET_SETTINGS_SCOPE,
+  GOOGLE_MEET_SPACE_SCOPES,
+  GoogleMeetApiError,
+  GoogleMeetManager,
+  buildGoogleMeetConfig,
+  callGoogleMeetApi,
+  createGoogleMeetSpace,
+  getGoogleMeetReadiness,
+  getGoogleMeetSpace,
+  listGoogleMeetConferenceRecords,
+  listGoogleMeetTranscriptEntries,
+  listGoogleMeetTranscripts,
+  redactGoogleMeetConfig,
+  sendGoogleMeetLiveSidecarControl,
+  startGoogleMeetLiveSidecar,
+} from './meet/index.js';
+export type {
+  GoogleMeetConfig,
+  GoogleMeetConferenceRecordsResponse,
+  GoogleMeetLiveControlRequest,
+  GoogleMeetLiveControlResponse,
+  GoogleMeetLiveJoinRequest,
+  GoogleMeetLiveJoinResponse,
+  GoogleMeetReadiness,
+  GoogleMeetSpace,
+  GoogleMeetTranscriptEntriesResponse,
+  GoogleMeetTranscriptEntry,
+  GoogleMeetTranscriptResponse,
+} from './meet/index.js';
 
 // Phone Mission Policy
 export {
@@ -209,6 +272,7 @@ export {
   resolveExtensionPolicy,
   resolveCallbackPolicy,
   PHONE_TASK_MAX_LENGTH,
+  PHONE_MISSION_POLICY_PRESETS,
   PHONE_RATE_LIMIT_PER_MINUTE,
   PHONE_RATE_LIMIT_PER_HOUR,
   PHONE_MAX_CONCURRENT_MISSIONS,
@@ -220,6 +284,7 @@ export {
   buildElksInterruptMessage,
   buildElksListeningMessage,
   buildElksSendingMessage,
+  buildPhoneMissionPolicy,
   buildPhoneTransportConfig,
   classifyPhoneNumberRisk,
   inferPhoneRegion,
@@ -277,6 +342,7 @@ export type {
   RealtimeTransportAdapter,
   RealtimeTransportProvider,
   RealtimeInboundEvent,
+  BuildPhoneMissionPolicyInput,
   OpenClawPhoneMissionPolicy,
   PhoneCallMission,
   PhoneAlternativePolicy,
@@ -293,6 +359,7 @@ export type {
   PhoneMissionValidationResult,
   PhoneNumberRisk,
   PhoneRegionScope,
+  PhoneMissionPolicyPreset,
   PhoneTransportConfig,
   PhoneTransportProvider,
   PhoneTransportProfile,
@@ -465,6 +532,44 @@ export type {
   AgentMemoryEntry, MemoryCategory, MemoryImportance, MemorySource,
   MemoryStats, CreateMemoryInput, UpdateMemoryInput, MemoryQueryOptions,
 } from './memory/index.js';
+
+// Channel-neutral realtime conversation capabilities. Phone is the
+// first executable duplex-audio transport; Telegram is text-turn
+// available; Matrix, WhatsApp, and Google Meet are intentionally
+// represented as planned/gated so future adapters share one contract
+// without false availability claims.
+export {
+  CONVERSATION_MESSAGE_DIRECTIONS,
+  REALTIME_CONVERSATION_CHANNELS,
+  getRealtimeConversationCapability,
+  isConversationMessageDirection,
+  isRealtimeConversationChannel,
+  listRealtimeConversationCapabilities,
+  normalizeGoogleMeetBehaviorMode,
+  planRealtimeConversationStart,
+  ConversationSessionManager,
+  GOOGLE_MEET_BEHAVIOR_MODES,
+  buildGoogleMeetSessionBriefing,
+  parseGoogleMeetLink,
+} from './conversation/index.js';
+export type {
+  ConversationMessage,
+  ConversationMessageDirection,
+  ConversationSession,
+  ConversationSessionStatus,
+  CreateConversationSessionInput,
+  RecordConversationMessageInput,
+  RecordConversationTranscriptInput,
+  GoogleMeetBehaviorMode,
+  GoogleMeetSessionBriefingInput,
+  ParsedGoogleMeetLink,
+  RealtimeConversationCapability,
+  RealtimeConversationChannel,
+  RealtimeConversationMode,
+  RealtimeConversationStartContext,
+  RealtimeConversationStartPlan,
+  RealtimeConversationStatus,
+} from './conversation/index.js';
 
 // Skill library — JSON how-to-act-like-a-skilled-human bundles agents
 // load on demand during phone calls. Built-in skills ship in the

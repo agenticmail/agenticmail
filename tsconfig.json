@@ -2,9 +2,11 @@
   "files": [],
   "references": [
     { "path": "packages/core" },
+    { "path": "packages/voice-host-bridge" },
     { "path": "packages/api" },
     { "path": "packages/mcp" },
     { "path": "packages/openclaw" },
+    { "path": "packages/hermes" },
     { "path": "agenticmail" }
   ]
 }

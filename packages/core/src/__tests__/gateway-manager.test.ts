@@ -31,6 +31,13 @@ describe('GatewayManager', () => {
     });
   }
 
+  function seedAgent(): void {
+    db.prepare(`
+      INSERT INTO agents (id, name, email, api_key, stalwart_principal, metadata)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('agent1', 'ralf', 'ralf@example.com', 'ak_test', 'principal1', '{}');
+  }
+
   describe('initial state', () => {
     it('starts in "none" mode', () => {
       const mgr = createManager();
@@ -199,6 +206,112 @@ describe('GatewayManager', () => {
       const mgr = createManager();
       await mgr.shutdown();
       expect(mgr.getMode()).toBe('none');
+    });
+  });
+
+  describe('Telegram bridge', () => {
+    it('embeds active conversation session routing in the synthetic wake mail', async () => {
+      seedAgent();
+      const manager = new GatewayManager({
+        db,
+        stalwart: mockStalwart,
+        accountManager: {
+          getById: vi.fn().mockResolvedValue({ id: 'agent1', name: 'ralf', email: 'ralf@example.com' }),
+        } as any,
+        localSmtp: { host: '127.0.0.1', port: 2525, user: 'u', pass: 'p' },
+      });
+      const delivered: Array<{ agentName: string; mail: any }> = [];
+      vi.spyOn(manager as any, 'deliverInboundLocally').mockImplementation(async (agentName: string, mail: any) => {
+        delivered.push({ agentName, mail });
+      });
+
+      await manager.bridgeTelegramInbound('agent1', {
+        updateId: 12,
+        messageId: 99,
+        chatId: '42',
+        chatType: 'private',
+        fromId: '7',
+        fromName: 'Benedikt',
+        text: '20:00 works.',
+        date: 1_700_000_000,
+      }, {
+        enabled: true,
+        botToken: '123456789:AAFakeTokenForTestsOnly_abcdefghijklmno',
+        allowedChatIds: ['42'],
+        mode: 'poll',
+        configuredAt: new Date().toISOString(),
+      }, {
+        sessionId: 'conv_1',
+        messageId: 'cmsg_1',
+        channel: 'telegram',
+        chatId: '42',
+        peer: '42',
+        goal: 'Reserve dinner',
+        latestText: '20:00 works.',
+        telegramMessageId: 99,
+      });
+
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0].agentName).toBe('ralf');
+      expect(delivered[0].mail.text).toContain('ACTIVE CONVERSATION SESSION');
+      expect(delivered[0].mail.text).toContain('session_id:          conv_1');
+      expect(delivered[0].mail.text).toContain('tool: "conversation_send"');
+      expect(delivered[0].mail.text).toContain('agenticmail_conversation_send');
+      expect(delivered[0].mail.text).toContain('conversation_context');
+      expect(delivered[0].mail.text).not.toContain('tool: "telegram_send"');
+    });
+  });
+
+  describe('Matrix bridge', () => {
+    it('embeds active conversation session routing in the synthetic wake mail', async () => {
+      seedAgent();
+      const manager = new GatewayManager({
+        db,
+        stalwart: mockStalwart,
+        accountManager: {
+          getById: vi.fn().mockResolvedValue({ id: 'agent1', name: 'ralf', email: 'ralf@example.com' }),
+        } as any,
+        localSmtp: { host: '127.0.0.1', port: 2525, user: 'u', pass: 'p' },
+      });
+      const delivered: Array<{ agentName: string; mail: any }> = [];
+      vi.spyOn(manager as any, 'deliverInboundLocally').mockImplementation(async (agentName: string, mail: any) => {
+        delivered.push({ agentName, mail });
+      });
+
+      await manager.bridgeMatrixInbound('agent1', {
+        roomId: '!room:example.org',
+        eventId: '$mx1',
+        sender: '@benedikt:example.org',
+        text: '20:00 works.',
+        createdAt: new Date(1_700_000_000_000).toISOString(),
+        metadata: {},
+      }, {
+        enabled: true,
+        homeserverUrl: 'https://matrix.example.org',
+        accessToken: 'mx-token',
+        userId: '@agent:example.org',
+        allowedRoomIds: ['!room:example.org'],
+        configuredAt: new Date().toISOString(),
+      }, {
+        sessionId: 'conv_1',
+        messageId: 'cmsg_1',
+        channel: 'matrix',
+        roomId: '!room:example.org',
+        peer: '!room:example.org',
+        goal: 'Reserve dinner',
+        latestText: '20:00 works.',
+        eventId: '$mx1',
+        sender: '@benedikt:example.org',
+      });
+
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0].agentName).toBe('ralf');
+      expect(delivered[0].mail.text).toContain('ACTIVE CONVERSATION SESSION');
+      expect(delivered[0].mail.text).toContain('session_id:          conv_1');
+      expect(delivered[0].mail.text).toContain('tool: "conversation_send"');
+      expect(delivered[0].mail.text).toContain('agenticmail_conversation_send');
+      expect(delivered[0].mail.text).toContain('conversation_context');
+      expect(delivered[0].mail.text).not.toContain('tool: "matrix_send"');
     });
   });
 

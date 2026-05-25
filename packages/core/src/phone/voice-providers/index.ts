@@ -18,6 +18,7 @@
 // Side-effect imports — each file calls registerVoiceProvider at load.
 import './openai.js';
 import './grok.js';
+import './host-bridge.js';
 
 // Public re-exports.
 export {

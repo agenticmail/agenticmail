@@ -18,12 +18,16 @@
  * the realtime bridge looks providers up by id through the registry.
  *
  * Currently every supported provider is an OpenAI-Realtime-compatible
- * WebSocket. If a future provider diverges enough to need its own wire
- * protocol (custom event shape, gRPC, WebRTC SDP, etc.), the seam to
- * extend is here: add `buildSessionUpdate` / `parseInboundEvent` /
- * etc. hooks to {@link VoiceProvider}, then make `realtime-bridge.ts`
- * route through them instead of speaking OpenAI Realtime directly.
+ * WebSocket. `host_bridge` intentionally uses that same wire shape so a host
+ * like OpenClaw can own the model session while AgenticMail keeps the carrier
+ * media bridge. If a future provider diverges enough to need its own wire
+ * protocol (custom event shape, gRPC, WebRTC SDP, etc.), the seam to extend is
+ * here: add `buildSessionUpdate` / `parseInboundEvent` / etc. hooks to
+ * {@link VoiceProvider}, then make `realtime-bridge.ts` route through them
+ * instead of speaking OpenAI Realtime directly.
  */
+
+import type { AgenticMailConfig } from '../../config.js';
 
 /**
  * One voice-runtime provider. Carries enough information for the
@@ -44,6 +48,12 @@ export interface VoiceProvider {
   websocketBaseUrl: string;
 
   /**
+   * Optional config-aware URL resolver. Used by `host_bridge`, where the
+   * websocket URL is deployment-local instead of a provider constant.
+   */
+  resolveWebsocketBaseUrl?: (config: AgenticMailConfig) => string | undefined;
+
+  /**
    * Default model when the caller doesn't pin one. Sent as the
    * `?model=…` query string AND echoed in the session.update.
    */
@@ -57,6 +67,13 @@ export interface VoiceProvider {
    * "you didn't set the key" error message too.
    */
   apiKeyEnvVar: string;
+
+  /**
+   * Some runtimes are authenticated by the host or local network boundary and
+   * do not require AgenticMail to hold a model-provider key. Leave true for
+   * normal hosted providers; set false for `host_bridge`.
+   */
+  apiKeyRequired?: boolean;
 
   /**
    * Optional fallback config-field name. When the provider's API key
@@ -112,7 +129,7 @@ export interface VoiceRuntimeConnection {
   url: string;
   /** Resolved model name (also passed in the URL). */
   model: string;
-  /** Bearer token for the `Authorization` header. */
+  /** Bearer token for the `Authorization` header, if this runtime needs one. */
   apiKey: string;
   /** Human-readable source of the key, for boot logs only (e.g. `"env XAI_API_KEY"`). */
   apiKeySource: string;

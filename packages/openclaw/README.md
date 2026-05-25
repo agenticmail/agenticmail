@@ -8,7 +8,7 @@
 
 This plugin provides 63 tools, a complete email channel integration, automatic sub-agent provisioning, inter-agent message rate limiting, and a built-in follow-up system for blocked emails. It also includes a skill definition with system prompt guidelines that teach agents how to handle email professionally and securely.
 
-## ✨ What's new in 0.5.60
+## ✨ What's new in 0.5.70
 
 - **`wait_for_email` filters** — block on a specific reply, not just "any new event". New params: `from`, `subject`, `inReplyTo`, `participants`, `includeTasks`. Pair with a kickoff email to wake on the exact reply you're expecting.
 
@@ -344,7 +344,7 @@ The `openclaw.plugin.json` file registers the plugin with OpenClaw:
   "id": "openclaw",
   "name": "agenticmail",
   "displayName": "AgenticMail",
-  "version": "0.5.61",
+  "version": "0.5.70",
   "description": "Full email channel + tools for AI agents",
   "configSchema": {
     "apiUrl": { "type": "string", "default": "http://127.0.0.1:3829" },
@@ -373,6 +373,9 @@ Unread inbox context is configurable:
 - `inboxInjectionMode: "required"` preserves proactive read-first behavior
 - `inboxInjectionIncludePreview: true` adds a short message body preview
 - `spawnMinTimeoutSeconds: 60` allows short `sessions_spawn` calls; `0` disables timeout changes entirely
+- Cron/session `toolsAllow` scopes are respected: if a run explicitly allows
+  only non-AgenticMail tools such as `["exec"]`, the plugin skips AgenticMail
+  prompt/context injection and spawn-timeout hook changes for that run
 
 ---
 

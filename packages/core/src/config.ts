@@ -94,10 +94,22 @@ export interface AgenticMailConfig {
   /**
    * v0.9.93 — default voice-runtime provider id for phone missions
    * that don't pin one on their own policy. `'openai'` (the existing
-   * default) or any provider registered in `voice-providers/`.
+   * default), `'host_bridge'`, or any provider registered in
+   * `voice-providers/`.
    * Read from `AGENTICMAIL_VOICE_RUNTIME` env var or `config.json`.
    */
   voiceRuntime?: string;
+  /**
+   * Host-owned realtime bridge for OpenClaw / CLI deployments. When
+   * `voiceRuntime` is `host_bridge`, AgenticMail connects carrier media to
+   * this OpenAI-Realtime-compatible websocket instead of opening a model
+   * provider session itself. The host owns the model keys and live tool loop;
+   * AgenticMail still owns call transport, policy, and transcript ledger.
+   */
+  voiceHostBridge?: {
+    url?: string;
+    token?: string;
+  };
   masterKey: string;
   dataDir: string;
 }
@@ -175,6 +187,18 @@ export function resolveConfig(overrides?: Partial<AgenticMailConfig>): AgenticMa
   }
   if (env.AGENTICMAIL_VOICE_RUNTIME && env.AGENTICMAIL_VOICE_RUNTIME.trim()) {
     config.voiceRuntime = env.AGENTICMAIL_VOICE_RUNTIME.trim();
+  }
+  if (env.AGENTICMAIL_VOICE_HOST_BRIDGE_URL && env.AGENTICMAIL_VOICE_HOST_BRIDGE_URL.trim()) {
+    config.voiceHostBridge = {
+      ...(config.voiceHostBridge || {}),
+      url: env.AGENTICMAIL_VOICE_HOST_BRIDGE_URL.trim(),
+    };
+  }
+  if (env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN && env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN.trim()) {
+    config.voiceHostBridge = {
+      ...(config.voiceHostBridge || {}),
+      token: env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN.trim(),
+    };
   }
 
   // Merge file-based config if it exists (deep merge to preserve nested objects)

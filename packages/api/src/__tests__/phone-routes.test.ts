@@ -3,7 +3,12 @@ import express from 'express';
 import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
-import { createTestDatabase, PhoneManager, type AgenticMailConfig } from '@agenticmail/core';
+import {
+  ConversationSessionManager,
+  createTestDatabase,
+  PhoneManager,
+  type AgenticMailConfig,
+} from '@agenticmail/core';
 import { createPhoneRoutes, createPhoneWebhookRoutes } from '../routes/phone.js';
 
 // Webhook secret must clear the 24-char entropy floor (#43-H8).
@@ -69,15 +74,19 @@ function createDb() {
   return db;
 }
 
-function createPhoneApp(db: ReturnType<typeof createTestDatabase>): express.Express {
+function createPhoneApp(
+  db: ReturnType<typeof createTestDatabase>,
+  overrides: Partial<AgenticMailConfig> = {},
+): express.Express {
   const app = express();
+  const appConfig = { ...config, ...overrides } as AgenticMailConfig;
   app.use(express.json());
   app.use((req, _res, next) => {
     req.agent = { id: 'agent1', email: 'ralf@example.com' };
     next();
   });
-  app.use(createPhoneWebhookRoutes(db, config));
-  app.use(createPhoneRoutes(db, config));
+  app.use(createPhoneWebhookRoutes(db, appConfig));
+  app.use(createPhoneRoutes(db, appConfig));
   return app;
 }
 
@@ -94,6 +103,14 @@ async function setupTransport(baseUrl: string) {
       supportedRegions: ['AT', 'DE'],
     }),
   });
+}
+
+async function listenHostBridgeHealth(status = 200): Promise<string> {
+  const app = express();
+  app.get('/health', (_req, res) => {
+    res.status(status).json({ status: status >= 200 && status < 300 ? 'ok' : 'down' });
+  });
+  return listen(app);
 }
 
 describe('phone routes', () => {
@@ -118,6 +135,236 @@ describe('phone routes', () => {
       realtimeReady: false,
     });
 
+    db.close();
+  });
+
+  it('reports 46elks realtime readiness only when a bridge number is configured', async () => {
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+
+    const setup = await request(baseUrl, '/phone/transport/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: '46elks',
+        phoneNumber: '+43123456789',
+        username: 'user',
+        password: 'api-password-secret',
+        webhookBaseUrl: 'https://agenticmail.example.com',
+        webhookSecret: WEBHOOK_SECRET,
+        realtimeBridgeNumber: '+46700000000',
+        capabilities: ['call_control', 'realtime_media'],
+        supportedRegions: ['AT', 'DE'],
+      }),
+    });
+    expect(setup.status).toBe(200);
+    expect(setup.body.nextSteps).toContain('46elks outbound calls will connect to the configured realtimeBridgeNumber.');
+
+    const capabilities = await request(baseUrl, '/phone/capabilities');
+    expect(capabilities.body).toMatchObject({
+      provider: '46elks',
+      realtimeBridgeNumber: '+46700000000',
+      realtimeBridgeConfigured: true,
+      realtimeReady: true,
+    });
+
+    db.close();
+  });
+
+  it('reports phone readiness for OpenClaw test-call setup', async () => {
+    const priorOpenAi = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-test-secret';
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+
+    const missing = await request(baseUrl, '/phone/readiness');
+    expect(missing.status).toBe(200);
+    expect(missing.body).toMatchObject({
+      ready: false,
+      canPlaceTrackedCalls: false,
+      canHoldRealtimeConversation: false,
+      missing: expect.arrayContaining(['phone transport']),
+    });
+
+    await request(baseUrl, '/phone/transport/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: '46elks',
+        phoneNumber: '+43123456789',
+        username: 'user',
+        password: 'api-password-secret',
+        webhookBaseUrl: 'https://agenticmail.example.com',
+        webhookSecret: WEBHOOK_SECRET,
+        realtimeBridgeNumber: '+46700000000',
+        capabilities: ['call_control', 'realtime_media'],
+        supportedRegions: ['AT', 'DE'],
+      }),
+    });
+
+    const ready = await request(baseUrl, '/phone/readiness');
+    expect(ready.body).toMatchObject({
+      ready: true,
+      canPlaceTrackedCalls: true,
+      canHoldRealtimeConversation: true,
+      missing: [],
+      voiceRuntime: {
+        id: 'openai',
+        keyConfigured: true,
+      },
+      testCallTemplate: {
+        tool: 'agenticmail_call_phone_safe',
+        params: {
+          policyPreset: 'safe_default',
+          regionAllowlist: ['AT', 'DE'],
+          dryRun: false,
+        },
+      },
+    });
+    expect(JSON.stringify(ready.body)).not.toContain('sk-test-secret');
+
+    if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = priorOpenAi;
+    db.close();
+  });
+
+  it('reports host bridge readiness without requiring an AgenticMail model-provider key', async () => {
+    const priorOpenAi = process.env.OPENAI_API_KEY;
+    const priorXai = process.env.XAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    const db = createDb();
+    const bridgeBaseUrl = await listenHostBridgeHealth();
+    const bridgeWsUrl = `${bridgeBaseUrl.replace(/^http:/, 'ws:')}/realtime?token=url-secret`;
+    const baseUrl = await listen(createPhoneApp(db, {
+      voiceRuntime: 'host_bridge',
+      voiceHostBridge: {
+        url: bridgeWsUrl,
+        token: 'bridge-token-secret',
+      },
+    }));
+
+    await request(baseUrl, '/phone/transport/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: '46elks',
+        phoneNumber: '+43123456789',
+        username: 'user',
+        password: 'api-password-secret',
+        webhookBaseUrl: 'https://agenticmail.example.com',
+        webhookSecret: WEBHOOK_SECRET,
+        realtimeBridgeNumber: '+46700000000',
+        capabilities: ['call_control', 'realtime_media'],
+        supportedRegions: ['AT', 'DE'],
+      }),
+    });
+
+    const ready = await request(baseUrl, '/phone/readiness');
+    expect(ready.body).toMatchObject({
+      ready: true,
+      canHoldRealtimeConversation: true,
+      voiceRuntimeMode: 'host_bridge',
+      voiceRuntime: {
+        id: 'host_bridge',
+        keyRequiredInAgenticMail: false,
+        keyConfigured: true,
+      },
+      hostBridge: {
+        configured: true,
+        tokenConfigured: true,
+        endpoint: bridgeWsUrl.replace('url-secret', '***'),
+        reachable: true,
+        healthUrl: `${bridgeBaseUrl}/health`,
+        healthStatus: 200,
+        wireProtocol: 'openai_realtime_compatible_websocket',
+      },
+    });
+    expect(JSON.stringify(ready.body)).not.toContain('bridge-token-secret');
+    expect(JSON.stringify(ready.body)).not.toContain('url-secret');
+
+    if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = priorOpenAi;
+    if (priorXai === undefined) delete process.env.XAI_API_KEY;
+    else process.env.XAI_API_KEY = priorXai;
+    db.close();
+  });
+
+  it('keeps host bridge readiness red when the local bridge health check fails', async () => {
+    const priorOpenAi = process.env.OPENAI_API_KEY;
+    const priorXai = process.env.XAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    const db = createDb();
+    const bridgeBaseUrl = await listenHostBridgeHealth(503);
+    const bridgeWsUrl = `${bridgeBaseUrl.replace(/^http:/, 'ws:')}/realtime`;
+    const baseUrl = await listen(createPhoneApp(db, {
+      voiceRuntime: 'host_bridge',
+      voiceHostBridge: { url: bridgeWsUrl },
+    }));
+
+    await request(baseUrl, '/phone/transport/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: '46elks',
+        phoneNumber: '+43123456789',
+        username: 'user',
+        password: 'api-password-secret',
+        webhookBaseUrl: 'https://agenticmail.example.com',
+        webhookSecret: WEBHOOK_SECRET,
+        realtimeBridgeNumber: '+46700000000',
+        capabilities: ['call_control', 'realtime_media'],
+        supportedRegions: ['AT', 'DE'],
+      }),
+    });
+
+    const ready = await request(baseUrl, '/phone/readiness');
+    expect(ready.body).toMatchObject({
+      ready: false,
+      canPlaceTrackedCalls: true,
+      canHoldRealtimeConversation: false,
+      missing: expect.arrayContaining(['reachable voice host bridge health endpoint']),
+      hostBridge: {
+        configured: true,
+        reachable: false,
+        healthUrl: `${bridgeBaseUrl}/health`,
+        healthStatus: 503,
+      },
+    });
+    expect(ready.body.nextActions).toContain('Start the local bridge with agenticmail-voice-host-bridge or the OpenClaw/Codex/Claude Code/Hermes wrapper bin.');
+
+    if (priorOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = priorOpenAi;
+    if (priorXai === undefined) delete process.env.XAI_API_KEY;
+    else process.env.XAI_API_KEY = priorXai;
+    db.close();
+  });
+
+  it('lists voice runtime providers without exposing secrets', async () => {
+    const priorXai = process.env.XAI_API_KEY;
+    process.env.XAI_API_KEY = 'xai-secret';
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+
+    const result = await request(baseUrl, '/phone/voice/providers');
+
+    expect(result.status).toBe(200);
+    expect(result.body.defaultRuntime).toBe('openai');
+    expect(result.body.providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'openai',
+        apiKeyEnvVar: 'OPENAI_API_KEY',
+        keyConfigured: false,
+        selectedDefault: true,
+      }),
+      expect.objectContaining({
+        id: 'grok',
+        apiKeyEnvVar: 'XAI_API_KEY',
+        keyConfigured: true,
+        keySources: expect.objectContaining({ env: true }),
+      }),
+    ]));
+    expect(JSON.stringify(result.body)).not.toContain('xai-secret');
+
+    if (priorXai === undefined) delete process.env.XAI_API_KEY;
+    else process.env.XAI_API_KEY = priorXai;
     db.close();
   });
 
@@ -162,14 +409,86 @@ describe('phone routes', () => {
     expect(started.body.providerRequest.body.voice_start).toBe('[redacted-url]');
 
     const missionId = started.body.mission.id;
+    expect(started.body.conversationSession).toMatchObject({
+      channel: 'phone',
+      status: 'active',
+      peer: '+436641234567',
+      externalRef: missionId,
+      metadata: { missionId, provider: '46elks', dryRun: true },
+    });
+    expect(started.body.conversationMessage).toMatchObject({
+      channel: 'phone',
+      direction: 'system',
+      metadata: { missionId, status: 'dialing' },
+    });
+    const conversations = new ConversationSessionManager(db);
+    expect(conversations.listMessages('agent1', started.body.conversationSession.id).map((m) => [m.direction, m.text])).toEqual([
+      ['system', `Phone mission ${missionId} started for +436641234567.`],
+    ]);
+
     const loaded = await request(baseUrl, `/calls/${missionId}`);
     expect(loaded.body.mission.id).toBe(missionId);
+    expect(loaded.body.conversationSession).toMatchObject({
+      id: started.body.conversationSession.id,
+      status: 'active',
+      externalRef: missionId,
+    });
 
     const transcript = await request(baseUrl, `/calls/${missionId}/transcript`);
     expect(transcript.body.transcript.length).toBeGreaterThan(0);
 
     const cancelled = await request(baseUrl, `/calls/${missionId}/cancel`, { method: 'POST' });
     expect(cancelled.body.mission.status).toBe('cancelled');
+    expect(conversations.getSession('agent1', started.body.conversationSession.id)?.status).toBe('ended');
+    expect(conversations.listMessages('agent1', started.body.conversationSession.id).map((m) => m.text)).toContain(
+      `Phone mission ${missionId} cancelled by operator.`,
+    );
+    const loadedAfterCancel = await request(baseUrl, `/calls/${missionId}`);
+    expect(loadedAfterCancel.body.conversationSession).toMatchObject({
+      id: started.body.conversationSession.id,
+      status: 'ended',
+    });
+
+    db.close();
+  });
+
+  it('starts a mission from a safe policy preset without raw policy JSON', async () => {
+    const db = createDb();
+    const baseUrl = await listen(createPhoneApp(db));
+    await setupTransport(baseUrl);
+
+    const started = await request(baseUrl, '/calls/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        to: '+436641234567',
+        task: 'Reserve dinner for two at 19:30',
+        policyPreset: 'reservation',
+        maxCostPerMission: 1.5,
+        maxTimeShiftMinutes: 45,
+        dryRun: true,
+      }),
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.mission.policy).toMatchObject({
+      policyVersion: 1,
+      maxCostPerMission: 1.5,
+      maxAttempts: 2,
+      transcriptEnabled: true,
+      recordingEnabled: false,
+      alternativePolicy: { maxTimeShiftMinutes: 45 },
+      confirmPolicy: {
+        paymentDetails: 'never',
+        contractCommitment: 'never',
+        costOverLimit: 'needs_operator',
+        sensitivePersonalData: 'needs_operator',
+        unclearAlternative: 'needs_operator',
+      },
+    });
+    expect(started.body.conversationSession.metadata).toMatchObject({
+      policyPreset: 'reservation',
+      dryRun: true,
+    });
 
     db.close();
   });
@@ -183,6 +502,7 @@ describe('phone routes', () => {
       body: JSON.stringify({ to: '+436641234567', task: 'Reserve dinner', policy, dryRun: true }),
     });
     const missionId = started.body.mission.id;
+    const conversationSessionId = started.body.conversationSession.id;
     const token = tokenFor(missionId);
 
     // Forged token -> uniform 403.
@@ -213,6 +533,11 @@ describe('phone routes', () => {
       body: JSON.stringify({ callid: 'call123' }),
     });
     expect(hangup.body.mission.status).toBe('failed');
+    const conversations = new ConversationSessionManager(db);
+    expect(conversations.getSession('agent1', conversationSessionId)?.status).toBe('failed');
+    expect(conversations.listMessages('agent1', conversationSessionId).map((m) => m.text)).toContain(
+      `Phone mission ${missionId} ended by 46elks hangup.`,
+    );
 
     db.close();
   });

@@ -1170,7 +1170,7 @@ export function registerTools(
   // --- Gateway tools (always use master key, no session override) ---
 
   reg('agenticmail_setup_guide', {
-    description: 'Get a comparison of email setup modes (Relay vs Domain) AND the optional channels — realtime voice (OPENAI_API_KEY), phone call-control with a 46elks-vs-Twilio provider choice, and the Telegram channel — with difficulty levels, requirements, and step-by-step instructions. Show this to users who want to set up real internet email, voice calls, phone, or Telegram to help them choose.',
+    description: 'Get a comparison of email setup modes (Relay vs Domain) AND the optional channels — realtime voice providers, phone call-control with a 46elks-vs-Twilio provider choice, phone_readiness, and Telegram — with difficulty levels, requirements, and step-by-step instructions. Show this to users who want to set up real internet email, voice calls, phone, or Telegram to help them choose.',
     parameters: {},
     handler: async () => {
       try {
@@ -2489,6 +2489,7 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
       webhookBaseUrl: { type: 'string', required: true, description: 'Public HTTPS base URL for AgenticMail phone webhooks' },
       webhookSecret: { type: 'string', required: true, description: 'Shared secret included on provider webhook URLs (at least 24 characters)' },
       apiUrl: { type: 'string', description: 'Optional provider API base URL override (46elks or Twilio REST root)' },
+      realtimeBridgeNumber: { type: 'string', description: '46elks only: websocket-number in E.164 format used for realtime outbound calls when capabilities include "realtime_media".' },
       capabilities: { type: 'array', description: 'Transport capabilities, e.g. ["call_control"] or ["call_control","realtime_media"]' },
       supportedRegions: { type: 'array', description: 'Supported region scopes: AT, DE, EU, WORLD' },
     },
@@ -2507,6 +2508,7 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
           webhookBaseUrl: params.webhookBaseUrl,
           webhookSecret: params.webhookSecret,
           apiUrl: params.apiUrl,
+          realtimeBridgeNumber: params.realtimeBridgeNumber,
           capabilities: params.capabilities,
           supportedRegions: params.supportedRegions,
         });
@@ -2521,6 +2523,273 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
       try {
         const c = await ctxForParams(ctx, params);
         return await apiRequest(c, 'GET', '/phone/capabilities');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_phone_readiness', {
+    description: 'Return the real phone-call readiness state for this agent: whether tracked calls and realtime conversations can actually run, exact missing setup items, and a safe test-call template.',
+    parameters: {
+      voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id to check, e.g. openai, grok, or host_bridge. Defaults to the configured install runtime.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        if (params.voiceRuntime) query.set('voiceRuntime', String(params.voiceRuntime));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/phone/readiness${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_phone_voice_providers', {
+    description: 'List registered realtime voice-runtime providers for phone calls, including default models, available voices, and whether an API key is configured. Secrets are never returned.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/phone/voice/providers');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_realtime_conversation_capabilities', {
+    description: 'Show AgenticMail realtime-conversation channel readiness for this agent: phone, Telegram, Matrix, WhatsApp, and Google Meet. Planned adapters fail closed until implemented.',
+    parameters: {
+      channel: { type: 'string', description: 'Optional channel to inspect: phone, telegram, matrix, whatsapp, or google_meet. Omit to list all channels.' },
+      policyProvided: { type: 'boolean', description: 'Set true when a concrete per-mission policy is already present.' },
+      operatorApproved: { type: 'boolean', description: 'Set true only when the operator approved a gated channel action.' },
+      userOptedIn: { type: 'boolean', description: 'Override the inferred opt-in gate for channels that require it.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        for (const key of ['channel', 'policyProvided', 'operatorApproved', 'userOptedIn']) {
+          if (params[key] !== undefined) query.set(key, String(params[key]));
+        }
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/conversation/realtime/capabilities${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_realtime_conversation_plan', {
+    description: 'Check whether a realtime conversation can start on one channel and get the exact missing gates. Use before claiming a live phone, Telegram, Matrix, WhatsApp, or Google Meet conversation is ready.',
+    parameters: {
+      channel: { type: 'string', required: true, description: 'Channel to start: phone, telegram, matrix, whatsapp, or google_meet.' },
+      policyProvided: { type: 'boolean', description: 'True when a concrete phone mission policy exists.' },
+      operatorApproved: { type: 'boolean', description: 'True only after explicit operator approval for gated channels.' },
+      userOptedIn: { type: 'boolean', description: 'True only when the target user/chat/meeting has opted in or is already linked.' },
+      transportConfigured: { type: 'boolean', description: 'Override inferred transport configuration, mainly for tests/future adapters.' },
+      realtimeMediaConfigured: { type: 'boolean', description: 'Override inferred phone realtime-media capability.' },
+      voiceRuntimeConfigured: { type: 'boolean', description: 'Override inferred realtime voice runtime availability.' },
+      openaiRealtimeConfigured: { type: 'boolean', description: 'Deprecated alias for voiceRuntimeConfigured when checking the embedded OpenAI path.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/conversation/realtime/plan', {
+          channel: params.channel,
+          policyProvided: params.policyProvided,
+          operatorApproved: params.operatorApproved,
+          userOptedIn: params.userOptedIn,
+          transportConfigured: params.transportConfigured,
+          realtimeMediaConfigured: params.realtimeMediaConfigured,
+          voiceRuntimeConfigured: params.voiceRuntimeConfigured,
+          openaiRealtimeConfigured: params.openaiRealtimeConfigured,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_list', {
+    description: 'List live conversation sessions for the current agent. Use this to find active Telegram/phone sessions before sending or reading turns.',
+    parameters: {
+      status: { type: 'string', description: 'Optional status filter: active, ended, or failed.' },
+      channel: { type: 'string', description: 'Optional channel filter: phone, telegram, matrix, whatsapp, or google_meet.' },
+      limit: { type: 'number', description: 'Maximum sessions to return (1-100, default 20).' },
+      offset: { type: 'number', description: 'Pagination offset (default 0).' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        for (const key of ['status', 'channel', 'limit', 'offset']) {
+          if (params[key] !== undefined) query.set(key, String(params[key]));
+        }
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/conversation/sessions${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_get', {
+    description: 'Read one live conversation session by id, including status, channel, peer, goal, and external transport reference.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        return await apiRequest(c, 'GET', `/conversation/sessions/${encodeURIComponent(params.sessionId)}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_context', {
+    description: 'Read one live conversation session plus a compact transcript window in a single call. Use this after a wake message gives you a sessionId.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+      messageLimit: { type: 'number', description: 'Maximum transcript messages to return from the end of the session (1-200, default 50).' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        const query = new URLSearchParams();
+        if (params.messageLimit !== undefined) query.set('messageLimit', String(params.messageLimit));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/conversation/sessions/${encodeURIComponent(params.sessionId)}/context${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_start', {
+    description: 'Start a live conversation session. Telegram and Matrix are executable text sessions; phone starts a tracked phone mission; Google Meet creates an intake/briefing session with live media gated; WhatsApp still fails closed until its adapter ships.',
+    parameters: {
+      channel: { type: 'string', required: true, description: 'Conversation channel: phone, telegram, matrix, whatsapp, or google_meet.' },
+      chatId: { type: 'string', description: 'Telegram chat id. Alias: peer.' },
+      peer: { type: 'string', description: 'Generic peer id: Telegram chat id, phone number, future Matrix room, etc.' },
+      meetLink: { type: 'string', description: 'Google Meet only: meet.google.com URL or meeting code. Alias: peer.' },
+      topic: { type: 'string', description: 'Google Meet only: meeting topic. Alias: subject.' },
+      operatorInstructions: { type: 'string', description: 'Google Meet only: operator briefing and participation instructions.' },
+      to: { type: 'string', description: 'Phone target number in E.164 format. Alias: peer.' },
+      goal: { type: 'string', description: 'Conversation objective.' },
+      task: { type: 'string', description: 'Phone task/objective. Alias: goal.' },
+      subject: { type: 'string', description: 'Optional short session subject.' },
+      initialMessage: { type: 'string', description: 'Optional first Telegram message to send immediately.' },
+      policy: { type: 'object', description: 'Required for phone sessions: phone mission policy.' },
+      policyPreset: { type: 'string', description: 'Phone only: safe policy preset, one of safe_default, reservation, support. Use this instead of raw policy for normal calls.' },
+      regionAllowlist: { type: 'array', description: 'Phone only: allowed dial regions, e.g. ["AT","DE","EU"] or ["WORLD"].' },
+      maxCallDurationSeconds: { type: 'number', description: 'Phone only: positive call-duration cap. Server hard ceiling still applies.' },
+      maxCostPerMission: { type: 'number', description: 'Phone only: non-negative mission cost cap. Server hard ceiling still applies.' },
+      maxAttempts: { type: 'number', description: 'Phone only: positive attempt cap. Server hard ceiling still applies.' },
+      maxTimeShiftMinutes: { type: 'number', description: 'Phone only: allowed appointment time shift before asking the operator.' },
+      transcriptEnabled: { type: 'boolean', description: 'Phone only: defaults to true for safe presets.' },
+      recordingEnabled: { type: 'boolean', description: 'Phone only: defaults to false and still requires transport support.' },
+      voiceRuntime: { type: 'string', description: 'Phone only: optional voice-runtime provider id.' },
+      voiceModel: { type: 'string', description: 'Phone only: optional voice model override.' },
+      voice: { type: 'string', description: 'Phone only: optional voice character override.' },
+      dryRun: { type: 'boolean', description: 'Phone only: create a mission/session without calling the carrier.' },
+      operatorApproved: { type: 'boolean', description: 'Future gated channels only: explicit operator approval.' },
+      userOptedIn: { type: 'boolean', description: 'Future opt-in channels only: explicit target opt-in.' },
+      tenantId: { type: 'string', description: 'Optional tenant/account id for multi-tenant host runtimes.' },
+      accountId: { type: 'string', description: 'Optional account id for multi-tenant host runtimes.' },
+      workspaceId: { type: 'string', description: 'Optional workspace/project id for multi-tenant host runtimes.' },
+      operatorId: { type: 'string', description: 'Optional human operator id.' },
+      operatorChannel: { type: 'string', description: 'Optional operator side channel, e.g. telegram, matrix, email.' },
+      hostIntegration: { type: 'string', description: 'Optional host integration id, e.g. openclaw, hermes, codex, claudecode.' },
+      hostSessionId: { type: 'string', description: 'Optional host-side session id for trace correlation.' },
+      projectRef: { type: 'string', description: 'Optional project/context reference.' },
+      behaviorMode: { type: 'string', description: 'Optional live behavior mode: listen_only, answer_when_asked, or operator_directed.' },
+      liveContext: { type: 'object', description: 'Optional structured live-session context. Explicit top-level fields override matching keys.' },
+      policyScope: { type: 'object', description: 'Optional policy scope for this live session.' },
+      budgetScope: { type: 'object', description: 'Optional budget scope for this live session.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/conversation/sessions/start', {
+          channel: params.channel,
+          chatId: params.chatId,
+          peer: params.peer,
+          meetLink: params.meetLink,
+          topic: params.topic,
+          operatorInstructions: params.operatorInstructions,
+          to: params.to,
+          goal: params.goal,
+          task: params.task,
+          subject: params.subject,
+          initialMessage: params.initialMessage,
+          policy: params.policy,
+          policyPreset: params.policyPreset,
+          regionAllowlist: params.regionAllowlist,
+          maxCallDurationSeconds: params.maxCallDurationSeconds,
+          maxCostPerMission: params.maxCostPerMission,
+          maxAttempts: params.maxAttempts,
+          maxTimeShiftMinutes: params.maxTimeShiftMinutes,
+          transcriptEnabled: params.transcriptEnabled,
+          recordingEnabled: params.recordingEnabled,
+          voiceRuntime: params.voiceRuntime,
+          voiceModel: params.voiceModel,
+          voice: params.voice,
+          dryRun: params.dryRun,
+          operatorApproved: params.operatorApproved,
+          userOptedIn: params.userOptedIn,
+          tenantId: params.tenantId,
+          accountId: params.accountId,
+          workspaceId: params.workspaceId,
+          operatorId: params.operatorId,
+          operatorChannel: params.operatorChannel,
+          hostIntegration: params.hostIntegration,
+          hostSessionId: params.hostSessionId,
+          projectRef: params.projectRef,
+          behaviorMode: params.behaviorMode,
+          liveContext: params.liveContext,
+          policyScope: params.policyScope,
+          budgetScope: params.budgetScope,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_send', {
+    description: 'Send one text turn into an active live conversation session. Currently executable for Telegram sessions.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+      text: { type: 'string', required: true, description: 'Message text to send.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        return await apiRequest(c, 'POST', `/conversation/sessions/${encodeURIComponent(params.sessionId)}/messages`, {
+          text: params.text,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_messages', {
+    description: 'Read the transcript/message ledger for a conversation session.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        return await apiRequest(c, 'GET', `/conversation/sessions/${encodeURIComponent(params.sessionId)}/messages`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_conversation_end', {
+    description: 'End a live conversation session and mark it ended or failed.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'Conversation session id.' },
+      status: { type: 'string', description: 'Terminal status: ended or failed (default: ended).' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.sessionId) return { success: false, error: 'sessionId is required' };
+        return await apiRequest(c, 'POST', `/conversation/sessions/${encodeURIComponent(params.sessionId)}/end`, {
+          status: params.status,
+        });
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });
@@ -2611,6 +2880,337 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
       try {
         const c = await ctxForParams(ctx, params);
         return await apiRequest(c, 'POST', '/telegram/poll');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_setup', {
+    description: 'Configure the Matrix channel for this agent. Stores a homeserver URL, access token, and allowed room ids; verifies with /account/whoami unless verify=false. Matrix E2EE rooms need a separate E2EE-capable bot runtime.',
+    parameters: {
+      homeserverUrl: { type: 'string', required: true, description: 'Matrix homeserver base URL, e.g. https://matrix.example.org' },
+      accessToken: { type: 'string', required: true, description: 'Matrix access token for the bot/user. Stored encrypted and redacted.' },
+      allowedRoomIds: { type: 'array', description: 'Allowed Matrix room ids, e.g. !room:example.org' },
+      operatorRoomId: { type: 'string', description: 'Optional operator room id; always allowed.' },
+      userId: { type: 'string', description: 'Optional Matrix user id. Usually discovered via whoami.' },
+      deviceId: { type: 'string', description: 'Optional Matrix device id. Usually discovered via whoami.' },
+      verify: { type: 'boolean', description: 'Set false to skip Matrix /account/whoami verification.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/matrix/setup', {
+          homeserverUrl: params.homeserverUrl,
+          accessToken: params.accessToken,
+          allowedRoomIds: params.allowedRoomIds,
+          operatorRoomId: params.operatorRoomId,
+          userId: params.userId,
+          deviceId: params.deviceId,
+          verify: params.verify,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_config', {
+    description: 'Show the current Matrix channel config with secrets redacted.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/matrix/config');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_send', {
+    description: 'Send a plain-text Matrix m.room.message to an allowed room.',
+    parameters: {
+      roomId: { type: 'string', required: true, description: 'Matrix room id, e.g. !room:example.org' },
+      text: { type: 'string', required: true, description: 'Plain-text message body.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/matrix/send', {
+          roomId: params.roomId,
+          text: params.text,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_messages', {
+    description: 'List stored Matrix messages for this agent, newest first.',
+    parameters: {
+      direction: { type: 'string', description: 'Filter by direction: inbound or outbound.' },
+      roomId: { type: 'string', description: 'Filter by Matrix room id.' },
+      limit: { type: 'number', description: 'Max messages (default 20, max 100).' },
+      offset: { type: 'number', description: 'Skip messages.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        if (params.direction) query.set('direction', String(params.direction));
+        if (params.roomId) query.set('roomId', String(params.roomId));
+        if (params.limit) query.set('limit', String(params.limit));
+        if (params.offset) query.set('offset', String(params.offset));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/matrix/messages${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_matrix_poll', {
+    description: 'Poll Matrix /sync for allowed rooms and mirror inbound m.room.message events into active Matrix conversation sessions.',
+    parameters: {
+      since: { type: 'string', description: 'Optional Matrix sync token override. Omit to use saved syncToken.' },
+      timeoutMs: { type: 'number', description: 'Matrix /sync timeout in milliseconds, max 30000.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/matrix/poll', {
+          since: params.since,
+          timeoutMs: params.timeoutMs,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_setup', {
+    description: 'Configure Google Meet for this agent. Stores an OAuth access token encrypted, optional participant identity, allowed domains, and live-media readiness flags.',
+    parameters: {
+      accessToken: { type: 'string', required: true, description: 'Google OAuth access token with Meet REST scopes. Stored encrypted and redacted.' },
+      participantName: { type: 'string', description: 'Display name the meeting participant/sidecar should use.' },
+      workspaceDomain: { type: 'string', description: 'Optional Google Workspace domain.' },
+      allowedDomains: { type: 'array', description: 'Domains accepted for Meet intake, e.g. ["example.com"].' },
+      defaultBehaviorMode: { type: 'string', description: 'Default behavior mode: listen_only, answer_when_asked, or operator_directed.' },
+      mediaApiDeveloperPreview: { type: 'boolean', description: 'Set true only when the Cloud project/OAuth principal/participants are enrolled for Meet Media API Developer Preview.' },
+      mediaSidecarUrl: { type: 'string', description: 'HTTP(S) endpoint for the local/hosted Meet media sidecar.' },
+      mediaSidecarToken: { type: 'string', description: 'Optional sidecar auth token sent as x-agenticmail-meet-sidecar-token.' },
+      consentPolicyAccepted: { type: 'boolean', description: 'Set true only after participant consent policy is configured.' },
+      verifySpace: { type: 'string', description: 'Optional meeting code/space to verify the token with spaces.get.' },
+      verify: { type: 'boolean', description: 'Set false to skip verification.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/setup', {
+          accessToken: params.accessToken,
+          participantName: params.participantName,
+          workspaceDomain: params.workspaceDomain,
+          allowedDomains: params.allowedDomains,
+          defaultBehaviorMode: params.defaultBehaviorMode,
+          mediaApiDeveloperPreview: params.mediaApiDeveloperPreview,
+          mediaSidecarUrl: params.mediaSidecarUrl,
+          mediaSidecarToken: params.mediaSidecarToken,
+          consentPolicyAccepted: params.consentPolicyAccepted,
+          verifySpace: params.verifySpace,
+          verify: params.verify,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_config', {
+    description: 'Show Google Meet config with secrets redacted plus readiness for spaces, artifacts, and live media.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/meet/config');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_readiness', {
+    description: 'Check Google Meet readiness: REST space/artifact access and live media sidecar gates.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/meet/readiness');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_disable', {
+    description: 'Disable the Google Meet channel for this agent without deleting the stored settings.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/disable');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_space_create', {
+    description: 'Create a Google Meet space through the Meet REST API using the configured OAuth token.',
+    parameters: {
+      accessType: { type: 'string', description: 'Optional Meet accessType, e.g. OPEN, TRUSTED, RESTRICTED.' },
+      entryPointAccess: { type: 'string', description: 'Optional entryPointAccess, e.g. ALL or CREATOR_APP_ONLY.' },
+      artifactConfig: { type: 'object', description: 'Optional Meet SpaceConfig artifactConfig.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/spaces/create', {
+          accessType: params.accessType,
+          entryPointAccess: params.entryPointAccess,
+          artifactConfig: params.artifactConfig,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_space_get', {
+    description: 'Get a Google Meet space by meeting code or spaces/{id}.',
+    parameters: {
+      spaceOrCode: { type: 'string', required: true, description: 'Meeting code such as abc-defg-hij or resource spaces/{id}.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.spaceOrCode) return { success: false, error: 'spaceOrCode is required' };
+        return await apiRequest(c, 'GET', `/meet/spaces/${encodeURIComponent(String(params.spaceOrCode))}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_conference_records', {
+    description: 'List Google Meet conference records visible to the configured OAuth token, optionally filtered by space.',
+    parameters: {
+      space: { type: 'string', description: 'Optional Meet space resource, e.g. spaces/{id}.' },
+      pageSize: { type: 'number', description: 'Max records to fetch.' },
+      pageToken: { type: 'string', description: 'Pagination token.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        if (params.space) query.set('space', String(params.space));
+        if (params.pageSize) query.set('pageSize', String(params.pageSize));
+        if (params.pageToken) query.set('pageToken', String(params.pageToken));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/meet/conference-records${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_transcripts', {
+    description: 'List transcript resources for a Google Meet conference record.',
+    parameters: {
+      conferenceRecord: { type: 'string', required: true, description: 'Conference record resource, e.g. conferenceRecords/{id}.' },
+      pageSize: { type: 'number', description: 'Max transcripts to fetch.' },
+      pageToken: { type: 'string', description: 'Pagination token.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.conferenceRecord) return { success: false, error: 'conferenceRecord is required' };
+        const query = new URLSearchParams();
+        query.set('conferenceRecord', String(params.conferenceRecord));
+        if (params.pageSize) query.set('pageSize', String(params.pageSize));
+        if (params.pageToken) query.set('pageToken', String(params.pageToken));
+        return await apiRequest(c, 'GET', `/meet/transcripts?${query.toString()}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_artifacts_import', {
+    description: 'Import Google Meet transcript entries into a google_meet conversation session. Pass either entries directly or a Meet transcript resource name.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'google_meet conversation session id.' },
+      transcript: { type: 'string', description: 'Optional resource: conferenceRecords/{id}/transcripts/{id}. If set, entries are fetched from Google Meet.' },
+      entries: { type: 'array', description: 'Optional transcript entries to import directly.' },
+      pageSize: { type: 'number', description: 'When transcript is used, max entries to fetch.' },
+      pageToken: { type: 'string', description: 'When transcript is used, pagination token.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/artifacts/import', {
+          sessionId: params.sessionId,
+          transcript: params.transcript,
+          entries: params.entries,
+          pageSize: params.pageSize,
+          pageToken: params.pageToken,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_live_join', {
+    description: 'Ask the configured Google Meet live media sidecar to join a google_meet conversation session.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'google_meet conversation session id.' },
+      meetingUri: { type: 'string', description: 'Optional Meet URI override. Defaults to the session Meet link.' },
+      meetingCode: { type: 'string', description: 'Optional Meet meeting code override.' },
+      participantName: { type: 'string', description: 'Optional participant display name override.' },
+      behaviorMode: { type: 'string', description: 'Optional behavior mode: listen_only, answer_when_asked, or operator_directed.' },
+      topic: { type: 'string', description: 'Optional topic override.' },
+      goal: { type: 'string', description: 'Optional goal override.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/live/join', {
+          sessionId: params.sessionId,
+          meetingUri: params.meetingUri,
+          meetingCode: params.meetingCode,
+          participantName: params.participantName,
+          behaviorMode: params.behaviorMode,
+          topic: params.topic,
+          goal: params.goal,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_call_phone_safe', {
+    description: [
+      'Start a tracked outbound phone mission with a built-in safe policy preset. Prefer this for normal OpenClaw phone tasks; use agenticmail_call_phone only when the operator supplied exact raw policy JSON.',
+      'The generated policy forbids payment details and contract commitments, routes over-limit cost / sensitive personal data / unclear alternatives to the operator, enables transcripts by default, and disables recording by default.',
+    ].join('\n'),
+    parameters: {
+      to: { type: 'string', required: true, description: 'Target phone number in E.164 format' },
+      task: { type: 'string', required: true, description: 'Concrete call objective, e.g. reserve a table for two at 19:30' },
+      policyPreset: { type: 'string', description: 'Safe policy preset: safe_default, reservation, or support. Defaults to safe_default.' },
+      regionAllowlist: { type: 'array', description: 'Allowed dial regions, e.g. ["AT","DE","EU"] or ["WORLD"].' },
+      maxCallDurationSeconds: { type: 'number', description: 'Positive call-duration cap. Server hard ceiling still applies.' },
+      maxCostPerMission: { type: 'number', description: 'Non-negative mission cost cap. Server hard ceiling still applies.' },
+      maxAttempts: { type: 'number', description: 'Positive attempt cap. Server hard ceiling still applies.' },
+      maxTimeShiftMinutes: { type: 'number', description: 'Allowed appointment time shift before asking the operator.' },
+      transcriptEnabled: { type: 'boolean', description: 'Defaults to true.' },
+      recordingEnabled: { type: 'boolean', description: 'Defaults to false and still requires transport support.' },
+      voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id.' },
+      voiceModel: { type: 'string', description: 'Optional realtime voice model override.' },
+      voice: { type: 'string', description: 'Optional voice character override.' },
+      voiceRuntimeRef: { type: 'string', description: 'Optional external voice runtime/session reference.' },
+      dryRun: { type: 'boolean', description: 'When true, store the mission without calling the provider.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/calls/start', {
+          to: params.to,
+          task: params.task,
+          policyPreset: params.policyPreset ?? 'safe_default',
+          regionAllowlist: params.regionAllowlist,
+          maxCallDurationSeconds: params.maxCallDurationSeconds,
+          maxCostPerMission: params.maxCostPerMission,
+          maxAttempts: params.maxAttempts,
+          maxTimeShiftMinutes: params.maxTimeShiftMinutes,
+          transcriptEnabled: params.transcriptEnabled,
+          recordingEnabled: params.recordingEnabled,
+          voiceRuntime: params.voiceRuntime,
+          voiceModel: params.voiceModel,
+          voice: params.voice,
+          voiceRuntimeRef: params.voiceRuntimeRef,
+          dryRun: params.dryRun,
+        });
       } catch (err) { return { success: false, error: (err as Error).message }; }
     },
   });

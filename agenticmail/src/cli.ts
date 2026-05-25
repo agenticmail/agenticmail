@@ -5864,6 +5864,653 @@ async function cmdTunnel() {
   }
 }
 
+type LiveHostIntegration = 'generic' | 'openclaw' | 'hermes' | 'codex' | 'claudecode';
+
+const LIVE_HOST_INTEGRATIONS: LiveHostIntegration[] = ['generic', 'openclaw', 'hermes', 'codex', 'claudecode'];
+
+function normalizeLiveHost(value: string | undefined): LiveHostIntegration {
+  const normalized = (value || 'generic').trim().toLowerCase().replace(/_/g, '-');
+  if (normalized === 'claude-code') return 'claudecode';
+  if (LIVE_HOST_INTEGRATIONS.includes(normalized as LiveHostIntegration)) {
+    return normalized as LiveHostIntegration;
+  }
+  throw new Error(`Unknown live host "${value}". Known: ${LIVE_HOST_INTEGRATIONS.join(', ')}`);
+}
+
+function readArg(args: string[], names: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    for (const name of names) {
+      if (arg === name) {
+        const value = args[i + 1];
+        if (!value || value.startsWith('--')) throw new Error(`${name} requires a value`);
+        return value;
+      }
+      const prefix = `${name}=`;
+      if (arg.startsWith(prefix)) return arg.slice(prefix.length);
+    }
+  }
+  return undefined;
+}
+
+function hasArg(args: string[], names: string[]): boolean {
+  return args.some((arg) => names.includes(arg));
+}
+
+function stripArgs(args: string[], names: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    const matched = names.find((name) => arg === name || arg.startsWith(`${name}=`));
+    if (!matched) {
+      out.push(arg);
+      continue;
+    }
+    if (arg === matched) i += 1;
+  }
+  return out;
+}
+
+function printLiveHelp() {
+  log('');
+  log(`  ${c.pinkBg(' AgenticMail Live ')}`);
+  log('');
+  log(`  ${c.bold('Usage:')}`);
+  log(`    ${c.green('agenticmail live setup')} ${c.dim('[--url ws://127.0.0.1:3999/realtime] [--token <secret>]')}`);
+  log(`    ${c.green('agenticmail live doctor')} ${c.dim('[--voice-runtime host_bridge]')}`);
+  log(`    ${c.green('agenticmail live bridge')} ${c.dim('[--for openclaw|hermes|codex|claudecode] [bridge options]')}`);
+  log(`    ${c.green('agenticmail live meet-sidecar')} ${c.dim('[--token <secret>] [sidecar options]')}`);
+  log(`    ${c.green('agenticmail live meet-setup')} ${c.dim('--access-token <token> --consent --developer-preview [--sidecar-url http://127.0.0.1:4999]')}`);
+  log(`    ${c.green('agenticmail live meet-readiness')}`);
+  log(`    ${c.green('agenticmail live test meet')} ${c.dim('--link <meet-url> [--topic <text>] [--project-ref <id>] [--start] [--join]')}`);
+  log('');
+  log(`  ${c.bold('Intent:')}`);
+  log('    One product surface for phone, Telegram/Matrix, WhatsApp, and Meet readiness.');
+  log('    Host CLIs stay thin aliases; OpenClaw/Hermes/Codex are selected as integrations.');
+  log('');
+  log(`  ${c.bold('Examples:')}`);
+  log(`    ${c.green('agenticmail live setup --token "$AGENTICMAIL_LIVE_TOKEN"')}`);
+  log(`    ${c.green('agenticmail live bridge --for openclaw --provider openai --token "$AGENTICMAIL_LIVE_TOKEN"')}`);
+  log(`    ${c.green('agenticmail live doctor')}`);
+  log('');
+}
+
+function readAgenticMailConfig(): (SetupConfig & {
+  voiceRuntime?: string;
+  voiceHostBridge?: { url?: string; token?: string };
+}) | null {
+  const configPath = join(homedir(), '.agenticmail', 'config.json');
+  if (!existsSync(configPath)) return null;
+  return JSON.parse(readFileSync(configPath, 'utf-8'));
+}
+
+async function cmdLiveSetup(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Live Setup ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live setup [--url <ws-url>] [--token <secret>] [--no-token]`);
+    log('');
+    log('  Writes host_bridge runtime config into ~/.agenticmail/config.json.');
+    log('  The provider API key stays in the host bridge process, not in AgenticMail.');
+    log('');
+    return;
+  }
+
+  const configPath = join(homedir(), '.agenticmail', 'config.json');
+  if (!existsSync(configPath)) {
+    fail(`AgenticMail is not set up yet — no config at ${c.dim(configPath)}.`);
+    info(`Run ${c.green('agenticmail setup')} first.`);
+    process.exit(1);
+  }
+
+  const config = JSON.parse(readFileSync(configPath, 'utf-8')) as SetupConfig & {
+    voiceRuntime?: string;
+    voiceHostBridge?: { url?: string; token?: string };
+  };
+  const url = readArg(args, ['--url', '--bridge-url'])
+    || process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_URL
+    || config.voiceHostBridge?.url
+    || 'ws://127.0.0.1:3999/realtime';
+  const token = hasArg(args, ['--no-token'])
+    ? ''
+    : readArg(args, ['--token'])
+      || process.env.AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN
+      || config.voiceHostBridge?.token
+      || '';
+
+  config.voiceRuntime = 'host_bridge';
+  config.voiceHostBridge = { url };
+  if (token) config.voiceHostBridge.token = token;
+
+  writeFileSync(configPath, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
+
+  log('');
+  ok(`Configured live voice runtime: ${c.cyan('host_bridge')}`);
+  info(`Bridge URL: ${c.cyan(url)}`);
+  info(token ? 'Bridge token: configured' : 'Bridge token: not configured');
+  log('');
+  log(`  ${c.bold('Start a host bridge:')}`);
+  log(`    ${c.green(`agenticmail live bridge --for openclaw --provider openai${token ? ' --token <same-token>' : ''}`)}`);
+  log('');
+}
+
+async function fetchLiveJson(
+  url: string,
+  apiKey: string | undefined,
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const resp = await fetch(url, {
+    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+    signal: AbortSignal.timeout(3_000),
+  });
+  let data: any = null;
+  try { data = await resp.json(); } catch { /* non-json response */ }
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+async function postLiveJson(
+  url: string,
+  apiKey: string | undefined,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5_000),
+  });
+  let data: any = null;
+  try { data = await resp.json(); } catch { /* non-json response */ }
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+async function cmdLiveDoctor(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Live Doctor ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live doctor [--voice-runtime host_bridge]`);
+    log('');
+    return;
+  }
+
+  const runtime = readArg(args, ['--voice-runtime', '--runtime']) || 'host_bridge';
+  const config = readAgenticMailConfig();
+  const { apiUrl } = readApiUrlFromConfig();
+
+  log('');
+  log(`  ${c.bold('AgenticMail Live Doctor')}`);
+  log('');
+
+  if (!config) {
+    fail(`No AgenticMail config found at ${c.dim(join(homedir(), '.agenticmail', 'config.json'))}.`);
+    info(`Run ${c.green('agenticmail setup')} first.`);
+    log('');
+    process.exit(1);
+  }
+
+  log(`  ${c.dim('API:')}           ${c.cyan(apiUrl)}`);
+  log(`  ${c.dim('Voice runtime:')} ${c.cyan(config.voiceRuntime || '(unset)')} ${c.dim('(checking ' + runtime + ')')}`);
+  log(`  ${c.dim('Host bridge:')}   ${c.cyan(config.voiceHostBridge?.url || '(unset)')}`);
+  log('');
+
+  let apiHealthy = false;
+  try {
+    const health = await fetchLiveJson(`${apiUrl}/api/agenticmail/health`, undefined);
+    apiHealthy = health.ok;
+    health.ok ? ok('API health endpoint is reachable') : fail(`API health returned HTTP ${health.status}`);
+  } catch (err) {
+    fail(`API health endpoint is not reachable: ${(err as Error).message}`);
+  }
+
+  const bridgeUrl = config.voiceHostBridge?.url;
+  if (bridgeUrl) {
+    try {
+      const healthUrl = new URL(bridgeUrl);
+      healthUrl.protocol = healthUrl.protocol === 'wss:' ? 'https:' : 'http:';
+      healthUrl.pathname = '/health';
+      healthUrl.search = '';
+      const health = await fetchLiveJson(healthUrl.toString(), undefined);
+      health.ok ? ok(`Host bridge health is reachable at ${healthUrl.toString()}`) : fail(`Host bridge health returned HTTP ${health.status}`);
+    } catch (err) {
+      fail(`Host bridge health is not reachable: ${(err as Error).message}`);
+    }
+  } else {
+    fail('No host bridge URL configured');
+    info(`Configure it with ${c.green('agenticmail live setup')}.`);
+  }
+
+  if (!apiHealthy) {
+    log('');
+    return;
+  }
+
+  const agent = await resolveAgentApiKey(config);
+  if (!agent) {
+    fail('No agent API key available for per-agent live readiness checks');
+    info(`Start the API and ensure at least one agent exists, then rerun ${c.green('agenticmail live doctor')}.`);
+    log('');
+    return;
+  }
+
+  try {
+    const phone = await fetchLiveJson(
+      `${apiUrl}/api/agenticmail/phone/readiness?voiceRuntime=${encodeURIComponent(runtime)}`,
+      agent.apiKey,
+    );
+    if (phone.ok) {
+      const data = phone.data || {};
+      data.canHoldRealtimeConversation
+        ? ok(`Phone realtime conversation ready for ${c.cyan(agent.name)}`)
+        : fail(`Phone realtime conversation not ready for ${c.cyan(agent.name)}`);
+      if (Array.isArray(data.missing) && data.missing.length) {
+        info(`Missing: ${data.missing.join(', ')}`);
+      }
+    } else {
+      fail(`Phone readiness returned HTTP ${phone.status}`);
+    }
+  } catch (err) {
+    fail(`Phone readiness check failed: ${(err as Error).message}`);
+  }
+
+  try {
+    const meet = await fetchLiveJson(
+      `${apiUrl}/api/agenticmail/conversation/realtime/capabilities?channel=google_meet&operatorApproved=true&userOptedIn=true`,
+      agent.apiKey,
+    );
+    if (meet.ok) {
+      const plan = meet.data?.startPlan;
+      plan?.ok
+        ? ok('Google Meet realtime start gate is ready')
+        : fail('Google Meet realtime start gate is not ready yet');
+      if (Array.isArray(plan?.missing) && plan.missing.length) {
+        info(`Meet missing: ${plan.missing.join(', ')}`);
+      }
+    } else {
+      fail(`Google Meet capability check returned HTTP ${meet.status}`);
+    }
+  } catch (err) {
+    fail(`Google Meet capability check failed: ${(err as Error).message}`);
+  }
+
+  log('');
+}
+
+async function cmdLiveBridge(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Live Bridge ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live bridge [--for <host>] [voice-host-bridge options]`);
+    log('');
+    log(`  ${c.bold('Hosts:')} ${LIVE_HOST_INTEGRATIONS.join(', ')}`);
+    log('');
+    log(`  ${c.bold('Examples:')}`);
+    log(`    ${c.green('agenticmail live bridge --for openclaw --provider openai --token <secret>')}`);
+    log(`    ${c.green('agenticmail live bridge hermes --provider xai --token <secret>')}`);
+    log('');
+    return;
+  }
+
+  let forwarded = stripArgs(args, ['--for', '--integration', '--agent-host']);
+  let integration = normalizeLiveHost(readArg(args, ['--for', '--integration', '--agent-host']));
+  if (forwarded[0] && !forwarded[0].startsWith('-')) {
+    const maybeHost = forwarded[0].toLowerCase();
+    if (LIVE_HOST_INTEGRATIONS.includes(normalizeLiveHost(maybeHost))) {
+      integration = normalizeLiveHost(maybeHost);
+      forwarded = forwarded.slice(1);
+    }
+  }
+
+  info(`Live host integration: ${c.cyan(integration)}`);
+  const mod = await import('@agenticmail/voice-host-bridge/cli').catch((err) => {
+    throw new Error(`Could not load @agenticmail/voice-host-bridge. Install optional deps or run npm install: ${(err as Error).message}`);
+  }) as { runVoiceHostBridgeCli?: (argv?: string[], env?: NodeJS.ProcessEnv, io?: { log: (msg: string) => void; error: (msg: string) => void }) => Promise<number> };
+  if (typeof mod.runVoiceHostBridgeCli !== 'function') {
+    throw new Error('@agenticmail/voice-host-bridge/cli does not export runVoiceHostBridgeCli');
+  }
+  const code = await mod.runVoiceHostBridgeCli(forwarded, process.env, console);
+  if (code !== 0) process.exit(code);
+}
+
+async function cmdLiveMeetSidecar(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Google Meet Sidecar ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live meet-sidecar [--token <secret>] [sidecar options]`);
+    log('');
+    log(`  ${c.bold('Examples:')}`);
+    log(`    ${c.green('agenticmail live meet-sidecar --token <secret>')}`);
+    log(`    ${c.green('agenticmail live meet-sidecar --driver-command ./meet-driver')}`);
+    log('');
+    return;
+  }
+
+  const mod = await import('@agenticmail/voice-host-bridge/meet-sidecar-cli').catch((err) => {
+    throw new Error(`Could not load @agenticmail/voice-host-bridge meet sidecar. Install optional deps or run npm install: ${(err as Error).message}`);
+  }) as { runMeetMediaSidecarCli?: (argv?: string[], env?: NodeJS.ProcessEnv, io?: { log: (msg: string) => void; error: (msg: string) => void }) => Promise<number> };
+  if (typeof mod.runMeetMediaSidecarCli !== 'function') {
+    throw new Error('@agenticmail/voice-host-bridge/meet-sidecar-cli does not export runMeetMediaSidecarCli');
+  }
+  const code = await mod.runMeetMediaSidecarCli(args, process.env, console);
+  if (code !== 0) process.exit(code);
+}
+
+async function resolveLiveAgentOrExit(): Promise<{ apiUrl: string; agent: { name: string; apiKey: string } }> {
+  const config = readAgenticMailConfig();
+  if (!config) {
+    fail(`No AgenticMail config found at ${c.dim(join(homedir(), '.agenticmail', 'config.json'))}.`);
+    info(`Run ${c.green('agenticmail setup')} first.`);
+    process.exit(1);
+  }
+  const agent = await resolveAgentApiKey(config);
+  if (!agent) {
+    fail('No agent API key available.');
+    info('Start the API and ensure at least one agent exists, then rerun this command.');
+    process.exit(1);
+  }
+  const { apiUrl } = readApiUrlFromConfig();
+  return { apiUrl, agent };
+}
+
+async function cmdLiveMeetSetup(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Google Meet Setup ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live meet-setup --access-token <token> --consent --developer-preview [options]`);
+    log('');
+    log(`  ${c.bold('Options:')}`);
+    log(`    ${c.green('--sidecar-url <url>')}       Default: http://127.0.0.1:4999`);
+    log(`    ${c.green('--sidecar-token <token>')}   Token shared with agenticmail live meet-sidecar --token`);
+    log(`    ${c.green('--participant-name <name>')} Display name for the Meet participant`);
+    log(`    ${c.green('--allowed-domain <domain>')} Repeatable domain restriction`);
+    log(`    ${c.green('--behavior-mode <mode>')}    listen_only, answer_when_asked, operator_directed`);
+    log(`    ${c.green('--verify-space <code>')}     Optional Meet space/code to verify OAuth access`);
+    log(`    ${c.green('--no-verify')}               Store config without spaces.get verification`);
+    log('');
+    return;
+  }
+  const accessToken = readArg(args, ['--access-token', '--google-token', '--token']);
+  if (!accessToken) {
+    fail('--access-token is required.');
+    process.exit(1);
+  }
+  const consentPolicyAccepted = hasArg(args, ['--consent', '--consent-policy-accepted']);
+  const mediaApiDeveloperPreview = hasArg(args, ['--developer-preview', '--media-api-developer-preview']);
+  if (!consentPolicyAccepted) {
+    fail('--consent is required before enabling live Meet media.');
+    process.exit(1);
+  }
+  if (!mediaApiDeveloperPreview) {
+    fail('--developer-preview is required before enabling live Meet media.');
+    process.exit(1);
+  }
+  const allowedDomains = args
+    .flatMap((arg, index) => {
+      if (arg === '--allowed-domain' || arg === '--allowed-domains') return args[index + 1] && !args[index + 1]!.startsWith('--') ? [args[index + 1]!] : [];
+      if (arg.startsWith('--allowed-domain=')) return [arg.slice('--allowed-domain='.length)];
+      if (arg.startsWith('--allowed-domains=')) return arg.slice('--allowed-domains='.length).split(',');
+      return [];
+    })
+    .map((domain) => domain.trim())
+    .filter(Boolean);
+  const { apiUrl, agent } = await resolveLiveAgentOrExit();
+  const result = await postLiveJson(
+    `${apiUrl}/api/agenticmail/meet/setup`,
+    agent.apiKey,
+    {
+      accessToken,
+      participantName: readArg(args, ['--participant-name', '--name']),
+      allowedDomains,
+      defaultBehaviorMode: readArg(args, ['--behavior-mode', '--mode']),
+      mediaApiDeveloperPreview,
+      mediaSidecarUrl: readArg(args, ['--sidecar-url', '--media-sidecar-url']) || 'http://127.0.0.1:4999',
+      mediaSidecarToken: readArg(args, ['--sidecar-token', '--media-sidecar-token']),
+      consentPolicyAccepted,
+      verifySpace: readArg(args, ['--verify-space', '--meeting-code']),
+      verify: hasArg(args, ['--no-verify']) ? false : undefined,
+    },
+  );
+  if (!result.ok) {
+    fail(`Google Meet setup returned HTTP ${result.status}`);
+    if (result.data?.error) info(String(result.data.error));
+    process.exit(1);
+  }
+  ok(`Google Meet configured for ${c.cyan(agent.name)}`);
+  const readiness = result.data?.readiness;
+  if (readiness) {
+    info(`Spaces/artifacts: ${readiness.canReadArtifacts ? 'ready' : 'not ready'}`);
+    info(`Live media: ${readiness.canUseLiveMedia ? 'ready' : 'not ready'}`);
+    if (Array.isArray(readiness.missing) && readiness.missing.length) info(`Missing: ${readiness.missing.join(', ')}`);
+    if (Array.isArray(readiness.warnings) && readiness.warnings.length) info(`Warnings: ${readiness.warnings.join(', ')}`);
+  }
+  log('');
+}
+
+async function cmdLiveMeetReadiness(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Google Meet Readiness ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live meet-readiness`);
+    log('');
+    return;
+  }
+  const { apiUrl, agent } = await resolveLiveAgentOrExit();
+  const result = await fetchLiveJson(`${apiUrl}/api/agenticmail/meet/readiness`, agent.apiKey);
+  if (!result.ok) {
+    fail(`Google Meet readiness returned HTTP ${result.status}`);
+    if (result.data?.error) info(String(result.data.error));
+    process.exit(1);
+  }
+  const readiness = result.data?.readiness || {};
+  readiness.canUseLiveMedia
+    ? ok(`Google Meet live media ready for ${c.cyan(agent.name)}`)
+    : fail(`Google Meet live media not ready for ${c.cyan(agent.name)}`);
+  info(`Configured: ${readiness.configured ? 'yes' : 'no'}`);
+  info(`Enabled: ${readiness.enabled ? 'yes' : 'no'}`);
+  info(`Spaces: ${readiness.canCreateSpaces ? 'ready' : 'not ready'}`);
+  info(`Artifacts: ${readiness.canReadArtifacts ? 'ready' : 'not ready'}`);
+  if (Array.isArray(readiness.missing) && readiness.missing.length) info(`Missing: ${readiness.missing.join(', ')}`);
+  if (Array.isArray(readiness.warnings) && readiness.warnings.length) info(`Warnings: ${readiness.warnings.join(', ')}`);
+  log('');
+}
+
+async function cmdLiveTest(args: string[]) {
+  const target = (args[0] || '').toLowerCase();
+  const rest = args.slice(1);
+  if (!target || target === 'help' || hasArg(args, ['--help', '-h'])) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Live Test ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live test meet --link <meet-url> [--topic <text>] [--project-ref <id>] [--start] [--join]`);
+    log('');
+    log(`  ${c.bold('Flags:')}`);
+    log(`    ${c.green('--start')}  Create the google_meet intake session against the local API.`);
+    log(`    ${c.green('--join')}   After --start, call /meet/live/join against the configured sidecar.`);
+    log(`    ${c.green('--event-smoke')}  After --start, post a synthetic live event into the ledger.`);
+    log('');
+    return;
+  }
+  if (target !== 'meet' && target !== 'google-meet') {
+    fail(`Unknown live test target: ${target}`);
+    info(`Try ${c.green('agenticmail live test meet --link <meet-url>')}.`);
+    process.exit(1);
+  }
+
+  const link = readArg(rest, ['--link', '--url', '--meet']);
+  if (!link) {
+    fail('--link is required for Google Meet intake tests.');
+    info(`Try ${c.green('agenticmail live test meet --link https://meet.google.com/abc-defg-hij')}.`);
+    process.exit(1);
+  }
+
+  const { normalizeGoogleMeetBehaviorMode, parseGoogleMeetLink } = await import('@agenticmail/core');
+  const parsed = parseGoogleMeetLink(link);
+  const topic = readArg(rest, ['--topic', '--subject']) || 'Google Meet live session';
+  const projectRef = readArg(rest, ['--project-ref', '--project']) || undefined;
+  const behaviorMode = normalizeGoogleMeetBehaviorMode(readArg(rest, ['--behavior-mode', '--mode']));
+  const hostIntegration = readArg(rest, ['--for', '--host-integration']) || 'openclaw';
+  const operatorInstructions = readArg(rest, ['--instructions', '--operator-instructions'])
+    || 'Prepare from project memory, listen, keep notes, and speak only when asked or operator-directed.';
+  const payload = {
+    channel: 'google_meet',
+    meetLink: parsed.normalizedUrl,
+    peer: parsed.normalizedUrl,
+    externalRef: parsed.meetingCode,
+    topic,
+    subject: topic,
+    operatorInstructions,
+    goal: `Prepare for the meeting, listen, keep notes, and speak only according to behaviorMode=${behaviorMode}.`,
+    operatorApproved: true,
+    userOptedIn: true,
+    liveContext: {
+      hostIntegration,
+      projectRef,
+      behaviorMode,
+    },
+  };
+  const shouldStart = hasArg(rest, ['--start', '--create-session']);
+  const shouldJoin = hasArg(rest, ['--join', '--live-join']);
+  const shouldEventSmoke = hasArg(rest, ['--event-smoke']);
+
+  log('');
+  ok(`Parsed Google Meet link: ${c.cyan(parsed.normalizedUrl)}`);
+  info(`Meeting code: ${parsed.meetingCode}`);
+  info('Google Meet intake, sidecar handoff, and live event callbacks are executable when Meet setup is configured.');
+  log('');
+  log(JSON.stringify(payload, null, 2));
+  log('');
+
+  if (!shouldStart) {
+    info(`Add ${c.green('--start')} to create the intake session through the local AgenticMail API.`);
+    log('');
+    return;
+  }
+
+  const config = readAgenticMailConfig();
+  if (!config) {
+    fail(`No AgenticMail config found at ${c.dim(join(homedir(), '.agenticmail', 'config.json'))}.`);
+    info(`Run ${c.green('agenticmail setup')} first.`);
+    process.exit(1);
+  }
+  const agent = await resolveAgentApiKey(config);
+  if (!agent) {
+    fail('No agent API key available for Google Meet intake.');
+    info('Start the API and ensure at least one agent exists, then rerun this command.');
+    process.exit(1);
+  }
+  const { apiUrl } = readApiUrlFromConfig();
+  try {
+    const result = await postLiveJson(
+      `${apiUrl}/api/agenticmail/conversation/sessions/start`,
+      agent.apiKey,
+      payload,
+    );
+    if (!result.ok) {
+      fail(`Google Meet intake returned HTTP ${result.status}`);
+      if (result.data?.error) info(String(result.data.error));
+      process.exit(1);
+    }
+    ok(`Google Meet intake session created for ${c.cyan(agent.name)}`);
+    const sessionId = result.data?.session?.id;
+    if (sessionId) info(`Session: ${sessionId}`);
+    if (result.data?.readiness) {
+      const readiness = result.data.readiness;
+      info(`Meet live media ready: ${readiness.canUseLiveMedia ? 'yes' : 'no'}`);
+    }
+    if (Array.isArray(result.data?.plan?.missing) && result.data.plan.missing.length) {
+      info(`Missing: ${result.data.plan.missing.join(', ')}`);
+    }
+    if (shouldEventSmoke && sessionId) {
+      const event = await postLiveJson(
+        `${apiUrl}/api/agenticmail/meet/live/events`,
+        agent.apiKey,
+        {
+          sessionId,
+          eventId: `cli-smoke-${Date.now()}`,
+          type: 'status',
+          status: 'cli_event_smoke',
+          text: 'Google Meet CLI live-event smoke check.',
+        },
+      );
+      event.ok
+        ? ok(`Live event smoke recorded (${event.data?.recordedCount ?? 0})`)
+        : fail(`Live event smoke returned HTTP ${event.status}`);
+    }
+    if (shouldJoin && sessionId) {
+      const joined = await postLiveJson(
+        `${apiUrl}/api/agenticmail/meet/live/join`,
+        agent.apiKey,
+        { sessionId },
+      );
+      if (joined.ok) {
+        ok('Google Meet live sidecar join requested');
+        if (joined.data?.result?.status) info(`Sidecar status: ${joined.data.result.status}`);
+        if (joined.data?.result?.streamId) info(`Stream: ${joined.data.result.streamId}`);
+      } else {
+        fail(`Google Meet live join returned HTTP ${joined.status}`);
+        if (joined.data?.error) info(String(joined.data.error));
+        if (Array.isArray(joined.data?.readiness?.missing) && joined.data.readiness.missing.length) {
+          info(`Missing: ${joined.data.readiness.missing.join(', ')}`);
+        }
+      }
+    }
+    log('');
+  } catch (err) {
+    fail(`Google Meet intake failed: ${(err as Error).message}`);
+    process.exit(1);
+  }
+}
+
+async function cmdLive() {
+  const args = process.argv.slice(3);
+  const sub = (args[0] || 'doctor').toLowerCase();
+  const rest = args.slice(1);
+  if (sub === 'help' || sub === '--help' || sub === '-h') {
+    printLiveHelp();
+    return;
+  }
+  switch (sub) {
+    case 'setup':
+    case 'use-host-bridge':
+      await cmdLiveSetup(rest);
+      return;
+    case 'doctor':
+    case 'status':
+      await cmdLiveDoctor(rest);
+      return;
+    case 'bridge':
+    case 'host-bridge':
+      await cmdLiveBridge(rest);
+      return;
+    case 'meet-sidecar':
+    case 'meet':
+      await cmdLiveMeetSidecar(rest);
+      return;
+    case 'meet-setup':
+    case 'setup-meet':
+      await cmdLiveMeetSetup(rest);
+      return;
+    case 'meet-readiness':
+    case 'meet-status':
+      await cmdLiveMeetReadiness(rest);
+      return;
+    case 'test':
+      await cmdLiveTest(rest);
+      return;
+    default:
+      fail(`Unknown live subcommand: ${sub}`);
+      printLiveHelp();
+      process.exit(1);
+  }
+}
+
 async function cmdService() {
   const subCmd = process.argv[3] || 'status';
   const svc = new ServiceManager();
@@ -6124,6 +6771,10 @@ switch (process.argv[2]) {
   case 'status':
     cmdStatus().then(() => { process.exit(0); }).catch(err => { console.error(err); process.exit(1); });
     break;
+  case 'live':
+  case 'realtime':
+    cmdLive().then(() => { process.exit(0); }).catch(err => { console.error(err); process.exit(1); });
+    break;
   case 'openclaw':
     cmdOpenClaw().catch(err => { console.error(err); process.exit(1); });
     break;
@@ -6183,6 +6834,7 @@ switch (process.argv[2]) {
     log(`    ${c.green('agenticmail start')}     Start the server`);
     log(`    ${c.green('agenticmail stop')}      Stop the server`);
     log(`    ${c.green('agenticmail status')}    See what's running`);
+    log(`    ${c.green('agenticmail live')}      Live communications setup/doctor/bridge ${c.dim('(phone now, Meet/WhatsApp next)')}`);
     log(`    ${c.green('agenticmail shell')}     Drop into the interactive REPL (44 commands)`);
     log(`    ${c.green('agenticmail web')}       Open the Gmail-style web UI in your browser`);
     log(`    ${c.green('agenticmail openclaw')}  Set up AgenticMail for OpenClaw`);

@@ -61,6 +61,13 @@ export type {
 } from './poller.js';
 
 export {
+  recordTelegramConversationInbound,
+} from './conversation.js';
+export type {
+  TelegramConversationContext,
+} from './conversation.js';
+
+export {
   formatOperatorQueryTelegramMessage,
   parseTelegramOperatorReply,
   TELEGRAM_OPERATOR_QUERY_TAG,

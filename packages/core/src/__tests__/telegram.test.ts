@@ -16,10 +16,12 @@ import {
   isTelegramChatAllowed,
   formatOperatorQueryTelegramMessage,
   parseTelegramOperatorReply,
+  recordTelegramConversationInbound,
   type TelegramConfig,
 } from '../telegram/index.js';
 import { isEncryptedSecret } from '../crypto/secrets.js';
 import { createTestDatabase } from '../storage/db.js';
+import { ConversationSessionManager } from '../conversation/index.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -203,6 +205,7 @@ describe('parseTelegramUpdate', () => {
 describe('isTelegramStopCommand', () => {
   it('recognises bare stop words', () => {
     expect(isTelegramStopCommand('stop')).toBe(true);
+    expect(isTelegramStopCommand('/stop')).toBe(true);
     expect(isTelegramStopCommand('  CANCEL! ')).toBe(true);
     expect(isTelegramStopCommand('stop the booking please')).toBe(false);
   });
@@ -369,6 +372,37 @@ describe('parseTelegramOperatorReply', () => {
   });
 });
 
+describe('recordTelegramConversationInbound', () => {
+  it('records stop commands and closes the active Telegram conversation session', () => {
+    const db = createTestDatabase();
+    seedAgent(db, 'agent1');
+    const conversations = new ConversationSessionManager(db);
+    const session = conversations.createSession({
+      agentId: 'agent1',
+      channel: 'telegram',
+      peer: '42',
+    });
+
+    const context = recordTelegramConversationInbound(conversations, 'agent1', {
+      updateId: 10,
+      messageId: 5,
+      chatId: '42',
+      chatType: 'private',
+      fromId: '42',
+      fromName: 'Ope',
+      text: '/stop',
+      date: new Date().toISOString(),
+    });
+
+    expect(context).toMatchObject({ sessionId: session.id, ended: true });
+    expect(conversations.listMessages('agent1', session.id).map((m) => m.text)).toEqual(['/stop']);
+    expect(conversations.getSession('agent1', session.id)?.status).toBe('ended');
+    expect(conversations.findActiveSessionByPeer('agent1', 'telegram', '42')).toBeNull();
+
+    db.close();
+  });
+});
+
 // ─── poller: long-poll loop ────────────────────────────────
 
 describe('TelegramPoller', () => {
@@ -383,6 +417,13 @@ describe('TelegramPoller', () => {
     seedAgent(db, 'agent1');
     const manager = new TelegramManager(db);
     manager.saveConfig('agent1', makeConfig({ allowedChatIds: ['42'], pollOffset: 0 }));
+    const conversations = new ConversationSessionManager(db);
+    const session = conversations.createSession({
+      agentId: 'agent1',
+      channel: 'telegram',
+      peer: '42',
+      goal: 'Coordinate dinner',
+    });
 
     const update = {
       update_id: 100,
@@ -405,8 +446,12 @@ describe('TelegramPoller', () => {
     }));
 
     const seen: string[] = [];
-    const poller = new TelegramPoller(manager, 'agent1', { timeoutSec: 1 });
-    poller.onInbound = (e) => { seen.push(e.message.text); };
+    const seenSessions: Array<string | undefined> = [];
+    const poller = new TelegramPoller(manager, 'agent1', { timeoutSec: 1, conversationManager: conversations });
+    poller.onInbound = (e) => {
+      seen.push(e.message.text);
+      seenSessions.push(e.conversation?.sessionId);
+    };
     await poller.start();
 
     // Let the loop run one or two iterations.
@@ -414,6 +459,8 @@ describe('TelegramPoller', () => {
     await poller.stop();
 
     expect(seen).toEqual(['hello']);
+    expect(seenSessions).toEqual([session.id]);
+    expect(conversations.listMessages('agent1', session.id).map((m) => m.text)).toEqual(['hello']);
     // Offset must have advanced past the delivered update_id so a
     // redelivery doesn't replay it.
     const cfg = manager.getConfig('agent1');

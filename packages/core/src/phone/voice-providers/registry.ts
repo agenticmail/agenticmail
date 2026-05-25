@@ -39,6 +39,11 @@ export function getVoiceProvider(id: string): VoiceProvider | undefined {
   return PROVIDERS.get(id);
 }
 
+function appendModelParam(baseUrl: string, model: string): string {
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}model=${encodeURIComponent(model)}`;
+}
+
 /**
  * Resolve a provider id + the runtime's config / overrides into the
  * connection struct the bridge consumes (URL with model, api key,
@@ -61,6 +66,16 @@ export function resolveVoiceRuntime(
     );
   }
 
+  const baseUrl = (provider.resolveWebsocketBaseUrl?.(config) || provider.websocketBaseUrl || '').trim();
+  if (!baseUrl) {
+    throw new Error(
+      `Voice provider "${provider.id}" (${provider.displayName}) selected, but no websocket URL is configured. `
+      + `Set ${provider.apiKeyEnvVar === 'AGENTICMAIL_VOICE_HOST_BRIDGE_TOKEN'
+        ? 'AGENTICMAIL_VOICE_HOST_BRIDGE_URL'
+        : `${provider.id}.websocketBaseUrl`}.`,
+    );
+  }
+
   // Key resolution priority: legacy dedicated config field (so an
   // existing install with `config.openaiApiKey` keeps working), then
   // the generic `voiceProviderKeys[<id>]` map, then the env var.
@@ -80,6 +95,13 @@ export function resolveVoiceRuntime(
       apiKeySource = `config.voiceProviderKeys.${provider.id}`;
     }
   }
+  if (!apiKey && provider.id === 'host_bridge') {
+    const fromHostBridge = config.voiceHostBridge?.token;
+    if (fromHostBridge && fromHostBridge.trim()) {
+      apiKey = fromHostBridge.trim();
+      apiKeySource = 'config.voiceHostBridge.token';
+    }
+  }
   if (!apiKey) {
     const fromEnv = process.env[provider.apiKeyEnvVar];
     if (fromEnv && fromEnv.trim()) {
@@ -87,16 +109,19 @@ export function resolveVoiceRuntime(
       apiKeySource = `env ${provider.apiKeyEnvVar}`;
     }
   }
-  if (!apiKey) {
+  if (!apiKey && provider.apiKeyRequired !== false) {
     throw new Error(
       `Voice provider "${provider.id}" (${provider.displayName}) selected, but no API key is configured. `
       + `Set ${provider.apiKeyEnvVar} in your environment or save it to `
       + `~/.agenticmail/config.json under voiceProviderKeys.${provider.id}.`,
     );
   }
+  if (!apiKey && provider.apiKeyRequired === false) {
+    apiKeySource = 'not required';
+  }
 
   const model = (options.model && options.model.trim()) || provider.defaultModel;
-  const url = `${provider.websocketBaseUrl}?model=${encodeURIComponent(model)}`;
+  const url = appendModelParam(baseUrl, model);
 
   // v0.9.95 — voice resolution. Priority: option > install default
   // > provider default. Unknown voice names against a provider with

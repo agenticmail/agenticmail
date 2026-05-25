@@ -149,6 +149,9 @@ export const TOOL_SETS = {
   phone: [
     'phone_transport_setup',
     'phone_capabilities',
+    'phone_readiness',
+    'phone_voice_providers',
+    'call_phone_safe',
     'call_phone',
     'call_status',
     'call_transcript',
@@ -158,6 +161,19 @@ export const TOOL_SETS = {
     'call_answer_query',
   ],
 
+  /** Realtime conversation readiness across phone, Telegram, Matrix, WhatsApp, and Google Meet. */
+  realtime: [
+    'realtime_conversation_capabilities',
+    'realtime_conversation_plan',
+    'conversation_list',
+    'conversation_get',
+    'conversation_context',
+    'conversation_start',
+    'conversation_send',
+    'conversation_messages',
+    'conversation_end',
+  ],
+
   /** Telegram channel — bot setup, send/list messages, poll for updates. */
   telegram: [
     'telegram_setup',
@@ -165,6 +181,29 @@ export const TOOL_SETS = {
     'telegram_send',
     'telegram_messages',
     'telegram_poll',
+  ],
+
+  /** Matrix channel — bot setup, send/list messages, poll /sync. */
+  matrix: [
+    'matrix_setup',
+    'matrix_config',
+    'matrix_send',
+    'matrix_messages',
+    'matrix_poll',
+  ],
+
+  /** Google Meet channel — setup, spaces, readiness, artifact import. */
+  meet: [
+    'meet_setup',
+    'meet_config',
+    'meet_readiness',
+    'meet_disable',
+    'meet_space_create',
+    'meet_space_get',
+    'meet_conference_records',
+    'meet_transcripts',
+    'meet_artifacts_import',
+    'meet_live_join',
   ],
 
   /** Media toolset — TTS, image/video/audio editing, probing, understanding. */
@@ -242,7 +281,10 @@ export const SET_DESCRIPTIONS: Record<ToolSetName, string> = {
   contacts: 'Address book and your own metadata',
   sms: 'SMS / voice — send/read/setup/parse/record',
   phone: 'Phone call-control — setup/capabilities/start/status/transcript/cancel',
+  realtime: 'Realtime conversation readiness — channel map and start gates for phone, Telegram, Matrix, WhatsApp, and Google Meet',
   telegram: 'Telegram channel — bot setup, send/list messages, poll for updates',
+  matrix: 'Matrix channel — homeserver/token setup, send/list messages, poll /sync for allowed rooms',
+  meet: 'Google Meet channel — OAuth setup, spaces, readiness, transcript import',
   skills: 'Skill library — load real-world phone-call playbooks (negotiate-bill-reduction, handle-debt-collector, book-restaurant-reservation, …) on demand mid-call. Search and load when the agent hits a situation it needs a playbook for.',
   media: 'Media toolset — text-to-speech, image/video/audio editing, probing, video understanding, voice cloning (opt-in, needs ffmpeg/ImageMagick/whisper)',
   account_admin: 'Account admin — create/delete/stop/resume agents, cleanup (master key required)',
@@ -278,6 +320,10 @@ export const TOOL_TO_SET: Record<string, ToolSetName> = (() => {
  */
 const PROMOTED_TO_ESSENTIAL: readonly string[] = [
   'call_phone',
+  'realtime_conversation_plan',
+  'conversation_start',
+  'conversation_send',
+  'conversation_context',
   'telegram_send',
   'memory',
   'memory_context',

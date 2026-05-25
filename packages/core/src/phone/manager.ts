@@ -67,6 +67,7 @@ export interface PhoneTransportConfig extends PhoneTransportProfile {
   webhookBaseUrl: string;
   webhookSecret: string;
   apiUrl?: string;
+  realtimeBridgeNumber?: string;
   configuredAt: string;
 }
 
@@ -1505,12 +1506,15 @@ export class PhoneManager {
     // clamps the policy value; this re-clamps at the point of use as
     // defence-in-depth in case a mission row predates that validation.
     const timeout = Math.min(Math.max(mission.policy.maxCallDurationSeconds, 1), PHONE_SERVER_MAX_CALL_DURATION_SECONDS);
+    const useRealtimeBridge = config.capabilities.includes('realtime_media') && !!config.realtimeBridgeNumber;
     return {
       url: `${defaultApiUrl(config)}/calls`,
       body: {
         from: config.phoneNumber,
         to: mission.to,
-        voice_start: buildWebhookUrl(config, '/calls/webhook/46elks/voice-start', mission.id),
+        voice_start: useRealtimeBridge
+          ? JSON.stringify({ connect: config.realtimeBridgeNumber })
+          : buildWebhookUrl(config, '/calls/webhook/46elks/voice-start', mission.id),
         whenhangup: buildWebhookUrl(config, '/calls/webhook/46elks/hangup', mission.id),
         timeout: String(timeout),
       },
@@ -1633,6 +1637,8 @@ export function buildPhoneTransportConfig(input: {
   webhookBaseUrl?: unknown;
   webhookSecret?: unknown;
   apiUrl?: unknown;
+  /** 46elks websocket-number to connect outbound calls to for realtime media. */
+  realtimeBridgeNumber?: unknown;
   capabilities?: unknown;
   supportedRegions?: unknown;
   configuredAt?: string;
@@ -1681,6 +1687,13 @@ export function buildPhoneTransportConfig(input: {
       throw new Error('apiUrl must use https:// — credentials are sent on every request');
     }
   }
+  const rawRealtimeBridgeNumber = asString(input.realtimeBridgeNumber);
+  const realtimeBridgeNumber = rawRealtimeBridgeNumber
+    ? normalizePhoneNumber(rawRealtimeBridgeNumber)
+    : '';
+  if (rawRealtimeBridgeNumber && !realtimeBridgeNumber) {
+    throw new Error('realtimeBridgeNumber must be a valid E.164 phone number');
+  }
 
   const capabilities: TelephonyTransportCapability[] = Array.isArray(input.capabilities)
     ? input.capabilities.filter((item): item is TelephonyTransportCapability => (
@@ -1709,6 +1722,7 @@ export function buildPhoneTransportConfig(input: {
     webhookBaseUrl,
     webhookSecret,
     apiUrl: apiUrl || undefined,
+    realtimeBridgeNumber: realtimeBridgeNumber || undefined,
     capabilities: Array.from(new Set<TelephonyTransportCapability>(['call_control', ...capabilities])),
     supportedRegions: supportedRegions.length ? Array.from(new Set<PhoneTransportConfig['supportedRegions'][number]>(supportedRegions)) : defaultRegions,
     configuredAt: input.configuredAt ?? new Date().toISOString(),

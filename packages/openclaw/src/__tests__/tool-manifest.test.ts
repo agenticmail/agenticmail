@@ -40,4 +40,35 @@ describe('OpenClaw tool manifest', () => {
       expect(tools.has(name), `${name} should be registered`).toBe(true);
     }
   });
+
+  it('exposes the Matrix channel tools', () => {
+    const tools = new Set(registeredToolNames());
+    for (const name of [
+      'agenticmail_matrix_setup',
+      'agenticmail_matrix_config',
+      'agenticmail_matrix_send',
+      'agenticmail_matrix_messages',
+      'agenticmail_matrix_poll',
+    ]) {
+      expect(tools.has(name), `${name} should be registered`).toBe(true);
+    }
+  });
+
+  it('exposes the Google Meet channel tools', () => {
+    const tools = new Set(registeredToolNames());
+    for (const name of [
+      'agenticmail_meet_setup',
+      'agenticmail_meet_config',
+      'agenticmail_meet_readiness',
+      'agenticmail_meet_disable',
+      'agenticmail_meet_space_create',
+      'agenticmail_meet_space_get',
+      'agenticmail_meet_conference_records',
+      'agenticmail_meet_transcripts',
+      'agenticmail_meet_artifacts_import',
+      'agenticmail_meet_live_join',
+    ]) {
+      expect(tools.has(name), `${name} should be registered`).toBe(true);
+    }
+  });
 });

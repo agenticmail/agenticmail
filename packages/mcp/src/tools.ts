@@ -623,7 +623,7 @@ export const toolDefinitions = [
   },
   {
     name: 'setup_guide',
-    description: 'Get a comparison of email setup modes (Relay vs Domain) AND the optional channels — realtime voice (OPENAI_API_KEY), phone call-control with a 46elks-vs-Twilio provider choice, and the Telegram channel — each with difficulty levels, requirements, pros/cons, and step-by-step instructions. Show this to users who want to set up real internet email, voice calls, phone, or Telegram.',
+    description: 'Get a comparison of email setup modes (Relay vs Domain) AND the optional channels — realtime voice providers, phone call-control with a 46elks-vs-Twilio provider choice, phone_readiness, and Telegram — each with difficulty levels, requirements, pros/cons, and step-by-step instructions. Show this to users who want to set up real internet email, voice calls, phone, or Telegram.',
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -1212,6 +1212,7 @@ export const toolDefinitions = [
         webhookBaseUrl: { type: 'string', description: 'Public HTTPS base URL for AgenticMail phone webhooks' },
         webhookSecret: { type: 'string', description: 'Shared secret included on provider webhook URLs (at least 24 characters)' },
         apiUrl: { type: 'string', description: 'Optional provider API base URL override (46elks or Twilio REST root)' },
+        realtimeBridgeNumber: { type: 'string', description: '46elks only: websocket-number in E.164 format used for realtime outbound calls when capabilities include "realtime_media".' },
         capabilities: { type: 'array', items: { type: 'string' }, description: 'Transport capabilities, e.g. ["call_control"] or ["call_control","realtime_media"]' },
         supportedRegions: { type: 'array', items: { type: 'string' }, description: 'Supported region scopes: AT, DE, EU, WORLD' },
       },
@@ -1224,6 +1225,174 @@ export const toolDefinitions = [
     inputSchema: {
       type: 'object' as const,
       properties: {},
+    },
+  },
+  {
+    name: 'phone_readiness',
+    description: 'Return the real phone-call readiness state for this agent: whether tracked calls and realtime conversations can actually run, exact missing setup items, and a safe test-call template.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id to check, e.g. openai, grok, or host_bridge. Defaults to the configured install runtime.' },
+      },
+    },
+  },
+  {
+    name: 'phone_voice_providers',
+    description: 'List registered realtime voice-runtime providers for phone calls, including default models, available voices, and whether an API key is configured. Secrets are never returned.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'realtime_conversation_capabilities',
+    description: 'Show AgenticMail realtime-conversation channel readiness for this agent: phone, Telegram, Matrix, WhatsApp, and Google Meet. Planned adapters fail closed until implemented.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Optional channel to inspect; omit to list all channels.' },
+        policyProvided: { type: 'boolean', description: 'Set true when a concrete per-mission policy is already present.' },
+        operatorApproved: { type: 'boolean', description: 'Set true only when the operator approved a gated channel action.' },
+        userOptedIn: { type: 'boolean', description: 'Override the inferred opt-in gate for channels that require it.' },
+      },
+    },
+  },
+  {
+    name: 'realtime_conversation_plan',
+    description: 'Check whether a realtime conversation can start on one channel and get the exact missing gates. Use before claiming a live phone, Telegram, Matrix, WhatsApp, or Google Meet conversation is ready.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Channel to start.' },
+        policyProvided: { type: 'boolean', description: 'True when a concrete phone mission policy exists.' },
+        operatorApproved: { type: 'boolean', description: 'True only after explicit operator approval for gated channels.' },
+        userOptedIn: { type: 'boolean', description: 'True only when the target user/chat/meeting has opted in or is already linked.' },
+        transportConfigured: { type: 'boolean', description: 'Override inferred transport configuration, mainly for tests/future adapters.' },
+        realtimeMediaConfigured: { type: 'boolean', description: 'Override inferred phone realtime-media capability.' },
+        voiceRuntimeConfigured: { type: 'boolean', description: 'Override inferred realtime voice runtime availability.' },
+        openaiRealtimeConfigured: { type: 'boolean', description: 'Deprecated alias for voiceRuntimeConfigured when checking the embedded OpenAI path.' },
+      },
+      required: ['channel'],
+    },
+  },
+  {
+    name: 'conversation_list',
+    description: 'List live conversation sessions for the current agent. Use this to find active Telegram/phone sessions before sending or reading turns.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', enum: ['active', 'ended', 'failed'], description: 'Optional session status filter.' },
+        channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Optional conversation channel filter.' },
+        limit: { type: 'number', description: 'Maximum sessions to return (1-100, default 20).' },
+        offset: { type: 'number', description: 'Pagination offset (default 0).' },
+      },
+    },
+  },
+  {
+    name: 'conversation_get',
+    description: 'Read one live conversation session by id, including status, channel, peer, goal, and external transport reference.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'conversation_context',
+    description: 'Read one live conversation session plus a compact transcript window in a single call. Use this after a wake message gives you a sessionId.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+        messageLimit: { type: 'number', description: 'Maximum transcript messages to return from the end of the session (1-200, default 50).' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'conversation_start',
+    description: 'Start a live conversation session. Telegram and Matrix are executable text sessions; phone starts a tracked phone mission; Google Meet creates an intake/briefing session with live media gated; WhatsApp still fails closed until its adapter ships.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Conversation channel.' },
+        chatId: { type: 'string', description: 'Telegram chat id. Alias: peer.' },
+        peer: { type: 'string', description: 'Generic peer id: Telegram chat id, phone number, future Matrix room, etc.' },
+        meetLink: { type: 'string', description: 'Google Meet only: meet.google.com URL or meeting code. Alias: peer.' },
+        topic: { type: 'string', description: 'Google Meet only: meeting topic. Alias: subject.' },
+        operatorInstructions: { type: 'string', description: 'Google Meet only: operator briefing and participation instructions.' },
+        to: { type: 'string', description: 'Phone target number in E.164 format. Alias: peer.' },
+        goal: { type: 'string', description: 'Conversation objective.' },
+        task: { type: 'string', description: 'Phone task/objective. Alias: goal.' },
+        subject: { type: 'string', description: 'Optional short session subject.' },
+        initialMessage: { type: 'string', description: 'Optional first Telegram message to send immediately.' },
+        policy: { type: 'object', description: 'Required for phone sessions: phone mission policy.' },
+        policyPreset: { type: 'string', enum: ['safe_default', 'reservation', 'support'], description: 'Phone only: safe policy preset. Use this instead of raw policy for normal calls.' },
+        regionAllowlist: { type: 'array', items: { type: 'string', enum: ['AT', 'DE', 'EU', 'WORLD'] }, description: 'Phone only: allowed dial regions.' },
+        maxCallDurationSeconds: { type: 'integer', description: 'Phone only: positive call-duration cap. Server hard ceiling still applies.' },
+        maxCostPerMission: { type: 'number', description: 'Phone only: non-negative mission cost cap. Server hard ceiling still applies.' },
+        maxAttempts: { type: 'integer', description: 'Phone only: positive attempt cap. Server hard ceiling still applies.' },
+        maxTimeShiftMinutes: { type: 'integer', description: 'Phone only: allowed appointment time shift before asking the operator.' },
+        transcriptEnabled: { type: 'boolean', description: 'Phone only: defaults to true for safe presets.' },
+        recordingEnabled: { type: 'boolean', description: 'Phone only: defaults to false and still requires transport support.' },
+        voiceRuntime: { type: 'string', description: 'Phone only: optional voice-runtime provider id.' },
+        voiceModel: { type: 'string', description: 'Phone only: optional voice model override.' },
+        voice: { type: 'string', description: 'Phone only: optional voice character override.' },
+        dryRun: { type: 'boolean', description: 'Phone only: create a mission/session without calling the carrier.' },
+        operatorApproved: { type: 'boolean', description: 'Future gated channels only: explicit operator approval.' },
+        userOptedIn: { type: 'boolean', description: 'Future opt-in channels only: explicit target opt-in.' },
+        tenantId: { type: 'string', description: 'Optional tenant/account id for multi-tenant host runtimes.' },
+        accountId: { type: 'string', description: 'Optional account id for multi-tenant host runtimes.' },
+        workspaceId: { type: 'string', description: 'Optional workspace/project id for multi-tenant host runtimes.' },
+        operatorId: { type: 'string', description: 'Optional human operator id.' },
+        operatorChannel: { type: 'string', description: 'Optional operator side channel, e.g. telegram, matrix, email.' },
+        hostIntegration: { type: 'string', description: 'Optional host integration id, e.g. openclaw, hermes, codex, claudecode.' },
+        hostSessionId: { type: 'string', description: 'Optional host-side session id for trace correlation.' },
+        projectRef: { type: 'string', description: 'Optional project/context reference.' },
+        behaviorMode: { type: 'string', enum: ['listen_only', 'answer_when_asked', 'operator_directed'], description: 'Optional live behavior mode for meeting-style channels.' },
+        liveContext: { type: 'object', description: 'Optional structured live-session context. Explicit top-level fields override matching keys.' },
+        policyScope: { type: 'object', description: 'Optional policy scope for this live session.' },
+        budgetScope: { type: 'object', description: 'Optional budget scope for this live session.' },
+      },
+      required: ['channel'],
+    },
+  },
+  {
+    name: 'conversation_send',
+    description: 'Send one text turn into an active live conversation session. Currently executable for Telegram sessions.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+        text: { type: 'string', description: 'Message text to send.' },
+      },
+      required: ['sessionId', 'text'],
+    },
+  },
+  {
+    name: 'conversation_messages',
+    description: 'Read the transcript/message ledger for a conversation session.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'conversation_end',
+    description: 'End a live conversation session and mark it ended or failed.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Conversation session id.' },
+        status: { type: 'string', enum: ['ended', 'failed'], description: 'Terminal status (default: ended).' },
+      },
+      required: ['sessionId'],
     },
   },
 
@@ -1284,6 +1453,220 @@ export const toolDefinitions = [
     inputSchema: {
       type: 'object' as const,
       properties: {},
+    },
+  },
+  {
+    name: 'matrix_setup',
+    description: 'Configure the Matrix channel for this agent. Stores a Matrix homeserver URL, access token, and allowed room ids; verifies the token with /account/whoami unless verify=false. Matrix E2EE rooms need a separate E2EE-capable bot runtime.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        homeserverUrl: { type: 'string', description: 'Matrix homeserver base URL, e.g. https://matrix.example.org' },
+        accessToken: { type: 'string', description: 'Matrix access token for the bot/user. Stored encrypted and never returned.' },
+        allowedRoomIds: { type: 'array', items: { type: 'string' }, description: 'Room ids the agent may read/send, e.g. !room:example.org' },
+        operatorRoomId: { type: 'string', description: 'Optional operator room id; always allowed.' },
+        userId: { type: 'string', description: 'Optional Matrix user id. Usually discovered via whoami.' },
+        deviceId: { type: 'string', description: 'Optional Matrix device id. Usually discovered via whoami.' },
+        verify: { type: 'boolean', description: 'Set false to skip Matrix /account/whoami verification.' },
+      },
+      required: ['homeserverUrl', 'accessToken'],
+    },
+  },
+  {
+    name: 'matrix_config',
+    description: 'Show the current Matrix channel config with secrets redacted.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'matrix_send',
+    description: 'Send a plain-text Matrix m.room.message to an allowed room.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        roomId: { type: 'string', description: 'Matrix room id, e.g. !room:example.org' },
+        text: { type: 'string', description: 'Plain-text message body.' },
+      },
+      required: ['roomId', 'text'],
+    },
+  },
+  {
+    name: 'matrix_messages',
+    description: 'List stored Matrix messages for this agent, newest first.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        direction: { type: 'string', enum: ['inbound', 'outbound'], description: 'Filter by direction.' },
+        roomId: { type: 'string', description: 'Filter by Matrix room id.' },
+        limit: { type: 'number', description: 'Max messages (default 20, max 100).' },
+        offset: { type: 'number', description: 'Skip messages.' },
+      },
+    },
+  },
+  {
+    name: 'matrix_poll',
+    description: 'Poll Matrix /sync for allowed rooms and mirror inbound m.room.message events into active Matrix conversation sessions.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        since: { type: 'string', description: 'Optional Matrix sync token override. Omit to use saved syncToken.' },
+        timeoutMs: { type: 'number', description: 'Matrix /sync timeout in milliseconds, max 30000.' },
+      },
+    },
+  },
+  {
+    name: 'meet_setup',
+    description: 'Configure Google Meet for this agent. Stores an OAuth access token encrypted, optional participant identity, allowed domains, and live-media readiness flags.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        accessToken: { type: 'string', description: 'Google OAuth access token with Meet REST scopes. Stored encrypted and never returned.' },
+        participantName: { type: 'string', description: 'Display name the meeting participant/sidecar should use.' },
+        workspaceDomain: { type: 'string', description: 'Optional Google Workspace domain.' },
+        allowedDomains: { type: 'array', items: { type: 'string' }, description: 'Domains accepted for Meet intake, e.g. ["example.com"].' },
+        defaultBehaviorMode: { type: 'string', enum: ['listen_only', 'answer_when_asked', 'operator_directed'], description: 'Default meeting behavior mode.' },
+        mediaApiDeveloperPreview: { type: 'boolean', description: 'Set true only when the Cloud project/OAuth principal/participants are enrolled for Meet Media API Developer Preview.' },
+        mediaSidecarUrl: { type: 'string', description: 'HTTP(S) endpoint for the local/hosted Meet media sidecar.' },
+        mediaSidecarToken: { type: 'string', description: 'Optional sidecar auth token sent as x-agenticmail-meet-sidecar-token.' },
+        consentPolicyAccepted: { type: 'boolean', description: 'Set true only after participant consent policy is configured.' },
+        verifySpace: { type: 'string', description: 'Optional meeting code/space to verify the token with spaces.get.' },
+        verify: { type: 'boolean', description: 'Set false to skip verification.' },
+      },
+      required: ['accessToken'],
+    },
+  },
+  {
+    name: 'meet_config',
+    description: 'Show Google Meet config with secrets redacted plus readiness for spaces, artifacts, and live media.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'meet_readiness',
+    description: 'Check Google Meet readiness: REST space/artifact access and live media sidecar gates.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'meet_disable',
+    description: 'Disable the Google Meet channel for this agent without deleting the stored settings.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'meet_space_create',
+    description: 'Create a Google Meet space through the Meet REST API using the configured OAuth token.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        accessType: { type: 'string', description: 'Optional Meet accessType, e.g. OPEN, TRUSTED, RESTRICTED.' },
+        entryPointAccess: { type: 'string', description: 'Optional entryPointAccess, e.g. ALL or CREATOR_APP_ONLY.' },
+        artifactConfig: { type: 'object', description: 'Optional Meet SpaceConfig artifactConfig.' },
+      },
+    },
+  },
+  {
+    name: 'meet_space_get',
+    description: 'Get a Google Meet space by meeting code or spaces/{id}.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        spaceOrCode: { type: 'string', description: 'Meeting code such as abc-defg-hij or resource spaces/{id}.' },
+      },
+      required: ['spaceOrCode'],
+    },
+  },
+  {
+    name: 'meet_conference_records',
+    description: 'List Google Meet conference records visible to the configured OAuth token, optionally filtered by space.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        space: { type: 'string', description: 'Optional Meet space resource, e.g. spaces/{id}.' },
+        pageSize: { type: 'number', description: 'Max records to fetch.' },
+        pageToken: { type: 'string', description: 'Pagination token.' },
+      },
+    },
+  },
+  {
+    name: 'meet_transcripts',
+    description: 'List transcript resources for a Google Meet conference record.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        conferenceRecord: { type: 'string', description: 'Conference record resource, e.g. conferenceRecords/{id}.' },
+        pageSize: { type: 'number', description: 'Max transcripts to fetch.' },
+        pageToken: { type: 'string', description: 'Pagination token.' },
+      },
+      required: ['conferenceRecord'],
+    },
+  },
+  {
+    name: 'meet_artifacts_import',
+    description: 'Import Google Meet transcript entries into a google_meet conversation session. Pass either entries directly or a Meet transcript resource name.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'google_meet conversation session id.' },
+        transcript: { type: 'string', description: 'Optional resource: conferenceRecords/{id}/transcripts/{id}. If set, entries are fetched from Google Meet.' },
+        entries: { type: 'array', items: { type: 'object' }, description: 'Optional transcript entries to import directly.' },
+        pageSize: { type: 'number', description: 'When transcript is used, max entries to fetch.' },
+        pageToken: { type: 'string', description: 'When transcript is used, pagination token.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'meet_live_join',
+    description: 'Ask the configured Google Meet live media sidecar to join a google_meet conversation session.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'google_meet conversation session id.' },
+        meetingUri: { type: 'string', description: 'Optional Meet URI override. Defaults to the session Meet link.' },
+        meetingCode: { type: 'string', description: 'Optional Meet meeting code override.' },
+        participantName: { type: 'string', description: 'Optional participant display name override.' },
+        behaviorMode: { type: 'string', enum: ['listen_only', 'answer_when_asked', 'operator_directed'], description: 'Optional behavior mode override.' },
+        topic: { type: 'string', description: 'Optional topic override.' },
+        goal: { type: 'string', description: 'Optional goal override.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'call_phone_safe',
+    description: [
+      'Start a tracked outbound phone mission with a built-in safe policy preset. Prefer this for normal OpenClaw/Codex/Gemini phone tasks; use call_phone only when the operator supplied an exact raw policy JSON.',
+      'The generated policy still forbids payment details and contract commitments, routes over-limit cost / sensitive personal data / unclear alternatives to the operator, enables transcripts by default, and disables recording by default.',
+    ].join('\n'),
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        to: { type: 'string', description: 'Target phone number in E.164 format (e.g. +43123456789)' },
+        task: { type: 'string', description: 'Concrete call objective, e.g. "reserve a table for two at 19:30"' },
+        policyPreset: { type: 'string', enum: ['safe_default', 'reservation', 'support'], description: 'Safe policy preset. Defaults to safe_default.' },
+        regionAllowlist: { type: 'array', items: { type: 'string', enum: ['AT', 'DE', 'EU', 'WORLD'] }, description: 'Allowed dial regions. Defaults to ["WORLD"].' },
+        maxCallDurationSeconds: { type: 'integer', description: 'Positive call-duration cap. Server hard ceiling still applies.' },
+        maxCostPerMission: { type: 'number', description: 'Non-negative mission cost cap. Server hard ceiling still applies.' },
+        maxAttempts: { type: 'integer', description: 'Positive attempt cap. Server hard ceiling still applies.' },
+        maxTimeShiftMinutes: { type: 'integer', description: 'Allowed appointment time shift before asking the operator.' },
+        transcriptEnabled: { type: 'boolean', description: 'Defaults to true.' },
+        recordingEnabled: { type: 'boolean', description: 'Defaults to false and still requires transport support.' },
+        voiceRuntime: { type: 'string', description: 'Optional voice-runtime provider id (e.g. "openai", "grok", "host_bridge").' },
+        voiceModel: { type: 'string', description: 'Optional realtime voice model override.' },
+        voice: { type: 'string', description: 'Optional voice character override.' },
+        voiceRuntimeRef: { type: 'string', description: 'Optional external voice runtime/session reference.' },
+        dryRun: { type: 'boolean', description: 'When true, store the mission without calling the provider.' },
+      },
+      required: ['to', 'task'],
     },
   },
   {
@@ -1369,7 +1752,7 @@ export const toolDefinitions = [
             // default; otherwise the provider default.
             voiceRuntime: {
               type: 'string',
-              description: 'Optional voice-runtime provider id (e.g. "openai", "grok"). Beats agent persona + install default.',
+              description: 'Optional voice-runtime provider id (e.g. "openai", "grok", "host_bridge"). Beats agent persona + install default.',
             },
             voiceModel: {
               type: 'string',
@@ -3602,6 +3985,7 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         webhookBaseUrl: args.webhookBaseUrl,
         webhookSecret: args.webhookSecret,
         apiUrl: args.apiUrl,
+        realtimeBridgeNumber: args.realtimeBridgeNumber,
         capabilities: args.capabilities,
         supportedRegions: args.supportedRegions,
       });
@@ -3610,6 +3994,134 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
 
     case 'phone_capabilities': {
       const result = await apiRequest('GET', '/phone/capabilities');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'phone_readiness': {
+      const query = new URLSearchParams();
+      if (args.voiceRuntime) query.set('voiceRuntime', String(args.voiceRuntime));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/phone/readiness${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'phone_voice_providers': {
+      const result = await apiRequest('GET', '/phone/voice/providers');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'realtime_conversation_capabilities': {
+      const query = new URLSearchParams();
+      for (const key of ['channel', 'policyProvided', 'operatorApproved', 'userOptedIn']) {
+        if (args[key] !== undefined) query.set(key, String(args[key]));
+      }
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/conversation/realtime/capabilities${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'realtime_conversation_plan': {
+      const result = await apiRequest('POST', '/conversation/realtime/plan', {
+        channel: args.channel,
+        policyProvided: args.policyProvided,
+        operatorApproved: args.operatorApproved,
+        userOptedIn: args.userOptedIn,
+        transportConfigured: args.transportConfigured,
+        realtimeMediaConfigured: args.realtimeMediaConfigured,
+        voiceRuntimeConfigured: args.voiceRuntimeConfigured,
+        openaiRealtimeConfigured: args.openaiRealtimeConfigured,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_list': {
+      const query = new URLSearchParams();
+      for (const key of ['status', 'channel', 'limit', 'offset']) {
+        if (args[key] !== undefined) query.set(key, String(args[key]));
+      }
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/conversation/sessions${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_get': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const result = await apiRequest('GET', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_context': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const query = new URLSearchParams();
+      if (args.messageLimit !== undefined) query.set('messageLimit', String(args.messageLimit));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}/context${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_start': {
+      const result = await apiRequest('POST', '/conversation/sessions/start', {
+        channel: args.channel,
+        chatId: args.chatId,
+        peer: args.peer,
+        meetLink: args.meetLink,
+        topic: args.topic,
+        operatorInstructions: args.operatorInstructions,
+        to: args.to,
+        goal: args.goal,
+        task: args.task,
+        subject: args.subject,
+        initialMessage: args.initialMessage,
+        policy: args.policy,
+        policyPreset: args.policyPreset,
+        regionAllowlist: args.regionAllowlist,
+        maxCallDurationSeconds: args.maxCallDurationSeconds,
+        maxCostPerMission: args.maxCostPerMission,
+        maxAttempts: args.maxAttempts,
+        maxTimeShiftMinutes: args.maxTimeShiftMinutes,
+        transcriptEnabled: args.transcriptEnabled,
+        recordingEnabled: args.recordingEnabled,
+        voiceRuntime: args.voiceRuntime,
+        voiceModel: args.voiceModel,
+        voice: args.voice,
+        dryRun: args.dryRun,
+        operatorApproved: args.operatorApproved,
+        userOptedIn: args.userOptedIn,
+        tenantId: args.tenantId,
+        accountId: args.accountId,
+        workspaceId: args.workspaceId,
+        operatorId: args.operatorId,
+        operatorChannel: args.operatorChannel,
+        hostIntegration: args.hostIntegration,
+        hostSessionId: args.hostSessionId,
+        projectRef: args.projectRef,
+        behaviorMode: args.behaviorMode,
+        liveContext: args.liveContext,
+        policyScope: args.policyScope,
+        budgetScope: args.budgetScope,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_send': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const result = await apiRequest('POST', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}/messages`, {
+        text: args.text,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_messages': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const result = await apiRequest('GET', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}/messages`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'conversation_end': {
+      if (!args.sessionId) throw new Error('sessionId is required');
+      const result = await apiRequest('POST', `/conversation/sessions/${encodeURIComponent(String(args.sessionId))}/end`, {
+        status: args.status,
+      });
       return JSON.stringify(result, null, 2);
     }
 
@@ -3654,6 +4166,163 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
 
     case 'telegram_poll': {
       const result = await apiRequest('POST', '/telegram/poll');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_setup': {
+      const result = await apiRequest('POST', '/matrix/setup', {
+        homeserverUrl: args.homeserverUrl,
+        accessToken: args.accessToken,
+        allowedRoomIds: args.allowedRoomIds,
+        operatorRoomId: args.operatorRoomId,
+        userId: args.userId,
+        deviceId: args.deviceId,
+        verify: args.verify,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_config': {
+      const result = await apiRequest('GET', '/matrix/config');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_send': {
+      const result = await apiRequest('POST', '/matrix/send', {
+        roomId: args.roomId,
+        text: args.text,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_messages': {
+      const query = new URLSearchParams();
+      if (args.direction) query.set('direction', String(args.direction));
+      if (args.roomId) query.set('roomId', String(args.roomId));
+      if (args.limit) query.set('limit', String(args.limit));
+      if (args.offset) query.set('offset', String(args.offset));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/matrix/messages${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'matrix_poll': {
+      const result = await apiRequest('POST', '/matrix/poll', {
+        since: args.since,
+        timeoutMs: args.timeoutMs,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_setup': {
+      const result = await apiRequest('POST', '/meet/setup', {
+        accessToken: args.accessToken,
+        participantName: args.participantName,
+        workspaceDomain: args.workspaceDomain,
+        allowedDomains: args.allowedDomains,
+        defaultBehaviorMode: args.defaultBehaviorMode,
+        mediaApiDeveloperPreview: args.mediaApiDeveloperPreview,
+        mediaSidecarUrl: args.mediaSidecarUrl,
+        mediaSidecarToken: args.mediaSidecarToken,
+        consentPolicyAccepted: args.consentPolicyAccepted,
+        verifySpace: args.verifySpace,
+        verify: args.verify,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_config': {
+      const result = await apiRequest('GET', '/meet/config');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_readiness': {
+      const result = await apiRequest('GET', '/meet/readiness');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_disable': {
+      const result = await apiRequest('POST', '/meet/disable');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_space_create': {
+      const result = await apiRequest('POST', '/meet/spaces/create', {
+        accessType: args.accessType,
+        entryPointAccess: args.entryPointAccess,
+        artifactConfig: args.artifactConfig,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_space_get': {
+      if (!args.spaceOrCode) throw new Error('spaceOrCode is required');
+      const result = await apiRequest('GET', `/meet/spaces/${encodeURIComponent(String(args.spaceOrCode))}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_conference_records': {
+      const query = new URLSearchParams();
+      if (args.space) query.set('space', String(args.space));
+      if (args.pageSize) query.set('pageSize', String(args.pageSize));
+      if (args.pageToken) query.set('pageToken', String(args.pageToken));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/meet/conference-records${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_transcripts': {
+      if (!args.conferenceRecord) throw new Error('conferenceRecord is required');
+      const query = new URLSearchParams();
+      query.set('conferenceRecord', String(args.conferenceRecord));
+      if (args.pageSize) query.set('pageSize', String(args.pageSize));
+      if (args.pageToken) query.set('pageToken', String(args.pageToken));
+      const result = await apiRequest('GET', `/meet/transcripts?${query.toString()}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_artifacts_import': {
+      const result = await apiRequest('POST', '/meet/artifacts/import', {
+        sessionId: args.sessionId,
+        transcript: args.transcript,
+        entries: args.entries,
+        pageSize: args.pageSize,
+        pageToken: args.pageToken,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_live_join': {
+      const result = await apiRequest('POST', '/meet/live/join', {
+        sessionId: args.sessionId,
+        meetingUri: args.meetingUri,
+        meetingCode: args.meetingCode,
+        participantName: args.participantName,
+        behaviorMode: args.behaviorMode,
+        topic: args.topic,
+        goal: args.goal,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'call_phone_safe': {
+      const result = await apiRequest('POST', '/calls/start', {
+        to: args.to,
+        task: args.task,
+        policyPreset: args.policyPreset ?? 'safe_default',
+        regionAllowlist: args.regionAllowlist,
+        maxCallDurationSeconds: args.maxCallDurationSeconds,
+        maxCostPerMission: args.maxCostPerMission,
+        maxAttempts: args.maxAttempts,
+        maxTimeShiftMinutes: args.maxTimeShiftMinutes,
+        transcriptEnabled: args.transcriptEnabled,
+        recordingEnabled: args.recordingEnabled,
+        voiceRuntime: args.voiceRuntime,
+        voiceModel: args.voiceModel,
+        voice: args.voice,
+        voiceRuntimeRef: args.voiceRuntimeRef,
+        dryRun: args.dryRun,
+      });
       return JSON.stringify(result, null, 2);
     }
 
