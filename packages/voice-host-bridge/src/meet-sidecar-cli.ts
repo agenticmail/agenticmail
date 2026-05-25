@@ -28,6 +28,7 @@ Options:
   --token <token>                  Optional sidecar token required via x-agenticmail-meet-sidecar-token
   --driver-command <cmd>           Optional executable that receives the join JSON on stdin
   --driver-arg <arg>               Repeatable argument for --driver-command
+  --driver-mode <mode>             blocking waits for driver completion; managed keeps it running (default: blocking)
   --driver-timeout-ms <ms>         Driver timeout (default: 30000)
   --help                           Show this help
 
@@ -124,6 +125,7 @@ export async function runMeetMediaSidecarCli(
       sidecarToken: readFlag(argv, '--token') || env.AGENTICMAIL_MEET_SIDECAR_TOKEN,
       driverCommand: readFlag(argv, '--driver-command'),
       driverArgs: readRepeatedFlag(argv, '--driver-arg'),
+      driverMode: readFlag(argv, '--driver-mode') as MeetMediaSidecarOptions['driverMode'],
       driverTimeoutMs: parsePositiveNumber(readFlag(argv, '--driver-timeout-ms'), '--driver-timeout-ms'),
     };
     const handle = await startMeetMediaSidecar(opts);
@@ -137,6 +139,9 @@ export async function runMeetMediaSidecarCli(
     io.log(`  events: ${handle.eventsUrl}`);
     io.log(`  control: ${handle.controlUrl}`);
     io.log(`  sessions: ${handle.sessionsUrl}`);
+    if (handle.options.driverCommand) {
+      io.log(`  driverMode: ${handle.options.driverMode}`);
+    }
     await waitForShutdown(handle.close, io);
     return 0;
   } catch (err) {

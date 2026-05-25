@@ -295,6 +295,57 @@ describe('Meet media sidecar', () => {
     });
   });
 
+  it('can keep a Meet media driver running in managed mode', async () => {
+    const driverScript = [
+      'let input = "";',
+      'process.stdin.on("data", chunk => input += chunk);',
+      'process.stdin.on("end", () => {',
+      '  const req = JSON.parse(input);',
+      '  if (!process.env.AGENTICMAIL_MEET_EVENTS_URL) process.exit(2);',
+      '  if (!process.env.AGENTICMAIL_MEET_CONTROL_URL) process.exit(3);',
+      '  if (!process.env.AGENTICMAIL_MEET_CONTROL_URL.endsWith("/" + req.sessionId)) process.exit(4);',
+      '});',
+      'setInterval(() => {}, 1000);',
+    ].join('');
+    const sidecar = await startMeetMediaSidecar({
+      port: 0,
+      sidecarToken: 'sidecar-secret',
+      driverCommand: process.execPath,
+      driverArgs: ['-e', driverScript],
+      driverMode: 'managed',
+      logger: false,
+    });
+    closers.push(sidecar.close);
+
+    const res = await fetch(sidecar.joinUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret',
+      },
+      body: JSON.stringify({
+        sessionId: 'conv_managed',
+        meetingUri: 'https://meet.google.com/abc-defg-hij',
+        accessToken: 'ya29.test-token',
+      }),
+    });
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      success: true,
+      status: 'driver_started',
+      sessionId: 'conv_managed',
+      message: 'Meet media driver started and will report events through the sidecar.',
+      driver: {
+        status: 'driver_started',
+        controlUrl: `${sidecar.controlUrl}/conv_managed`,
+        eventsUrl: `${sidecar.eventsUrl}/conv_managed`,
+      },
+    });
+    expect(typeof (body.driver as any).pid).toBe('number');
+  });
+
   it('forwards local driver events to the AgenticMail callback with the callback token', async () => {
     const callbackServer = createServer();
     const callbackBodies: Array<{ headers: Record<string, any>; body: any }> = [];
@@ -431,11 +482,13 @@ describe('Meet media sidecar', () => {
       AGENTICMAIL_MEET_SIDECAR_TOKEN: 'sidecar-secret',
       AGENTICMAIL_MEET_MEDIA_DRIVER_COMMAND: 'driver-bin',
       AGENTICMAIL_MEET_MEDIA_DRIVER_ARGS: '["--listen-only"]',
+      AGENTICMAIL_MEET_MEDIA_DRIVER_MODE: 'managed',
     });
 
     expect(opts.port).toBe(4999);
     expect(opts.sidecarToken).toBe('sidecar-secret');
     expect(opts.driverCommand).toBe('driver-bin');
     expect(opts.driverArgs).toEqual(['--listen-only']);
+    expect(opts.driverMode).toBe('managed');
   });
 });

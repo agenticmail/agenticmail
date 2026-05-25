@@ -1,7 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+
+export type MeetMediaSidecarDriverMode = 'blocking' | 'managed';
 
 export interface MeetMediaSidecarJoinRequest {
   sessionId: string;
@@ -56,6 +58,7 @@ export interface MeetMediaSidecarOptions {
   sidecarToken?: string;
   driverCommand?: string;
   driverArgs?: string[];
+  driverMode?: MeetMediaSidecarDriverMode;
   driverTimeoutMs?: number;
   logger?: Pick<Console, 'log' | 'warn' | 'error'> | false;
 }
@@ -71,6 +74,7 @@ export interface MeetMediaSidecarResolvedOptions {
   sidecarToken: string;
   driverCommand: string;
   driverArgs: string[];
+  driverMode: MeetMediaSidecarDriverMode;
   driverTimeoutMs: number;
   logger: Pick<Console, 'log' | 'warn' | 'error'> | false;
 }
@@ -104,6 +108,12 @@ interface MeetMediaSidecarCallback {
   token?: string;
 }
 
+interface MeetMediaSidecarDriverContext {
+  eventsUrl: string;
+  controlUrl: string;
+  onManagedChild?: (child: ChildProcessWithoutNullStreams) => void;
+}
+
 export interface MeetMediaSidecarControl {
   id: string;
   sessionId: string;
@@ -126,6 +136,12 @@ function parsePort(value: string | undefined, fallback: number): number {
     throw new Error(`Invalid Meet media sidecar port: ${value}`);
   }
   return parsed;
+}
+
+function normalizeDriverMode(value: string | undefined): MeetMediaSidecarDriverMode {
+  const raw = (value || 'blocking').trim();
+  if (raw === 'blocking' || raw === 'managed') return raw;
+  throw new Error(`Invalid Meet media driver mode: ${value}`);
 }
 
 function safeEquals(a: string, b: string): boolean {
@@ -229,8 +245,10 @@ function toDriverRecord(value: unknown): Record<string, unknown> | undefined {
 async function runDriverCommand(
   opts: MeetMediaSidecarResolvedOptions,
   request: MeetMediaSidecarJoinRequest,
+  context: MeetMediaSidecarDriverContext,
 ): Promise<Record<string, unknown> | undefined> {
   if (!opts.driverCommand) return undefined;
+  if (opts.driverMode === 'managed') return startManagedDriverCommand(opts, request, context);
   const payload = JSON.stringify(request);
   return new Promise((resolve, reject) => {
     const child = execFile(opts.driverCommand, opts.driverArgs, {
@@ -240,6 +258,10 @@ async function runDriverCommand(
         ...process.env,
         AGENTICMAIL_MEET_SESSION_ID: request.sessionId,
         AGENTICMAIL_MEET_MEETING_URI: request.meetingUri,
+        AGENTICMAIL_MEET_EVENTS_URL: `${context.eventsUrl}/${encodeURIComponent(request.sessionId)}`,
+        AGENTICMAIL_MEET_CONTROL_URL: `${context.controlUrl}/${encodeURIComponent(request.sessionId)}`,
+        AGENTICMAIL_MEET_SIDECAR_TOKEN: opts.sidecarToken,
+        AGENTICMAIL_MEET_EVENT_CALLBACK_URL: request.eventCallbackUrl || '',
       },
     }, (err, stdout, stderr) => {
       if (err) {
@@ -262,6 +284,54 @@ async function runDriverCommand(
   });
 }
 
+async function startManagedDriverCommand(
+  opts: MeetMediaSidecarResolvedOptions,
+  request: MeetMediaSidecarJoinRequest,
+  context: MeetMediaSidecarDriverContext,
+): Promise<Record<string, unknown>> {
+  const payload = JSON.stringify(request);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const child = spawn(opts.driverCommand, opts.driverArgs, {
+      env: {
+        ...process.env,
+        AGENTICMAIL_MEET_SESSION_ID: request.sessionId,
+        AGENTICMAIL_MEET_MEETING_URI: request.meetingUri,
+        AGENTICMAIL_MEET_EVENTS_URL: `${context.eventsUrl}/${encodeURIComponent(request.sessionId)}`,
+        AGENTICMAIL_MEET_CONTROL_URL: `${context.controlUrl}/${encodeURIComponent(request.sessionId)}`,
+        AGENTICMAIL_MEET_SIDECAR_TOKEN: opts.sidecarToken,
+        AGENTICMAIL_MEET_EVENT_CALLBACK_URL: request.eventCallbackUrl || '',
+      },
+    });
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      const out = chunk.toString('utf8').trim();
+      if (out && opts.logger) opts.logger.log(`[meet-sidecar-driver:${request.sessionId}] ${out}`);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      const out = chunk.toString('utf8').trim();
+      if (out && opts.logger) opts.logger.warn(`[meet-sidecar-driver:${request.sessionId}] ${out}`);
+    });
+    child.once('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`Meet media driver failed to start: ${err.message}`));
+    });
+    child.once('spawn', () => {
+      context.onManagedChild?.(child);
+      child.stdin.end(payload);
+      if (settled) return;
+      settled = true;
+      resolve({
+        status: 'driver_started',
+        pid: child.pid,
+        controlUrl: `${context.controlUrl}/${encodeURIComponent(request.sessionId)}`,
+        eventsUrl: `${context.eventsUrl}/${encodeURIComponent(request.sessionId)}`,
+      });
+    });
+  });
+}
+
 export function resolveMeetMediaSidecarOptionsFromEnv(
   env: NodeJS.ProcessEnv = process.env,
   overrides: MeetMediaSidecarOptions = {},
@@ -281,6 +351,7 @@ export function resolveMeetMediaSidecarOptionsFromEnv(
         ? JSON.parse(env.AGENTICMAIL_MEET_MEDIA_DRIVER_ARGS)
         : []
     ),
+    driverMode: normalizeDriverMode(overrides.driverMode || env.AGENTICMAIL_MEET_MEDIA_DRIVER_MODE),
     driverTimeoutMs: overrides.driverTimeoutMs ?? Number(env.AGENTICMAIL_MEET_MEDIA_DRIVER_TIMEOUT_MS || DEFAULT_DRIVER_TIMEOUT_MS),
     logger: overrides.logger === undefined ? console : overrides.logger,
   };
@@ -301,6 +372,7 @@ function handleHealth(res: ServerResponse, opts: MeetMediaSidecarResolvedOptions
     sessionsPath: opts.sessionsPath,
     tokenRequired: !!opts.sidecarToken,
     driverConfigured: !!opts.driverCommand,
+    driverMode: opts.driverMode,
   });
 }
 
@@ -314,6 +386,27 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
   const sessions = new Map<string, MeetMediaSidecarSession>();
   const callbacks = new Map<string, MeetMediaSidecarCallback>();
   const controls = new Map<string, MeetMediaSidecarControl[]>();
+  const driverChildren = new Map<string, ChildProcessWithoutNullStreams>();
+
+  const registerManagedDriver = (sessionId: string, child: ChildProcessWithoutNullStreams) => {
+    const previous = driverChildren.get(sessionId);
+    if (previous && previous.pid !== child.pid && !previous.killed) previous.kill('SIGTERM');
+    driverChildren.set(sessionId, child);
+    child.once('exit', (code, signal) => {
+      if (driverChildren.get(sessionId)?.pid === child.pid) driverChildren.delete(sessionId);
+      const current = sessions.get(sessionId);
+      if (!current) return;
+      const failed = code !== 0 && signal !== 'SIGTERM';
+      sessions.set(sessionId, {
+        ...current,
+        status: failed ? 'failed' : 'driver_exited',
+        updatedAt: new Date().toISOString(),
+        message: failed
+          ? `Meet media driver exited with code ${code ?? 'null'} signal ${signal ?? 'none'}`
+          : `Meet media driver exited${signal ? ` with signal ${signal}` : ''}.`,
+      });
+    });
+  };
 
   const forwardEvent = async (sessionId: string, body: Record<string, unknown>) => {
     const callback = callbacks.get(sessionId);
@@ -459,7 +552,11 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
 
         let driver: Record<string, unknown> | undefined;
         try {
-          driver = await runDriverCommand(opts, request);
+          driver = await runDriverCommand(opts, request, {
+            eventsUrl,
+            controlUrl,
+            onManagedChild: (child) => registerManagedDriver(request.sessionId, child),
+          });
         } catch (err) {
           sessions.set(request.sessionId, {
             ...session,
@@ -478,7 +575,9 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
           participantId: asString(driver?.participantId) || undefined,
           message: asString(driver?.message) || (
             opts.driverCommand
-              ? 'Meet media driver completed join handoff.'
+              ? opts.driverMode === 'managed'
+                ? 'Meet media driver started and will report events through the sidecar.'
+                : 'Meet media driver completed join handoff.'
               : 'Meet join request accepted. No media driver command is configured on this sidecar.'
           ),
           driver,
@@ -540,6 +639,9 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
     options: { ...opts, port },
     sessions,
     close: async () => {
+      for (const child of driverChildren.values()) {
+        if (!child.killed) child.kill('SIGTERM');
+      }
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
       });
