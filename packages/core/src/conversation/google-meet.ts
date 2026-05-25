@@ -4,6 +4,24 @@ export interface ParsedGoogleMeetLink {
   normalizedUrl: string;
 }
 
+export const GOOGLE_MEET_BEHAVIOR_MODES = [
+  'listen_only',
+  'answer_when_asked',
+  'operator_directed',
+] as const;
+
+export type GoogleMeetBehaviorMode = typeof GOOGLE_MEET_BEHAVIOR_MODES[number];
+
+export interface GoogleMeetSessionBriefingInput {
+  meetingUrl: string;
+  meetingCode: string;
+  topic?: string;
+  projectRef?: string;
+  goal?: string;
+  operatorInstructions?: string;
+  behaviorMode?: string;
+}
+
 const MEET_HOSTS = new Set([
   'meet.google.com',
   'www.meet.google.com',
@@ -13,6 +31,16 @@ const MEET_CODE_RE = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
 
 function normalizeMeetCode(value: string): string {
   return value.trim().toLowerCase();
+}
+
+export function normalizeGoogleMeetBehaviorMode(
+  value: unknown,
+  fallback: GoogleMeetBehaviorMode = 'answer_when_asked',
+): GoogleMeetBehaviorMode {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return (GOOGLE_MEET_BEHAVIOR_MODES as readonly string[]).includes(normalized)
+    ? normalized as GoogleMeetBehaviorMode
+    : fallback;
 }
 
 export function parseGoogleMeetLink(input: string): ParsedGoogleMeetLink {
@@ -49,4 +77,23 @@ export function parseGoogleMeetLink(input: string): ParsedGoogleMeetLink {
     meetingCode: code,
     normalizedUrl: `https://meet.google.com/${code}`,
   };
+}
+
+export function buildGoogleMeetSessionBriefing(input: GoogleMeetSessionBriefingInput): string {
+  const behaviorMode = normalizeGoogleMeetBehaviorMode(input.behaviorMode);
+  const lines = [
+    'Google Meet intake session prepared.',
+    `meeting: ${input.meetingUrl}`,
+    `meeting_code: ${input.meetingCode}`,
+    `behavior_mode: ${behaviorMode}`,
+  ];
+  if (input.topic?.trim()) lines.push(`topic: ${input.topic.trim()}`);
+  if (input.projectRef?.trim()) lines.push(`project_ref: ${input.projectRef.trim()}`);
+  if (input.goal?.trim()) lines.push(`goal: ${input.goal.trim()}`);
+  if (input.operatorInstructions?.trim()) {
+    lines.push(`operator_instructions: ${input.operatorInstructions.trim()}`);
+  }
+  lines.push('live_media_status: not_joined');
+  lines.push('next_gate: Google Meet media sidecar / participant runtime');
+  return lines.join('\n');
 }

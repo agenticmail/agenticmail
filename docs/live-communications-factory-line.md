@@ -34,7 +34,9 @@ What is not done yet:
   live provider key into the host process and works with OpenAI/XAI-compatible
   realtime providers, but it does not yet implement a custom Codex/OpenClaw
   speech pipeline from STT + host LLM + TTS.
-- WhatsApp and Google Meet adapters are still planned, not executable.
+- WhatsApp is still planned, not executable.
+- Google Meet is executable as link intake plus session briefing, but live
+  media join/speak-back still fails closed until the Meet media sidecar exists.
 
 ## Boundary Decision
 
@@ -259,12 +261,16 @@ Factory slices:
 
 1. `meet_setup`: OAuth scopes, workspace/project config, participant naming,
    consent wording, allowed domains, and operator approval policy.
-2. `meet_link_intake`: parse a Meet URL from Telegram/Matrix/email, store the
+2. `meet_link_intake`: done for direct API/tool/CLI intake. It parses a Meet
+   URL or code, normalizes it, creates/reuses a `google_meet` conversation
+   session, stores the
    topic, project hint, operator instructions, and desired behavior mode
    (`listen_only`, `answer_when_asked`, `operator_directed`).
-3. `meet_session_prepare`: build the session briefing from AgenticMail memory,
-   project context, prior emails, prior conversation sessions, and explicit
-   operator notes.
+3. `meet_session_prepare`: started. The session now records a system briefing
+   with meeting URL/code, topic, project reference, operator instructions,
+   behavior mode, and the explicit `live_media_status: not_joined` gate.
+   Deeper AgenticMail memory/project-context hydration remains a host/runtime
+   responsibility for the next slice.
 4. `meet_space_create` / `meet_space_get` / `meet_space_end`: managed spaces
    for meetings the agent creates itself.
 5. Artifact ingestion: transcript/recording metadata and transcript entries
@@ -284,13 +290,14 @@ REST alone does not make the agent "speak in a meeting". The live bot requires
 a join/media runtime. Google now has a path through the Meet Media API, but it
 must be implemented as a real media sidecar, not as a fake REST wrapper.
 
-First credible MVP:
+Current MVP:
 
-1. Telegram intake accepts a Meet link plus project/topic instructions.
-2. Agent creates a `google_meet` session and prepares a briefing.
-3. If live Media API access is unavailable, the session fails closed with the
+1. MCP/OpenClaw/CLI intake accepts a Meet link plus project/topic instructions.
+2. AgenticMail creates a `google_meet` session and prepares a briefing.
+3. If live Media API access is unavailable, the response fails live-join closed
+   with `readyForLiveJoin: false` and the
    exact missing Google Workspace/Developer Preview/OAuth requirements.
-4. If live Media API access is available, the sidecar joins in listen-only mode,
+4. If live Media API access is available later, the sidecar joins in listen-only mode,
    streams transcript notes into the ledger, and posts periodic Telegram
    summaries.
 5. Speaking is a second gate: the agent can only speak when addressed by name
@@ -303,11 +310,13 @@ agenticmail live test meet \
   --link https://meet.google.com/abc-defg-hij \
   --topic "Project Alpha pricing review" \
   --project-ref project-alpha \
-  --behavior-mode answer_when_asked
+  --behavior-mode answer_when_asked \
+  --instructions "Use OpenViking memory and speak only when asked."
 ```
 
-This only validates link intake and the future session payload. It deliberately
-does not claim a live Meet bot exists yet.
+Add `--start` to create the intake session through the local API. This proves
+the session ledger and briefing path; it deliberately does not claim a live
+Meet bot exists yet.
 
 ## Implementation Order
 
@@ -320,7 +329,7 @@ does not claim a live Meet bot exists yet.
 | 5 | Operator query/approval flow | The agent can pause, ask the operator, resume, and record approvals. |
 | 6 | Guided phone smoke test | One command proves "this install can call and converse". |
 | 7 | WhatsApp `meta_cloud` adapter | First non-Telegram/non-Matrix external messaging channel. |
-| 8 | Google Meet link intake + briefing | Telegram-to-Meet handoff creates a session, loads context, and produces an honest readiness result. |
+| 8 | Google Meet link intake + briefing | Done for API/MCP/OpenClaw/CLI intake: creates a session, stores context, and produces an honest readiness result. |
 | 9 | Google Meet space + artifact adapter | Meeting setup/transcript value without pretending live AV is done. |
 | 10 | Google Meet media sidecar | Real live meeting audio path into the same host bridge. |
 | 11 | Google Meet speak-back policy | The agent can answer when addressed or operator-directed, with consent and approval gates. |

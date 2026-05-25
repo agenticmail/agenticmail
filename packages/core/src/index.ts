@@ -511,8 +511,11 @@ export {
   isConversationMessageDirection,
   isRealtimeConversationChannel,
   listRealtimeConversationCapabilities,
+  normalizeGoogleMeetBehaviorMode,
   planRealtimeConversationStart,
   ConversationSessionManager,
+  GOOGLE_MEET_BEHAVIOR_MODES,
+  buildGoogleMeetSessionBriefing,
   parseGoogleMeetLink,
 } from './conversation/index.js';
 export type {
@@ -523,6 +526,8 @@ export type {
   CreateConversationSessionInput,
   RecordConversationMessageInput,
   RecordConversationTranscriptInput,
+  GoogleMeetBehaviorMode,
+  GoogleMeetSessionBriefingInput,
   ParsedGoogleMeetLink,
   RealtimeConversationCapability,
   RealtimeConversationChannel,

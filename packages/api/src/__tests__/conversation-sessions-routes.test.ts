@@ -164,17 +164,79 @@ describe('conversation session routes', () => {
     db.close();
   });
 
-  it('rejects planned channels through the live-session start endpoint', async () => {
+  it('starts a Google Meet intake session with a briefing and closed live-media gate', async () => {
+    const db = createDb();
+    const baseUrl = await listen(createApp(db));
+
+    const started = await request(baseUrl, '/conversation/sessions/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        channel: 'google_meet',
+        meetLink: 'https://meet.google.com/ABC-DEFG-HIJ?authuser=0',
+        topic: 'Project Alpha pricing review',
+        projectRef: 'project-alpha',
+        operatorInstructions: 'Use OpenViking memory and speak only when asked.',
+        behaviorMode: 'answer_when_asked',
+        tenantId: 'tenant_at',
+        hostIntegration: 'openclaw',
+        operatorApproved: true,
+        userOptedIn: true,
+      }),
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.session).toMatchObject({
+      channel: 'google_meet',
+      peer: 'https://meet.google.com/abc-defg-hij',
+      externalRef: 'abc-defg-hij',
+      subject: 'Project Alpha pricing review',
+      metadata: {
+        transport: 'google_meet',
+        meetingCode: 'abc-defg-hij',
+        meetLink: 'https://meet.google.com/abc-defg-hij',
+        adapterStatus: 'planned',
+        liveMediaReady: false,
+        liveContext: {
+          tenantId: 'tenant_at',
+          hostIntegration: 'openclaw',
+          projectRef: 'project-alpha',
+          behaviorMode: 'answer_when_asked',
+        },
+      },
+    });
+    expect(started.body.meet).toMatchObject({
+      meetingCode: 'abc-defg-hij',
+      liveMediaReady: false,
+      readyForLiveJoin: false,
+    });
+    expect(started.body.plan.missing).toContain('Google Meet adapter implementation');
+
+    const messages = await request(baseUrl, `/conversation/sessions/${started.body.session.id}/messages`);
+    expect(messages.body.messages[0]).toMatchObject({
+      direction: 'system',
+      metadata: {
+        kind: 'google_meet_intake_briefing',
+        behaviorMode: 'answer_when_asked',
+        liveMediaReady: false,
+      },
+    });
+    expect(messages.body.messages[0].text).toContain('Project Alpha pricing review');
+    expect(messages.body.messages[0].text).toContain('live_media_status: not_joined');
+
+    db.close();
+  });
+
+  it('rejects planned non-intake channels through the live-session start endpoint', async () => {
     const db = createDb();
     const baseUrl = await listen(createApp(db));
 
     const result = await request(baseUrl, '/conversation/sessions/start', {
       method: 'POST',
-      body: JSON.stringify({ channel: 'google_meet', peer: 'meet.example', operatorApproved: true }),
+      body: JSON.stringify({ channel: 'whatsapp', peer: '+43123456789', operatorApproved: true }),
     });
 
     expect(result.status).toBe(400);
-    expect(result.body.plan.missing).toContain('Google Meet adapter implementation');
+    expect(result.body.plan.missing).toContain('WhatsApp adapter implementation');
 
     db.close();
   });

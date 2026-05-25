@@ -13,6 +13,9 @@ export {
 } from './session.js';
 
 export {
+  GOOGLE_MEET_BEHAVIOR_MODES,
+  buildGoogleMeetSessionBriefing,
+  normalizeGoogleMeetBehaviorMode,
   parseGoogleMeetLink,
 } from './google-meet.js';
 
@@ -27,6 +30,8 @@ export type {
 } from './session.js';
 
 export type {
+  GoogleMeetBehaviorMode,
+  GoogleMeetSessionBriefingInput,
   ParsedGoogleMeetLink,
 } from './google-meet.js';
 

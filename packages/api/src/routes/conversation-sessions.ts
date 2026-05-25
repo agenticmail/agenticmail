@@ -6,9 +6,12 @@ import {
   PhoneManager,
   TelegramApiError,
   TelegramManager,
+  buildGoogleMeetSessionBriefing,
   isConversationMessageDirection,
   isRealtimeConversationChannel,
   isTelegramChatAllowed,
+  normalizeGoogleMeetBehaviorMode,
+  parseGoogleMeetLink,
   planRealtimeConversationStart,
   sendMatrixMessage,
   sendTelegramMessage,
@@ -49,9 +52,13 @@ function buildLiveSessionMetadata(
   base: Record<string, unknown>,
 ): Record<string, unknown> {
   const userMetadata = requestRecord(req.body?.metadata) ?? {};
+  const baseLiveContext = requestRecord(base.liveContext) ?? {};
+  const baseMetadata = { ...base };
+  delete baseMetadata.liveContext;
   const metadataLiveContext = requestRecord(userMetadata.liveContext) ?? {};
   const bodyLiveContext = requestRecord(req.body?.liveContext) ?? {};
   const liveContext: Record<string, unknown> = {
+    ...baseLiveContext,
     ...metadataLiveContext,
     ...bodyLiveContext,
   };
@@ -67,7 +74,7 @@ function buildLiveSessionMetadata(
 
   const out: Record<string, unknown> = {
     ...userMetadata,
-    ...base,
+    ...baseMetadata,
   };
   if (Object.keys(liveContext).length > 0) out.liveContext = liveContext;
   return out;
@@ -184,6 +191,9 @@ export function createConversationSessionRoutes(
       }
       if (channel === 'phone') {
         return await startPhoneSession(req, res, agent.id);
+      }
+      if (channel === 'google_meet') {
+        return startGoogleMeetSession(req, res, agent.id);
       }
 
       const plan = planRealtimeConversationStart({
@@ -494,6 +504,100 @@ export function createConversationSessionRoutes(
       metadata: { missionId: result.mission.id, status: result.mission.status },
     });
     return res.json({ success: true, session, message, mission: result.mission, plan });
+  }
+
+  function startGoogleMeetSession(req: Request, res: Response, agentId: string): Response {
+    const meetLink = requestString(req.body?.meetLink ?? req.body?.meetingUrl ?? req.body?.link ?? req.body?.peer);
+    if (!meetLink) return res.status(400).json({ error: 'meetLink is required' });
+
+    let parsed: ReturnType<typeof parseGoogleMeetLink>;
+    try {
+      parsed = parseGoogleMeetLink(meetLink);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
+
+    const topic = requestString(req.body?.topic ?? req.body?.subject);
+    const projectRef = requestString(req.body?.projectRef);
+    const operatorInstructions = requestString(req.body?.operatorInstructions ?? req.body?.instructions);
+    const behaviorMode = normalizeGoogleMeetBehaviorMode(
+      req.body?.behaviorMode ?? requestRecord(req.body?.liveContext)?.behaviorMode,
+    );
+    const goal = requestString(req.body?.goal)
+      || `Prepare for the meeting, listen, keep notes, and speak only according to behaviorMode=${behaviorMode}.`;
+    const plan = planRealtimeConversationStart({
+      channel: 'google_meet',
+      transportConfigured: false,
+      userOptedIn: req.body?.userOptedIn === true,
+      operatorApproved: req.body?.operatorApproved === true,
+    });
+
+    const existing = sessions.findActiveSessionByExternalRef(agentId, 'google_meet', parsed.meetingCode);
+    const metadata = buildLiveSessionMetadata(req, {
+      transport: 'google_meet',
+      meetLink: parsed.normalizedUrl,
+      meetingCode: parsed.meetingCode,
+      originalMeetLink: parsed.source,
+      adapterStatus: 'planned',
+      liveMediaReady: false,
+      intakeStatus: 'briefing_ready',
+      liveContext: {
+        behaviorMode,
+        projectRef,
+        hostIntegration: requestString(req.body?.hostIntegration) || undefined,
+      },
+    });
+    metadata.liveContext = {
+      ...(requestRecord(metadata.liveContext) ?? {}),
+      behaviorMode,
+    };
+    const session = existing ?? sessions.createSession({
+      agentId,
+      channel: 'google_meet',
+      peer: parsed.normalizedUrl,
+      subject: topic || requestString(req.body?.subject) || `Google Meet ${parsed.meetingCode}`,
+      goal,
+      externalRef: parsed.meetingCode,
+      metadata,
+    });
+
+    const briefingText = buildGoogleMeetSessionBriefing({
+      meetingUrl: parsed.normalizedUrl,
+      meetingCode: parsed.meetingCode,
+      topic: topic || undefined,
+      projectRef: projectRef || undefined,
+      goal,
+      operatorInstructions: operatorInstructions || undefined,
+      behaviorMode,
+    });
+    const message = sessions.recordMessage({
+      sessionId: session.id,
+      agentId,
+      channel: 'google_meet',
+      direction: 'system',
+      text: briefingText,
+      metadata: {
+        kind: 'google_meet_intake_briefing',
+        meetingCode: parsed.meetingCode,
+        liveMediaReady: false,
+        behaviorMode,
+      },
+    });
+
+    return res.json({
+      success: true,
+      session,
+      reused: !!existing,
+      message,
+      meet: {
+        meetingCode: parsed.meetingCode,
+        normalizedUrl: parsed.normalizedUrl,
+        behaviorMode,
+        liveMediaReady: false,
+        readyForLiveJoin: false,
+      },
+      plan,
+    });
   }
 
   return router;

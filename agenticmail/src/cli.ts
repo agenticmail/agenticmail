@@ -5919,7 +5919,7 @@ function printLiveHelp() {
   log(`    ${c.green('agenticmail live setup')} ${c.dim('[--url ws://127.0.0.1:3999/realtime] [--token <secret>]')}`);
   log(`    ${c.green('agenticmail live doctor')} ${c.dim('[--voice-runtime host_bridge]')}`);
   log(`    ${c.green('agenticmail live bridge')} ${c.dim('[--for openclaw|hermes|codex|claudecode] [bridge options]')}`);
-  log(`    ${c.green('agenticmail live test meet')} ${c.dim('--link <meet-url> [--topic <text>] [--project-ref <id>]')}`);
+  log(`    ${c.green('agenticmail live test meet')} ${c.dim('--link <meet-url> [--topic <text>] [--project-ref <id>] [--start]')}`);
   log('');
   log(`  ${c.bold('Intent:')}`);
   log('    One product surface for phone, Telegram/Matrix, WhatsApp, and Meet readiness.');
@@ -5999,6 +5999,25 @@ async function fetchLiveJson(
   const resp = await fetch(url, {
     headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
     signal: AbortSignal.timeout(3_000),
+  });
+  let data: any = null;
+  try { data = await resp.json(); } catch { /* non-json response */ }
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+async function postLiveJson(
+  url: string,
+  apiKey: string | undefined,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5_000),
   });
   let data: any = null;
   try { data = await resp.json(); } catch { /* non-json response */ }
@@ -6161,7 +6180,10 @@ async function cmdLiveTest(args: string[]) {
     log('');
     log(`  ${c.pinkBg(' AgenticMail Live Test ')}`);
     log('');
-    log(`  ${c.bold('Usage:')} agenticmail live test meet --link <meet-url> [--topic <text>] [--project-ref <id>]`);
+    log(`  ${c.bold('Usage:')} agenticmail live test meet --link <meet-url> [--topic <text>] [--project-ref <id>] [--start]`);
+    log('');
+    log(`  ${c.bold('Flags:')}`);
+    log(`    ${c.green('--start')}  Create the google_meet intake session against the local API.`);
     log('');
     return;
   }
@@ -6178,17 +6200,22 @@ async function cmdLiveTest(args: string[]) {
     process.exit(1);
   }
 
-  const { parseGoogleMeetLink } = await import('@agenticmail/core');
+  const { normalizeGoogleMeetBehaviorMode, parseGoogleMeetLink } = await import('@agenticmail/core');
   const parsed = parseGoogleMeetLink(link);
   const topic = readArg(rest, ['--topic', '--subject']) || 'Google Meet live session';
   const projectRef = readArg(rest, ['--project-ref', '--project']) || undefined;
-  const behaviorMode = readArg(rest, ['--behavior-mode', '--mode']) || 'answer_when_asked';
+  const behaviorMode = normalizeGoogleMeetBehaviorMode(readArg(rest, ['--behavior-mode', '--mode']));
   const hostIntegration = readArg(rest, ['--for', '--host-integration']) || 'openclaw';
+  const operatorInstructions = readArg(rest, ['--instructions', '--operator-instructions'])
+    || 'Prepare from project memory, listen, keep notes, and speak only when asked or operator-directed.';
   const payload = {
     channel: 'google_meet',
+    meetLink: parsed.normalizedUrl,
     peer: parsed.normalizedUrl,
     externalRef: parsed.meetingCode,
+    topic,
     subject: topic,
+    operatorInstructions,
     goal: `Prepare for the meeting, listen, keep notes, and speak only according to behaviorMode=${behaviorMode}.`,
     operatorApproved: true,
     userOptedIn: true,
@@ -6198,14 +6225,57 @@ async function cmdLiveTest(args: string[]) {
       behaviorMode,
     },
   };
+  const shouldStart = hasArg(rest, ['--start', '--create-session']);
 
   log('');
   ok(`Parsed Google Meet link: ${c.cyan(parsed.normalizedUrl)}`);
   info(`Meeting code: ${parsed.meetingCode}`);
-  info('This is an intake payload test; the live Meet adapter still fails closed until implemented.');
+  info('Google Meet intake is executable; live media still fails closed until the Meet sidecar ships.');
   log('');
   log(JSON.stringify(payload, null, 2));
   log('');
+
+  if (!shouldStart) {
+    info(`Add ${c.green('--start')} to create the intake session through the local AgenticMail API.`);
+    log('');
+    return;
+  }
+
+  const config = readAgenticMailConfig();
+  if (!config) {
+    fail(`No AgenticMail config found at ${c.dim(join(homedir(), '.agenticmail', 'config.json'))}.`);
+    info(`Run ${c.green('agenticmail setup')} first.`);
+    process.exit(1);
+  }
+  const agent = await resolveAgentApiKey(config);
+  if (!agent) {
+    fail('No agent API key available for Google Meet intake.');
+    info('Start the API and ensure at least one agent exists, then rerun this command.');
+    process.exit(1);
+  }
+  const { apiUrl } = readApiUrlFromConfig();
+  try {
+    const result = await postLiveJson(
+      `${apiUrl}/api/agenticmail/conversation/sessions/start`,
+      agent.apiKey,
+      payload,
+    );
+    if (!result.ok) {
+      fail(`Google Meet intake returned HTTP ${result.status}`);
+      if (result.data?.error) info(String(result.data.error));
+      process.exit(1);
+    }
+    ok(`Google Meet intake session created for ${c.cyan(agent.name)}`);
+    if (result.data?.session?.id) info(`Session: ${result.data.session.id}`);
+    if (result.data?.meet?.readyForLiveJoin === false) info('Live join: not ready yet');
+    if (Array.isArray(result.data?.plan?.missing) && result.data.plan.missing.length) {
+      info(`Missing: ${result.data.plan.missing.join(', ')}`);
+    }
+    log('');
+  } catch (err) {
+    fail(`Google Meet intake failed: ${(err as Error).message}`);
+    process.exit(1);
+  }
 }
 
 async function cmdLive() {

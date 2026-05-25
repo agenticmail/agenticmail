@@ -1314,13 +1314,16 @@ export const toolDefinitions = [
   },
   {
     name: 'conversation_start',
-    description: 'Start a live conversation session. Telegram is executable now; phone starts a tracked phone mission; Matrix, WhatsApp, and Google Meet fail closed until adapters ship.',
+    description: 'Start a live conversation session. Telegram and Matrix are executable text sessions; phone starts a tracked phone mission; Google Meet creates an intake/briefing session with live media gated; WhatsApp still fails closed until its adapter ships.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         channel: { type: 'string', enum: ['phone', 'telegram', 'matrix', 'whatsapp', 'google_meet'], description: 'Conversation channel.' },
         chatId: { type: 'string', description: 'Telegram chat id. Alias: peer.' },
         peer: { type: 'string', description: 'Generic peer id: Telegram chat id, phone number, future Matrix room, etc.' },
+        meetLink: { type: 'string', description: 'Google Meet only: meet.google.com URL or meeting code. Alias: peer.' },
+        topic: { type: 'string', description: 'Google Meet only: meeting topic. Alias: subject.' },
+        operatorInstructions: { type: 'string', description: 'Google Meet only: operator briefing and participation instructions.' },
         to: { type: 'string', description: 'Phone target number in E.164 format. Alias: peer.' },
         goal: { type: 'string', description: 'Conversation objective.' },
         task: { type: 'string', description: 'Phone task/objective. Alias: goal.' },
@@ -3936,6 +3939,9 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         channel: args.channel,
         chatId: args.chatId,
         peer: args.peer,
+        meetLink: args.meetLink,
+        topic: args.topic,
+        operatorInstructions: args.operatorInstructions,
         to: args.to,
         goal: args.goal,
         task: args.task,
