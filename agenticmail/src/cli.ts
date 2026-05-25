@@ -5919,7 +5919,8 @@ function printLiveHelp() {
   log(`    ${c.green('agenticmail live setup')} ${c.dim('[--url ws://127.0.0.1:3999/realtime] [--token <secret>]')}`);
   log(`    ${c.green('agenticmail live doctor')} ${c.dim('[--voice-runtime host_bridge]')}`);
   log(`    ${c.green('agenticmail live bridge')} ${c.dim('[--for openclaw|hermes|codex|claudecode] [bridge options]')}`);
-  log(`    ${c.green('agenticmail live test meet')} ${c.dim('--link <meet-url> [--topic <text>] [--project-ref <id>] [--start]')}`);
+  log(`    ${c.green('agenticmail live meet-sidecar')} ${c.dim('[--token <secret>] [sidecar options]')}`);
+  log(`    ${c.green('agenticmail live test meet')} ${c.dim('--link <meet-url> [--topic <text>] [--project-ref <id>] [--start] [--join]')}`);
   log('');
   log(`  ${c.bold('Intent:')}`);
   log('    One product surface for phone, Telegram/Matrix, WhatsApp, and Meet readiness.');
@@ -6173,6 +6174,30 @@ async function cmdLiveBridge(args: string[]) {
   if (code !== 0) process.exit(code);
 }
 
+async function cmdLiveMeetSidecar(args: string[]) {
+  if (hasArg(args, ['--help', '-h']) || args.includes('help')) {
+    log('');
+    log(`  ${c.pinkBg(' AgenticMail Google Meet Sidecar ')}`);
+    log('');
+    log(`  ${c.bold('Usage:')} agenticmail live meet-sidecar [--token <secret>] [sidecar options]`);
+    log('');
+    log(`  ${c.bold('Examples:')}`);
+    log(`    ${c.green('agenticmail live meet-sidecar --token <secret>')}`);
+    log(`    ${c.green('agenticmail live meet-sidecar --driver-command ./meet-driver')}`);
+    log('');
+    return;
+  }
+
+  const mod = await import('@agenticmail/voice-host-bridge/meet-sidecar-cli').catch((err) => {
+    throw new Error(`Could not load @agenticmail/voice-host-bridge meet sidecar. Install optional deps or run npm install: ${(err as Error).message}`);
+  }) as { runMeetMediaSidecarCli?: (argv?: string[], env?: NodeJS.ProcessEnv, io?: { log: (msg: string) => void; error: (msg: string) => void }) => Promise<number> };
+  if (typeof mod.runMeetMediaSidecarCli !== 'function') {
+    throw new Error('@agenticmail/voice-host-bridge/meet-sidecar-cli does not export runMeetMediaSidecarCli');
+  }
+  const code = await mod.runMeetMediaSidecarCli(args, process.env, console);
+  if (code !== 0) process.exit(code);
+}
+
 async function cmdLiveTest(args: string[]) {
   const target = (args[0] || '').toLowerCase();
   const rest = args.slice(1);
@@ -6180,10 +6205,12 @@ async function cmdLiveTest(args: string[]) {
     log('');
     log(`  ${c.pinkBg(' AgenticMail Live Test ')}`);
     log('');
-    log(`  ${c.bold('Usage:')} agenticmail live test meet --link <meet-url> [--topic <text>] [--project-ref <id>] [--start]`);
+    log(`  ${c.bold('Usage:')} agenticmail live test meet --link <meet-url> [--topic <text>] [--project-ref <id>] [--start] [--join]`);
     log('');
     log(`  ${c.bold('Flags:')}`);
     log(`    ${c.green('--start')}  Create the google_meet intake session against the local API.`);
+    log(`    ${c.green('--join')}   After --start, call /meet/live/join against the configured sidecar.`);
+    log(`    ${c.green('--event-smoke')}  After --start, post a synthetic live event into the ledger.`);
     log('');
     return;
   }
@@ -6226,11 +6253,13 @@ async function cmdLiveTest(args: string[]) {
     },
   };
   const shouldStart = hasArg(rest, ['--start', '--create-session']);
+  const shouldJoin = hasArg(rest, ['--join', '--live-join']);
+  const shouldEventSmoke = hasArg(rest, ['--event-smoke']);
 
   log('');
   ok(`Parsed Google Meet link: ${c.cyan(parsed.normalizedUrl)}`);
   info(`Meeting code: ${parsed.meetingCode}`);
-  info('Google Meet intake is executable; live media still fails closed until the Meet sidecar ships.');
+  info('Google Meet intake, sidecar handoff, and live event callbacks are executable when Meet setup is configured.');
   log('');
   log(JSON.stringify(payload, null, 2));
   log('');
@@ -6266,10 +6295,48 @@ async function cmdLiveTest(args: string[]) {
       process.exit(1);
     }
     ok(`Google Meet intake session created for ${c.cyan(agent.name)}`);
-    if (result.data?.session?.id) info(`Session: ${result.data.session.id}`);
-    if (result.data?.meet?.readyForLiveJoin === false) info('Live join: not ready yet');
+    const sessionId = result.data?.session?.id;
+    if (sessionId) info(`Session: ${sessionId}`);
+    if (result.data?.readiness) {
+      const readiness = result.data.readiness;
+      info(`Meet live media ready: ${readiness.canUseLiveMedia ? 'yes' : 'no'}`);
+    }
     if (Array.isArray(result.data?.plan?.missing) && result.data.plan.missing.length) {
       info(`Missing: ${result.data.plan.missing.join(', ')}`);
+    }
+    if (shouldEventSmoke && sessionId) {
+      const event = await postLiveJson(
+        `${apiUrl}/api/agenticmail/meet/live/events`,
+        agent.apiKey,
+        {
+          sessionId,
+          eventId: `cli-smoke-${Date.now()}`,
+          type: 'status',
+          status: 'cli_event_smoke',
+          text: 'Google Meet CLI live-event smoke check.',
+        },
+      );
+      event.ok
+        ? ok(`Live event smoke recorded (${event.data?.recordedCount ?? 0})`)
+        : fail(`Live event smoke returned HTTP ${event.status}`);
+    }
+    if (shouldJoin && sessionId) {
+      const joined = await postLiveJson(
+        `${apiUrl}/api/agenticmail/meet/live/join`,
+        agent.apiKey,
+        { sessionId },
+      );
+      if (joined.ok) {
+        ok('Google Meet live sidecar join requested');
+        if (joined.data?.result?.status) info(`Sidecar status: ${joined.data.result.status}`);
+        if (joined.data?.result?.streamId) info(`Stream: ${joined.data.result.streamId}`);
+      } else {
+        fail(`Google Meet live join returned HTTP ${joined.status}`);
+        if (joined.data?.error) info(String(joined.data.error));
+        if (Array.isArray(joined.data?.readiness?.missing) && joined.data.readiness.missing.length) {
+          info(`Missing: ${joined.data.readiness.missing.join(', ')}`);
+        }
+      }
     }
     log('');
   } catch (err) {
@@ -6298,6 +6365,10 @@ async function cmdLive() {
     case 'bridge':
     case 'host-bridge':
       await cmdLiveBridge(rest);
+      return;
+    case 'meet-sidecar':
+    case 'meet':
+      await cmdLiveMeetSidecar(rest);
       return;
     case 'test':
       await cmdLiveTest(rest);
