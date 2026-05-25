@@ -10,6 +10,7 @@ import {
   createGoogleMeetSpace,
   getGoogleMeetReadiness,
   redactGoogleMeetConfig,
+  sendGoogleMeetLiveSidecarControl,
   startGoogleMeetLiveSidecar,
 } from '../meet/index.js';
 
@@ -142,6 +143,40 @@ describe('Google Meet link intake', () => {
       meetingCode: 'abc-defg-hij',
       participantName: 'AgenticMail Assistant',
       accessToken: 'ya29.test-token',
+    });
+  });
+
+  it('queues live media sidecar controls without exposing the Google token in the body', async () => {
+    const cfg = buildGoogleMeetConfig({
+      accessToken: 'ya29.test-token',
+      mediaSidecarUrl: 'http://127.0.0.1:4999',
+      mediaSidecarToken: 'sidecar-secret',
+    });
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: any, init: any) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ success: true, status: 'queued', queued: 1 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const result = await sendGoogleMeetLiveSidecarControl(cfg, {
+      sessionId: 'conv_1',
+      action: 'say',
+      text: 'Answer the pricing question.',
+      meetingUri: 'https://meet.google.com/abc-defg-hij',
+    }, { fetchImpl });
+
+    expect(result).toMatchObject({ success: true, status: 'queued', queued: 1 });
+    expect(calls[0].url).toBe('http://127.0.0.1:4999/control');
+    expect((calls[0].init.headers as any).Authorization).toBe('Bearer ya29.test-token');
+    expect((calls[0].init.headers as any)['X-AgenticMail-Meet-Sidecar-Token']).toBe('sidecar-secret');
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({
+      sessionId: 'conv_1',
+      action: 'say',
+      text: 'Answer the pricing question.',
+      meetingUri: 'https://meet.google.com/abc-defg-hij',
     });
   });
 });

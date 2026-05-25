@@ -36,8 +36,9 @@ What is not done yet:
   speech pipeline from STT + host LLM + TTS.
 - WhatsApp is still planned, not executable.
 - Google Meet is executable as link intake, session briefing, REST artifact
-  import, and live sidecar handoff. Actual meeting audio depends on a configured
-  Media API/WebRTC driver behind the sidecar.
+  import, live sidecar handoff, sidecar event ingestion, and outbound control
+  queueing. Actual meeting audio depends on a configured Media API/WebRTC
+  driver behind the sidecar.
 
 ## Boundary Decision
 
@@ -289,9 +290,10 @@ Build steps:
 7. Live note stream: speaker-attributed partial/final transcript events,
    action items, decisions, questions, and source links mirrored to the
    conversation ledger.
-8. Speak-back path: only after join/media capture is proven and consent policy
-   is explicit. The first mode should be "answer when asked", not free-form
-   interruption.
+8. Speak-back control path: `conversation_send` for `google_meet` sessions
+   queues authenticated `say` controls to the sidecar `/control/<sessionId>`
+   queue. The local driver consumes those controls and performs the real media
+   output.
 9. Operator side channel: Telegram commands such as `say: ...`, `mute`,
    `leave`, `summarize`, `ask me before answering`, and `approve answer`.
 
@@ -316,8 +318,11 @@ Current implementation:
    conversation ledger with duplicate protection. The local sidecar also
    exposes `/events/<sessionId>`, so a WebRTC driver can post locally and let
    the sidecar forward to AgenticMail with the stored callback token.
-6. Speaking is a second gate: the agent can only speak when addressed by name
-   or when the operator sends an explicit `say:` command.
+6. Speaking/control is queued, not faked: `conversation_send` on a
+   `google_meet` session POSTs a `say` control to the sidecar, records the
+   outbound turn, and gives the local driver a `/control/<sessionId>?consume=true`
+   queue to poll. The agent can only speak when addressed by name or when the
+   operator sends an explicit `say:` command.
 
 Local sidecar smoke:
 
@@ -349,8 +354,8 @@ agenticmail live test meet \
 ```
 
 Add `--start` to create the intake session through the local API. This proves
-the session ledger and briefing path; it deliberately does not claim a live
-Meet bot exists yet.
+the session ledger and briefing path. Add `--join` only when a trusted local
+sidecar/driver is configured.
 
 ## Implementation Order
 
@@ -365,8 +370,8 @@ Meet bot exists yet.
 | 7 | WhatsApp `meta_cloud` adapter | First non-Telegram/non-Matrix external messaging channel. |
 | 8 | Google Meet link intake + briefing | Done for API/MCP/OpenClaw/CLI intake: creates a session, stores context, and produces an honest readiness result. |
 | 9 | Google Meet space + artifact adapter | Done: setup/readiness, space create/get, transcript entry import. |
-| 10 | Google Meet media sidecar | Real live meeting audio path into the same host bridge. |
-| 11 | Google Meet speak-back policy | The agent can answer when addressed or operator-directed, with consent and approval gates. |
+| 10 | Google Meet media sidecar | Done for localhost join handoff, sidecar event callback, and control queue; real audio still requires a Media API/WebRTC driver. |
+| 11 | Google Meet speak-back policy | Control queue is in place for operator-directed `say` commands; full addressed-speaker policy remains driver/host work. |
 
 ## Testing Gate
 

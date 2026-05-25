@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import {
   ConversationSessionManager,
+  GoogleMeetApiError,
   GoogleMeetManager,
   MatrixApiError,
   MatrixManager,
@@ -15,9 +16,11 @@ import {
   normalizeGoogleMeetBehaviorMode,
   parseGoogleMeetLink,
   planRealtimeConversationStart,
+  sendGoogleMeetLiveSidecarControl,
   sendMatrixMessage,
   sendTelegramMessage,
   type AgenticMailConfig,
+  type ConversationSession,
   type ConversationSessionStatus,
   type RealtimeConversationChannel,
 } from '@agenticmail/core';
@@ -219,10 +222,16 @@ export function createConversationSessionRoutes(
       if (!session) return res.status(404).json({ error: 'conversation session not found' });
       if (session.status !== 'active') return res.status(400).json({ error: 'conversation session is not active' });
       const text = typeof req.body?.text === 'string' ? req.body.text : '';
-      if (!text.trim()) return res.status(400).json({ error: 'text is required' });
+      const action = requestString(req.body?.action);
+      const googleMeetControlOnly = session.channel === 'google_meet' && !!action && action !== 'say';
+      if (!text.trim() && !googleMeetControlOnly) return res.status(400).json({ error: 'text is required' });
 
       if (session.channel === 'matrix') {
         return await sendMatrixSessionMessage(req, res, agent.id, session.id, session.peer, text);
+      }
+
+      if (session.channel === 'google_meet') {
+        return await sendGoogleMeetSessionMessage(req, res, agent.id, session, text);
       }
 
       if (session.channel !== 'telegram') {
@@ -453,6 +462,66 @@ export function createConversationSessionRoutes(
         matrix: matrixRecord,
         error: err instanceof MatrixApiError ? err.message : 'Matrix send failed',
         ...extra,
+      });
+    }
+  }
+
+  async function sendGoogleMeetSessionMessage(
+    req: Request,
+    res: Response,
+    agentId: string,
+    session: ConversationSession,
+    text: string,
+  ): Promise<Response> {
+    const cfg = googleMeetManager.getConfig(agentId);
+    const readiness = getGoogleMeetReadiness(cfg);
+    if (!cfg?.enabled || !readiness.canUseLiveMedia) {
+      return res.status(400).json({
+        error: 'Google Meet live media is not configured. Use /meet/setup with a live media sidecar first.',
+        readiness,
+      });
+    }
+
+    const action = requestString(req.body?.action) || 'say';
+    const controlText = text.trim() ? text : undefined;
+    const ledgerText = controlText || `Google Meet control: ${action}`;
+    const sessionMetadata = requestRecord(session.metadata) ?? {};
+    const controlMetadata = requestRecord(req.body?.metadata);
+    try {
+      const result = await sendGoogleMeetLiveSidecarControl(cfg, {
+        sessionId: session.id,
+        action,
+        ...(controlText ? { text: controlText } : {}),
+        meetingUri: requestString(sessionMetadata.meetLink) || session.peer,
+        streamId: requestString(req.body?.streamId) || undefined,
+        metadata: controlMetadata,
+      });
+      const control = requestRecord(result.control);
+      const controlId = requestString(control?.id);
+      const message = sessions.recordMessage({
+        sessionId: session.id,
+        agentId,
+        channel: 'google_meet',
+        direction: 'outbound',
+        text: ledgerText,
+        externalMessageId: controlId || undefined,
+        metadata: {
+          kind: 'google_meet_live_control',
+          action,
+          sidecarStatus: requestString(result.status) || undefined,
+          queued: result.queued,
+          controlId: controlId || undefined,
+          streamId: requestString(req.body?.streamId) || requestString(control?.streamId) || undefined,
+          metadata: controlMetadata,
+        },
+      });
+      return res.json({ success: true, message, control: result });
+    } catch (err) {
+      const message = err instanceof GoogleMeetApiError ? err.message : 'Google Meet live control failed';
+      return res.status(502).json({
+        success: false,
+        error: message,
+        details: err instanceof GoogleMeetApiError ? err.details : undefined,
       });
     }
   }

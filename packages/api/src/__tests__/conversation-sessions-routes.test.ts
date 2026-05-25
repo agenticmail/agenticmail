@@ -52,6 +52,24 @@ function createDb() {
   return db;
 }
 
+function configureGoogleMeet(db: ReturnType<typeof createTestDatabase>) {
+  const row = db.prepare('SELECT metadata FROM agents WHERE id = ?').get('agent1') as { metadata: string };
+  const metadata = JSON.parse(row.metadata);
+  metadata.googleMeet = {
+    enabled: true,
+    accessToken: 'ya29.test-token',
+    mediaApiDeveloperPreview: true,
+    mediaSidecarUrl: 'http://127.0.0.1:4999',
+    mediaSidecarToken: 'sidecar-secret',
+    participantName: 'AgenticMail Assistant',
+    consentPolicyAccepted: true,
+    allowedDomains: [],
+    defaultBehaviorMode: 'answer_when_asked',
+    configuredAt: new Date().toISOString(),
+  };
+  db.prepare('UPDATE agents SET metadata = ? WHERE id = ?').run(JSON.stringify(metadata), 'agent1');
+}
+
 function createApp(db: ReturnType<typeof createTestDatabase>): express.Express {
   const app = express();
   app.use(express.json());
@@ -222,6 +240,109 @@ describe('conversation session routes', () => {
     });
     expect(messages.body.messages[0].text).toContain('Project Alpha pricing review');
     expect(messages.body.messages[0].text).toContain('live_media_status: not_joined');
+
+    db.close();
+  });
+
+  it('queues Google Meet live messages as sidecar controls', async () => {
+    const db = createDb();
+    configureGoogleMeet(db);
+    const manager = new ConversationSessionManager(db);
+    const session = manager.createSession({
+      agentId: 'agent1',
+      channel: 'google_meet',
+      peer: 'https://meet.google.com/abc-defg-hij',
+      externalRef: 'abc-defg-hij',
+      subject: 'Planning call',
+      metadata: {
+        meetLink: 'https://meet.google.com/abc-defg-hij',
+        meetingCode: 'abc-defg-hij',
+        liveContext: { behaviorMode: 'answer_when_asked', hostIntegration: 'openclaw' },
+      },
+    });
+    const sidecarCalls: Array<{ url: string; headers: any; body: any }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: any, init: any) => {
+      if (String(url).startsWith('http://127.0.0.1:4999')) {
+        const parsedBody = JSON.parse(String(init.body));
+        sidecarCalls.push({ url: String(url), headers: init.headers, body: parsedBody });
+        return new Response(JSON.stringify({
+          success: true,
+          status: 'queued',
+          queued: 1,
+          control: { id: `ctrl_${sidecarCalls.length}`, sessionId: session.id, action: parsedBody.action },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return realFetch(url, init);
+    }));
+    const baseUrl = await listen(createApp(db));
+
+    const sent = await request(baseUrl, `/conversation/sessions/${session.id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        text: 'Please answer the pricing question.',
+        action: 'say',
+        streamId: 'stream_1',
+        metadata: { priority: 'operator' },
+      }),
+    });
+    const muted = await request(baseUrl, `/conversation/sessions/${session.id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'mute' }),
+    });
+
+    expect(sent.status).toBe(200);
+    expect(sent.body.control).toMatchObject({ status: 'queued', queued: 1 });
+    expect(sent.body.message).toMatchObject({
+      channel: 'google_meet',
+      direction: 'outbound',
+      text: 'Please answer the pricing question.',
+      externalMessageId: 'ctrl_1',
+      metadata: {
+        kind: 'google_meet_live_control',
+        action: 'say',
+        sidecarStatus: 'queued',
+        queued: 1,
+        controlId: 'ctrl_1',
+        streamId: 'stream_1',
+        metadata: { priority: 'operator' },
+      },
+    });
+    expect(sidecarCalls[0]).toMatchObject({
+      url: 'http://127.0.0.1:4999/control',
+      headers: {
+        Authorization: 'Bearer ya29.test-token',
+        'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret',
+      },
+      body: {
+        sessionId: session.id,
+        action: 'say',
+        text: 'Please answer the pricing question.',
+        meetingUri: 'https://meet.google.com/abc-defg-hij',
+        streamId: 'stream_1',
+        metadata: { priority: 'operator' },
+      },
+    });
+    expect(muted.status).toBe(200);
+    expect(muted.body.message).toMatchObject({
+      channel: 'google_meet',
+      direction: 'outbound',
+      text: 'Google Meet control: mute',
+      externalMessageId: 'ctrl_2',
+      metadata: {
+        kind: 'google_meet_live_control',
+        action: 'mute',
+        controlId: 'ctrl_2',
+      },
+    });
+    expect(sidecarCalls[1].body).toMatchObject({
+      sessionId: session.id,
+      action: 'mute',
+      meetingUri: 'https://meet.google.com/abc-defg-hij',
+    });
+    expect(sidecarCalls[1].body).not.toHaveProperty('text');
 
     db.close();
   });

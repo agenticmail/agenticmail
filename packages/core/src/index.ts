@@ -199,11 +199,14 @@ export {
   listGoogleMeetTranscriptEntries,
   listGoogleMeetTranscripts,
   redactGoogleMeetConfig,
+  sendGoogleMeetLiveSidecarControl,
   startGoogleMeetLiveSidecar,
 } from './meet/index.js';
 export type {
   GoogleMeetConfig,
   GoogleMeetConferenceRecordsResponse,
+  GoogleMeetLiveControlRequest,
+  GoogleMeetLiveControlResponse,
   GoogleMeetLiveJoinRequest,
   GoogleMeetLiveJoinResponse,
   GoogleMeetReadiness,

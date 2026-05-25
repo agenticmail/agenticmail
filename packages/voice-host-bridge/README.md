@@ -38,9 +38,21 @@ Configure the agent with:
 ```
 
 The sidecar accepts `/join`, stores non-secret session status under
-`/sessions`, and can delegate the real Google Meet Media API/WebRTC work to a
-local executable via `--driver-command` plus repeated `--driver-arg` flags.
-The join JSON passed to the driver includes `eventCallbackUrl` and
-`eventCallbackToken`; drivers should POST live status/transcript/note events
-to the local sidecar `/events/<sessionId>` endpoint. The sidecar forwards them
-to AgenticMail with the token in `x-agenticmail-meet-sidecar-token`.
+`/sessions`, queues host/operator controls under `/control`, and can delegate
+the real Google Meet Media API/WebRTC work to a local executable via
+`--driver-command` plus repeated `--driver-arg` flags. The join JSON passed to
+the driver includes `eventCallbackUrl` and `eventCallbackToken`; drivers should
+POST live status/transcript/note events to the local sidecar
+`/events/<sessionId>` endpoint. The sidecar forwards them to AgenticMail with
+the token in `x-agenticmail-meet-sidecar-token`.
+
+Drivers poll controls with:
+
+```bash
+curl -H 'x-agenticmail-meet-sidecar-token: local-secret' \
+  'http://127.0.0.1:4999/control/<sessionId>?consume=true'
+```
+
+AgenticMail queues `say` controls through the conversation message endpoint for
+`google_meet` sessions, so host commands and meeting speech requests use the
+same session ledger.

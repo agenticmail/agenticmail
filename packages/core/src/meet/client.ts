@@ -55,6 +55,25 @@ export interface GoogleMeetLiveJoinResponse {
   [key: string]: unknown;
 }
 
+export interface GoogleMeetLiveControlRequest {
+  sessionId: string;
+  action: 'say' | 'mute' | 'unmute' | 'leave' | 'summarize' | 'operator_note' | string;
+  text?: string;
+  meetingUri?: string;
+  streamId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GoogleMeetLiveControlResponse {
+  success?: boolean;
+  status?: string;
+  sessionId?: string;
+  action?: string;
+  queued?: number;
+  message?: string;
+  [key: string]: unknown;
+}
+
 export interface GoogleMeetTranscriptResponse {
   transcripts?: Array<Record<string, unknown>>;
   nextPageToken?: string;
@@ -67,6 +86,12 @@ export interface GoogleMeetConferenceRecordsResponse {
 
 function trimSlashes(value: string): string {
   return value.replace(/^\/+/, '').replace(/\/+$/, '');
+}
+
+function googleMeetSidecarUrl(mediaSidecarUrl: string, defaultPath: string): string {
+  const url = new URL(mediaSidecarUrl);
+  if (!url.pathname || url.pathname === '/') url.pathname = defaultPath;
+  return url.toString();
 }
 
 function assertMeetResource(name: string, prefix: string): string {
@@ -119,9 +144,7 @@ export async function startGoogleMeetLiveSidecar(
 ): Promise<GoogleMeetLiveJoinResponse> {
   if (!config.mediaSidecarUrl) throw new Error('mediaSidecarUrl is required');
   const fetchImpl = init?.fetchImpl ?? fetch;
-  const url = new URL(config.mediaSidecarUrl);
-  if (!url.pathname || url.pathname === '/') url.pathname = '/join';
-  const resp = await fetchImpl(url.toString(), {
+  const resp = await fetchImpl(googleMeetSidecarUrl(config.mediaSidecarUrl, '/join'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -144,6 +167,34 @@ export async function startGoogleMeetLiveSidecar(
     throw new GoogleMeetApiError(message, resp.status, data);
   }
   return data as GoogleMeetLiveJoinResponse;
+}
+
+export async function sendGoogleMeetLiveSidecarControl(
+  config: GoogleMeetConfig,
+  request: GoogleMeetLiveControlRequest,
+  init?: { fetchImpl?: typeof fetch },
+): Promise<GoogleMeetLiveControlResponse> {
+  if (!config.mediaSidecarUrl) throw new Error('mediaSidecarUrl is required');
+  const fetchImpl = init?.fetchImpl ?? fetch;
+  const resp = await fetchImpl(googleMeetSidecarUrl(config.mediaSidecarUrl, '/control'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.accessToken}`,
+      ...(config.mediaSidecarToken ? { 'X-AgenticMail-Meet-Sidecar-Token': config.mediaSidecarToken } : {}),
+    },
+    body: JSON.stringify(request),
+  });
+  const data = await parseGoogleMeetResponse(resp);
+  if (!resp.ok) {
+    const message = typeof (data as any)?.error === 'string'
+      ? (data as any).error
+      : typeof (data as any)?.message === 'string'
+        ? (data as any).message
+        : `Google Meet media sidecar returned HTTP ${resp.status}`;
+    throw new GoogleMeetApiError(message, resp.status, data);
+  }
+  return data as GoogleMeetLiveControlResponse;
 }
 
 export async function createGoogleMeetSpace(

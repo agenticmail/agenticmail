@@ -364,6 +364,67 @@ describe('Meet media sidecar', () => {
     });
   });
 
+  it('queues live controls for a local Meet driver and consumes them once', async () => {
+    const sidecar = await startMeetMediaSidecar({
+      port: 0,
+      sidecarToken: 'sidecar-secret',
+      logger: false,
+    });
+    closers.push(sidecar.close);
+
+    const queued = await fetch(`${sidecar.controlUrl}/conv_1`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret',
+      },
+      body: JSON.stringify({
+        action: 'say',
+        text: 'Answer the pricing question.',
+        streamId: 'stream_1',
+        metadata: { priority: 'operator' },
+      }),
+    });
+    const queuedBody = await queued.json() as Record<string, unknown>;
+
+    expect(queued.status).toBe(200);
+    expect(queuedBody).toMatchObject({
+      success: true,
+      status: 'queued',
+      sessionId: 'conv_1',
+      action: 'say',
+      queued: 1,
+      control: {
+        sessionId: 'conv_1',
+        action: 'say',
+        text: 'Answer the pricing question.',
+        streamId: 'stream_1',
+        metadata: { priority: 'operator' },
+      },
+    });
+
+    const consumed = await fetch(`${sidecar.controlUrl}/conv_1?consume=true`, {
+      headers: { 'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret' },
+    });
+    const consumedBody = await consumed.json() as Record<string, unknown>;
+    expect(consumed.status).toBe(200);
+    expect(consumedBody).toMatchObject({ count: 1 });
+    expect(consumedBody.controls).toEqual([
+      expect.objectContaining({
+        sessionId: 'conv_1',
+        action: 'say',
+        text: 'Answer the pricing question.',
+      }),
+    ]);
+
+    const empty = await fetch(`${sidecar.controlUrl}/conv_1?consume=true`, {
+      headers: { 'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret' },
+    });
+    const emptyBody = await empty.json() as Record<string, unknown>;
+    expect(empty.status).toBe(200);
+    expect(emptyBody).toMatchObject({ controls: [], count: 0 });
+  });
+
   it('resolves Meet sidecar defaults from environment variables', () => {
     const opts = resolveMeetMediaSidecarOptionsFromEnv({
       AGENTICMAIL_MEET_SIDECAR_PORT: '4999',
