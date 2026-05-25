@@ -313,7 +313,9 @@ Current implementation:
    participant name, session id, and an authenticated event callback.
    `/meet/live/events` accepts sidecar-token-authenticated status, transcript,
    note, action-item, question, and error events and writes them into the
-   conversation ledger with duplicate protection.
+   conversation ledger with duplicate protection. The local sidecar also
+   exposes `/events/<sessionId>`, so a WebRTC driver can post locally and let
+   the sidecar forward to AgenticMail with the stored callback token.
 6. Speaking is a second gate: the agent can only speak when addressed by name
    or when the operator sends an explicit `say:` command.
 

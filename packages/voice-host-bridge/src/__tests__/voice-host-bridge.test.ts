@@ -295,6 +295,75 @@ describe('Meet media sidecar', () => {
     });
   });
 
+  it('forwards local driver events to the AgenticMail callback with the callback token', async () => {
+    const callbackServer = createServer();
+    const callbackBodies: Array<{ headers: Record<string, any>; body: any }> = [];
+    callbackServer.on('request', (req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        callbackBodies.push({
+          headers: req.headers as Record<string, any>,
+          body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, recordedCount: 1 }));
+      });
+    });
+    const callbackPort = await listen(callbackServer);
+    closers.push(async () => {
+      await new Promise<void>((resolve, reject) => callbackServer.close((err) => (err ? reject(err) : resolve())));
+    });
+    const sidecar = await startMeetMediaSidecar({
+      port: 0,
+      sidecarToken: 'sidecar-secret',
+      logger: false,
+    });
+    closers.push(sidecar.close);
+
+    await fetch(sidecar.joinUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret',
+      },
+      body: JSON.stringify({
+        sessionId: 'conv_1',
+        meetingUri: 'https://meet.google.com/abc-defg-hij',
+        accessToken: 'ya29.test-token',
+        eventCallbackUrl: `http://127.0.0.1:${callbackPort}/api/agenticmail/meet/live/events`,
+        eventCallbackToken: 'callback-secret',
+      }),
+    });
+    const eventRes = await fetch(`${sidecar.eventsUrl}/conv_1`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret',
+      },
+      body: JSON.stringify({
+        type: 'transcript.final',
+        eventId: 'event-1',
+        text: 'Live transcript text',
+      }),
+    });
+    const eventBody = await eventRes.json() as Record<string, unknown>;
+
+    expect(eventRes.status).toBe(200);
+    expect(eventBody).toMatchObject({ success: true, forwarded: { recordedCount: 1 } });
+    expect(callbackBodies[0]).toMatchObject({
+      headers: {
+        'x-agenticmail-meet-sidecar-token': 'callback-secret',
+      },
+      body: {
+        sessionId: 'conv_1',
+        type: 'transcript.final',
+        eventId: 'event-1',
+        text: 'Live transcript text',
+      },
+    });
+  });
+
   it('resolves Meet sidecar defaults from environment variables', () => {
     const opts = resolveMeetMediaSidecarOptionsFromEnv({
       AGENTICMAIL_MEET_SIDECAR_PORT: '4999',

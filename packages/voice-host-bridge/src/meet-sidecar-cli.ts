@@ -21,6 +21,7 @@ Options:
   --host <host>                    Listen host (default: 127.0.0.1)
   --port <port>                    Listen port (default: 4999)
   --join-path <path>               HTTP join path (default: /join)
+  --events-path <path>             Local driver event path (default: /events)
   --health-path <path>             Health path (default: /health)
   --sessions-path <path>           Session status path (default: /sessions)
   --token <token>                  Optional sidecar token required via x-agenticmail-meet-sidecar-token
@@ -115,6 +116,7 @@ export async function runMeetMediaSidecarCli(
       host: readFlag(argv, '--host'),
       port: parseNumber(readFlag(argv, '--port'), '--port'),
       joinPath: readFlag(argv, '--join-path'),
+      eventsPath: readFlag(argv, '--events-path'),
       healthPath: readFlag(argv, '--health-path'),
       sessionsPath: readFlag(argv, '--sessions-path'),
       sidecarToken: readFlag(argv, '--token') || env.AGENTICMAIL_MEET_SIDECAR_TOKEN,
@@ -130,6 +132,7 @@ export async function runMeetMediaSidecarCli(
       io.log('  mediaSidecarToken=<same token>');
     }
     io.log(`  health: ${handle.healthUrl}`);
+    io.log(`  events: ${handle.eventsUrl}`);
     io.log(`  sessions: ${handle.sessionsUrl}`);
     await waitForShutdown(handle.close, io);
     return 0;

@@ -42,4 +42,5 @@ The sidecar accepts `/join`, stores non-secret session status under
 local executable via `--driver-command` plus repeated `--driver-arg` flags.
 The join JSON passed to the driver includes `eventCallbackUrl` and
 `eventCallbackToken`; drivers should POST live status/transcript/note events
-back to that URL with the token in `x-agenticmail-meet-sidecar-token`.
+to the local sidecar `/events/<sessionId>` endpoint. The sidecar forwards them
+to AgenticMail with the token in `x-agenticmail-meet-sidecar-token`.

@@ -49,6 +49,7 @@ export interface MeetMediaSidecarOptions {
   host?: string;
   port?: number;
   joinPath?: string;
+  eventsPath?: string;
   healthPath?: string;
   sessionsPath?: string;
   sidecarToken?: string;
@@ -62,6 +63,7 @@ export interface MeetMediaSidecarResolvedOptions {
   host: string;
   port: number;
   joinPath: string;
+  eventsPath: string;
   healthPath: string;
   sessionsPath: string;
   sidecarToken: string;
@@ -75,6 +77,7 @@ export interface MeetMediaSidecarHandle {
   server: Server;
   url: string;
   joinUrl: string;
+  eventsUrl: string;
   healthUrl: string;
   sessionsUrl: string;
   options: MeetMediaSidecarResolvedOptions;
@@ -85,11 +88,17 @@ export interface MeetMediaSidecarHandle {
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 4999;
 const DEFAULT_JOIN_PATH = '/join';
+const DEFAULT_EVENTS_PATH = '/events';
 const DEFAULT_HEALTH_PATH = '/health';
 const DEFAULT_SESSIONS_PATH = '/sessions';
 const DEFAULT_DRIVER_TIMEOUT_MS = 30_000;
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_DRIVER_OUTPUT_BYTES = 1_000_000;
+
+interface MeetMediaSidecarCallback {
+  url: string;
+  token?: string;
+}
 
 function normalizePath(path: string | undefined, fallback: string): string {
   const trimmed = (path || fallback).trim() || fallback;
@@ -247,6 +256,7 @@ export function resolveMeetMediaSidecarOptionsFromEnv(
     host: overrides.host || env.AGENTICMAIL_MEET_SIDECAR_HOST || DEFAULT_HOST,
     port: overrides.port ?? parsePort(env.AGENTICMAIL_MEET_SIDECAR_PORT, DEFAULT_PORT),
     joinPath: normalizePath(overrides.joinPath || env.AGENTICMAIL_MEET_SIDECAR_JOIN_PATH, DEFAULT_JOIN_PATH),
+    eventsPath: normalizePath(overrides.eventsPath || env.AGENTICMAIL_MEET_SIDECAR_EVENTS_PATH, DEFAULT_EVENTS_PATH),
     healthPath: normalizePath(overrides.healthPath || env.AGENTICMAIL_MEET_SIDECAR_HEALTH_PATH, DEFAULT_HEALTH_PATH),
     sessionsPath: normalizePath(overrides.sessionsPath || env.AGENTICMAIL_MEET_SIDECAR_SESSIONS_PATH, DEFAULT_SESSIONS_PATH),
     sidecarToken: (overrides.sidecarToken || env.AGENTICMAIL_MEET_SIDECAR_TOKEN || '').trim(),
@@ -271,6 +281,7 @@ function handleHealth(res: ServerResponse, opts: MeetMediaSidecarResolvedOptions
     status: 'ok',
     url: handleUrl,
     joinPath: opts.joinPath,
+    eventsPath: opts.eventsPath,
     sessionsPath: opts.sessionsPath,
     tokenRequired: !!opts.sidecarToken,
     driverConfigured: !!opts.driverCommand,
@@ -285,6 +296,34 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
   }
 
   const sessions = new Map<string, MeetMediaSidecarSession>();
+  const callbacks = new Map<string, MeetMediaSidecarCallback>();
+
+  const forwardEvent = async (sessionId: string, body: Record<string, unknown>) => {
+    const callback = callbacks.get(sessionId);
+    if (!callback) throw new Error('Meet event callback is not configured for this session');
+    const payload = {
+      ...body,
+      sessionId,
+    };
+    const response = await fetch(callback.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(callback.token ? { 'X-AgenticMail-Meet-Sidecar-Token': callback.token } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+    let data: unknown = {};
+    try { data = await response.json(); } catch { /* ignore */ }
+    if (!response.ok) {
+      const message = typeof (data as any)?.error === 'string'
+        ? (data as any).error
+        : `AgenticMail Meet event callback returned HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return data;
+  };
+
   const server = createServer(async (req, res) => {
     const host = req.headers.host || `${opts.host}:${opts.port}`;
     const requestUrl = new URL(req.url || '/', `http://${host}`);
@@ -307,6 +346,29 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
         writeJson(res, session ? 200 : 404, session ?? { error: 'session_not_found' });
         return;
       }
+      if (req.method === 'POST' && (
+        requestUrl.pathname === opts.eventsPath
+        || requestUrl.pathname.startsWith(`${opts.eventsPath}/`)
+      )) {
+        const raw = await readJsonBody(req);
+        const sessionId = requestUrl.pathname === opts.eventsPath
+          ? asString(raw.sessionId)
+          : decodeURIComponent(requestUrl.pathname.slice(opts.eventsPath.length + 1));
+        if (!sessionId) throw new Error('sessionId is required');
+        const callbackResult = await forwardEvent(sessionId, raw);
+        const current = sessions.get(sessionId);
+        if (current) {
+          const status = asString(raw.status);
+          sessions.set(sessionId, {
+            ...current,
+            status: status || current.status,
+            updatedAt: new Date().toISOString(),
+            message: asString(raw.message) || current.message,
+          });
+        }
+        writeJson(res, 200, { success: true, forwarded: callbackResult });
+        return;
+      }
       if (req.method === 'POST' && requestUrl.pathname === opts.joinPath) {
         const request = normalizeJoinRequest(await readJsonBody(req));
         const now = new Date().toISOString();
@@ -326,6 +388,12 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
           updatedAt: now,
         };
         sessions.set(request.sessionId, session);
+        if (request.eventCallbackUrl) {
+          callbacks.set(request.sessionId, {
+            url: request.eventCallbackUrl,
+            token: request.eventCallbackToken,
+          });
+        }
         opts.logger && opts.logger.log(
           `[meet-sidecar] join requested ${request.sessionId} ${request.meetingUri}`,
         );
@@ -394,6 +462,7 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
   const port = address.port;
   const baseUrl = toHttpUrl(opts.host, port, '');
   const joinUrl = toHttpUrl(opts.host, port, opts.joinPath);
+  const eventsUrl = toHttpUrl(opts.host, port, opts.eventsPath);
   const healthUrl = toHttpUrl(opts.host, port, opts.healthPath);
   const sessionsUrl = toHttpUrl(opts.host, port, opts.sessionsPath);
   opts.logger && opts.logger.log(
@@ -404,6 +473,7 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
     server,
     url: baseUrl,
     joinUrl,
+    eventsUrl,
     healthUrl,
     sessionsUrl,
     options: { ...opts, port },
