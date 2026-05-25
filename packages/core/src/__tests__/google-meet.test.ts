@@ -59,12 +59,14 @@ describe('Google Meet link intake', () => {
       defaultBehaviorMode: 'operator_directed',
       mediaApiDeveloperPreview: true,
       mediaSidecarUrl: 'http://127.0.0.1:4999/meet',
+      mediaSidecarToken: 'sidecar-secret',
       consentPolicyAccepted: true,
     });
 
     expect(cfg.allowedDomains).toEqual(['example.com']);
     expect(cfg.defaultBehaviorMode).toBe('operator_directed');
     expect(redactGoogleMeetConfig(cfg).accessToken).toBe('***');
+    expect(redactGoogleMeetConfig(cfg).mediaSidecarToken).toBe('***');
     expect(getGoogleMeetReadiness(cfg)).toMatchObject({
       configured: true,
       enabled: true,
@@ -112,6 +114,7 @@ describe('Google Meet link intake', () => {
     const cfg = buildGoogleMeetConfig({
       accessToken: 'ya29.test-token',
       mediaSidecarUrl: 'http://127.0.0.1:4999',
+      mediaSidecarToken: 'sidecar-secret',
       participantName: 'AgenticMail Assistant',
     });
     const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -133,6 +136,7 @@ describe('Google Meet link intake', () => {
     expect(result).toMatchObject({ success: true, status: 'joining', streamId: 'stream_1' });
     expect(calls[0].url).toBe('http://127.0.0.1:4999/join');
     expect((calls[0].init.headers as any).Authorization).toBe('Bearer ya29.test-token');
+    expect((calls[0].init.headers as any)['X-AgenticMail-Meet-Sidecar-Token']).toBe('sidecar-secret');
     expect(JSON.parse(String(calls[0].init.body))).toMatchObject({
       sessionId: 'conv_1',
       meetingCode: 'abc-defg-hij',

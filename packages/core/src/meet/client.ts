@@ -124,6 +124,7 @@ export async function startGoogleMeetLiveSidecar(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.accessToken}`,
+      ...(config.mediaSidecarToken ? { 'X-AgenticMail-Meet-Sidecar-Token': config.mediaSidecarToken } : {}),
     },
     body: JSON.stringify({
       ...request,

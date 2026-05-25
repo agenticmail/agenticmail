@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "agenticmail-hermes-voice-host-bridge": "dist/voice-host-bridge-bin.js"
+    "agenticmail-hermes-voice-host-bridge": "dist/voice-host-bridge-bin.js",
+    "agenticmail-hermes-meet-sidecar": "dist/meet-sidecar-bin.js"
   },
   "exports": {
     ".": {
@@ -19,7 +20,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/voice-host-bridge-bin.ts --format esm --dts --clean",
+    "build": "tsup src/index.ts src/voice-host-bridge-bin.ts src/meet-sidecar-bin.ts --format esm --dts --clean",
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "npm run build"
   },

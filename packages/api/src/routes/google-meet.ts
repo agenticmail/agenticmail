@@ -122,6 +122,7 @@ export function createGoogleMeetRoutes(
         defaultBehaviorMode: requestString(req.body?.defaultBehaviorMode) || existing?.defaultBehaviorMode,
         mediaApiDeveloperPreview: req.body?.mediaApiDeveloperPreview ?? existing?.mediaApiDeveloperPreview,
         mediaSidecarUrl: requestString(req.body?.mediaSidecarUrl) || existing?.mediaSidecarUrl,
+        mediaSidecarToken: requestString(req.body?.mediaSidecarToken) || existing?.mediaSidecarToken,
         consentPolicyAccepted: req.body?.consentPolicyAccepted ?? existing?.consentPolicyAccepted,
         configuredAt: existing?.configuredAt,
       });

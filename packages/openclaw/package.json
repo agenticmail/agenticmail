@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "agenticmail-openclaw-voice-host-bridge": "dist/src/voice-host-bridge-bin.js"
+    "agenticmail-openclaw-voice-host-bridge": "dist/src/voice-host-bridge-bin.js",
+    "agenticmail-openclaw-meet-sidecar": "dist/src/meet-sidecar-bin.js"
   },
   "exports": {
     ".": {
@@ -31,7 +32,7 @@
     ]
   },
   "scripts": {
-    "build": "tsup index.ts src/voice-host-bridge-bin.ts --format esm,cjs --dts --clean",
+    "build": "tsup index.ts src/voice-host-bridge-bin.ts src/meet-sidecar-bin.ts --format esm,cjs --dts --clean",
     "test": "vitest run --passWithNoTests",
     "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run build"

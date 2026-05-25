@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "agenticmail-voice-host-bridge": "dist/cli.js"
+    "agenticmail-voice-host-bridge": "dist/cli.js",
+    "agenticmail-meet-sidecar": "dist/meet-sidecar-cli.js"
   },
   "exports": {
     ".": {
@@ -17,6 +18,15 @@
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
+    },
+    "./meet-sidecar": {
+      "types": "./dist/meet-sidecar.d.ts",
+      "import": "./dist/meet-sidecar.js",
+      "require": "./dist/meet-sidecar.cjs"
+    },
+    "./meet-sidecar-cli": {
+      "types": "./dist/meet-sidecar-cli.d.ts",
+      "import": "./dist/meet-sidecar-cli.js"
     }
   },
   "files": [
@@ -25,7 +35,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --clean --target node20 && tsup src/cli.ts --format esm --dts --target node20",
+    "build": "tsup src/index.ts src/meet-sidecar.ts --format esm,cjs --dts --clean --target node20 && tsup src/cli.ts src/meet-sidecar-cli.ts --format esm --dts --target node20",
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "npm run build"
   },

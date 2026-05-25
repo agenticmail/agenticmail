@@ -11,6 +11,7 @@ export interface GoogleMeetConfig {
   defaultBehaviorMode: GoogleMeetBehaviorMode;
   mediaApiDeveloperPreview: boolean;
   mediaSidecarUrl?: string;
+  mediaSidecarToken?: string;
   consentPolicyAccepted: boolean;
   configuredAt: string;
 }
@@ -26,7 +27,7 @@ export interface GoogleMeetReadiness {
   requiredScopes: string[];
 }
 
-const GOOGLE_MEET_SECRET_FIELDS = ['accessToken'] as const;
+const GOOGLE_MEET_SECRET_FIELDS = ['accessToken', 'mediaSidecarToken'] as const;
 
 export const GOOGLE_MEET_SPACE_SCOPES = [
   'https://www.googleapis.com/auth/meetings.space.created',
@@ -81,6 +82,7 @@ export function buildGoogleMeetConfig(input: {
   defaultBehaviorMode?: unknown;
   mediaApiDeveloperPreview?: unknown;
   mediaSidecarUrl?: unknown;
+  mediaSidecarToken?: unknown;
   consentPolicyAccepted?: unknown;
   configuredAt?: unknown;
 }): GoogleMeetConfig {
@@ -97,6 +99,7 @@ export function buildGoogleMeetConfig(input: {
     defaultBehaviorMode: normalizeGoogleMeetBehaviorMode(input.defaultBehaviorMode),
     mediaApiDeveloperPreview: input.mediaApiDeveloperPreview === true,
     mediaSidecarUrl: normalizeHttpsUrl(input.mediaSidecarUrl, 'mediaSidecarUrl'),
+    mediaSidecarToken: requestString(input.mediaSidecarToken) || undefined,
     consentPolicyAccepted: input.consentPolicyAccepted === true,
     configuredAt: typeof input.configuredAt === 'string' ? input.configuredAt : new Date().toISOString(),
   };
@@ -106,6 +109,7 @@ export function redactGoogleMeetConfig(config: GoogleMeetConfig): GoogleMeetConf
   return {
     ...config,
     accessToken: config.accessToken ? '***' : config.accessToken,
+    mediaSidecarToken: config.mediaSidecarToken ? '***' : config.mediaSidecarToken,
   };
 }
 
@@ -124,6 +128,11 @@ export function getGoogleMeetReadiness(config: GoogleMeetConfig | null): GoogleM
   }
   if (canUseRest && config.allowedDomains.length === 0) {
     warnings.push('allowedDomains is empty; meeting intake is not domain-restricted');
+  }
+  if (canUseRest && config.mediaSidecarUrl && !config.mediaSidecarToken) {
+    const url = new URL(config.mediaSidecarUrl);
+    const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+    if (!local) warnings.push('mediaSidecarToken is not configured for a non-local Meet sidecar');
   }
 
   const mediaMissing: string[] = [];
@@ -189,6 +198,7 @@ export class GoogleMeetManager {
       defaultBehaviorMode: raw.defaultBehaviorMode,
       mediaApiDeveloperPreview: raw.mediaApiDeveloperPreview,
       mediaSidecarUrl: raw.mediaSidecarUrl,
+      mediaSidecarToken: raw.mediaSidecarToken,
       consentPolicyAccepted: raw.consentPolicyAccepted,
       configuredAt: raw.configuredAt,
     });

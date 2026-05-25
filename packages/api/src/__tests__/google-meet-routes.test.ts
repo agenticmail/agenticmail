@@ -70,6 +70,7 @@ describe('Google Meet routes', () => {
         defaultBehaviorMode: 'answer_when_asked',
         mediaApiDeveloperPreview: true,
         mediaSidecarUrl: 'http://127.0.0.1:4999/meet',
+        mediaSidecarToken: 'sidecar-secret',
         consentPolicyAccepted: true,
         verify: false,
       }),
@@ -77,6 +78,7 @@ describe('Google Meet routes', () => {
 
     expect(setup.status).toBe(200);
     expect(setup.body.googleMeet.accessToken).toBe('***');
+    expect(setup.body.googleMeet.mediaSidecarToken).toBe('***');
     expect(setup.body.readiness).toMatchObject({
       configured: true,
       canCreateSpaces: true,
@@ -195,10 +197,10 @@ describe('Google Meet routes', () => {
         liveContext: { behaviorMode: 'answer_when_asked', hostIntegration: 'openclaw' },
       },
     });
-    const sidecarCalls: Array<{ url: string; body: any }> = [];
+    const sidecarCalls: Array<{ url: string; headers: any; body: any }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: any, init: any) => {
       if (String(url).startsWith('http://127.0.0.1:4999')) {
-        sidecarCalls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+        sidecarCalls.push({ url: String(url), headers: init.headers, body: JSON.parse(String(init.body)) });
         return new Response(JSON.stringify({ success: true, status: 'joining', streamId: 'stream_1' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -214,6 +216,7 @@ describe('Google Meet routes', () => {
         accessToken: 'ya29.test-token',
         mediaApiDeveloperPreview: true,
         mediaSidecarUrl: 'http://127.0.0.1:4999',
+        mediaSidecarToken: 'sidecar-secret',
         participantName: 'AgenticMail Assistant',
         consentPolicyAccepted: true,
         verify: false,
@@ -228,6 +231,9 @@ describe('Google Meet routes', () => {
     expect(joined.body.result).toMatchObject({ status: 'joining', streamId: 'stream_1' });
     expect(sidecarCalls[0]).toMatchObject({
       url: 'http://127.0.0.1:4999/join',
+      headers: {
+        'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret',
+      },
       body: {
         sessionId: session.id,
         meetingUri: 'https://meet.google.com/abc-defg-hij',

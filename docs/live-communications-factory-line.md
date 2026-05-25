@@ -35,8 +35,9 @@ What is not done yet:
   realtime providers, but it does not yet implement a custom Codex/OpenClaw
   speech pipeline from STT + host LLM + TTS.
 - WhatsApp is still planned, not executable.
-- Google Meet is executable as link intake plus session briefing, but live
-  media join/speak-back still fails closed until the Meet media sidecar exists.
+- Google Meet is executable as link intake, session briefing, REST artifact
+  import, and live sidecar handoff. Actual meeting audio depends on a configured
+  Media API/WebRTC driver behind the sidecar.
 
 ## Boundary Decision
 
@@ -281,7 +282,10 @@ Build steps:
 6. Live media sidecar handoff: done through `meet_live_join`. AgenticMail
    validates the session/config gates and hands meeting context plus the
    OAuth token to a trusted HTTPS/localhost sidecar. The sidecar owns the
-   actual WebRTC/Media API runtime.
+   actual WebRTC/Media API runtime. Host packages expose wrapper bins:
+   `agenticmail-meet-sidecar`, `agenticmail-openclaw-meet-sidecar`,
+   `agenticmail-codex-meet-sidecar`, `agenticmail-claudecode-meet-sidecar`,
+   and `agenticmail-hermes-meet-sidecar`.
 7. Live note stream: speaker-attributed partial/final transcript events,
    action items, decisions, questions, and source links mirrored to the
    conversation ledger.
@@ -309,6 +313,24 @@ Current implementation:
    participant name, and session id.
 6. Speaking is a second gate: the agent can only speak when addressed by name
    or when the operator sends an explicit `say:` command.
+
+Local sidecar smoke:
+
+```bash
+agenticmail-openclaw-meet-sidecar --token <shared-token>
+```
+
+Then configure the agent with `meet_setup`:
+
+```json
+{
+  "accessToken": "<google-oauth-token>",
+  "mediaApiDeveloperPreview": true,
+  "mediaSidecarUrl": "http://127.0.0.1:4999",
+  "mediaSidecarToken": "<shared-token>",
+  "consentPolicyAccepted": true
+}
+```
 
 Current test hook:
 

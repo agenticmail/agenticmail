@@ -18,3 +18,25 @@ AGENTICMAIL_VOICE_HOST_BRIDGE_URL=ws://127.0.0.1:3999/realtime
 Use `--provider xai` with `XAI_API_KEY` for an XAI-compatible upstream. Use
 `--provider custom --upstream-url ws://127.0.0.1:<port>/realtime --upstream-auth none`
 for a local no-auth upstream runtime.
+
+## Google Meet sidecar
+
+The package also ships `agenticmail-meet-sidecar`, an HTTP sidecar for Google
+Meet live-session handoff:
+
+```bash
+agenticmail-meet-sidecar --token local-secret
+```
+
+Configure the agent with:
+
+```json
+{
+  "mediaSidecarUrl": "http://127.0.0.1:4999",
+  "mediaSidecarToken": "local-secret"
+}
+```
+
+The sidecar accepts `/join`, stores non-secret session status under
+`/sessions`, and can delegate the real Google Meet Media API/WebRTC work to a
+local executable via `--driver-command` plus repeated `--driver-arg` flags.

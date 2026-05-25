@@ -7,6 +7,10 @@ import {
   startVoiceHostBridge,
   type VoiceHostBridgeHandle,
 } from '../index.js';
+import {
+  resolveMeetMediaSidecarOptionsFromEnv,
+  startMeetMediaSidecar,
+} from '../meet-sidecar.js';
 
 interface FakeUpstream {
   url: string;
@@ -189,5 +193,119 @@ describe('voice host bridge', () => {
     expect(upstream.seen.authorization).toBeUndefined();
     expect(upstream.seen.requestUrl).toContain('model=local-runtime');
     client.close();
+  });
+});
+
+describe('Meet media sidecar', () => {
+  it('accepts authenticated join handoffs and stores redacted session status', async () => {
+    const sidecar = await startMeetMediaSidecar({
+      port: 0,
+      sidecarToken: 'sidecar-secret',
+      logger: false,
+    });
+    closers.push(sidecar.close);
+
+    const rejected = await fetch(sidecar.joinUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'conv_1',
+        meetingUri: 'https://meet.google.com/abc-defg-hij',
+        accessToken: 'ya29.test-token',
+      }),
+    });
+    expect(rejected.status).toBe(401);
+
+    const accepted = await fetch(sidecar.joinUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret',
+      },
+      body: JSON.stringify({
+        sessionId: 'conv_1',
+        meetingUri: 'https://meet.google.com/abc-defg-hij',
+        meetingCode: 'abc-defg-hij',
+        participantName: 'AgenticMail Assistant',
+        behaviorMode: 'answer_when_asked',
+        accessToken: 'ya29.test-token',
+      }),
+    });
+    const body = await accepted.json() as Record<string, unknown>;
+
+    expect(accepted.status).toBe(200);
+    expect(body).toMatchObject({
+      success: true,
+      status: 'accepted',
+      sessionId: 'conv_1',
+      streamId: 'meet_conv_1',
+    });
+
+    const sessionRes = await fetch(`${sidecar.sessionsUrl}/conv_1`, {
+      headers: { 'X-AgenticMail-Meet-Sidecar-Token': 'sidecar-secret' },
+    });
+    const session = await sessionRes.json() as Record<string, unknown>;
+    expect(session).toMatchObject({
+      sessionId: 'conv_1',
+      meetingCode: 'abc-defg-hij',
+      status: 'accepted',
+    });
+    expect(JSON.stringify(session)).not.toContain('ya29.test-token');
+  });
+
+  it('can delegate join handoffs to a configured driver command', async () => {
+    const driverScript = [
+      'let input = "";',
+      'process.stdin.on("data", chunk => input += chunk);',
+      'process.stdin.on("end", () => {',
+      '  const req = JSON.parse(input);',
+      '  process.stdout.write(JSON.stringify({',
+      '    status: "joining",',
+      '    streamId: "driver_" + req.sessionId,',
+      '    participantId: "participant_1",',
+      '    message: "driver accepted"',
+      '  }));',
+      '});',
+    ].join('');
+    const sidecar = await startMeetMediaSidecar({
+      port: 0,
+      driverCommand: process.execPath,
+      driverArgs: ['-e', driverScript],
+      logger: false,
+    });
+    closers.push(sidecar.close);
+
+    const res = await fetch(sidecar.joinUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'conv_driver',
+        meetingUri: 'https://meet.google.com/abc-defg-hij',
+        accessToken: 'ya29.test-token',
+      }),
+    });
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      success: true,
+      status: 'joining',
+      streamId: 'driver_conv_driver',
+      participantId: 'participant_1',
+    });
+  });
+
+  it('resolves Meet sidecar defaults from environment variables', () => {
+    const opts = resolveMeetMediaSidecarOptionsFromEnv({
+      AGENTICMAIL_MEET_SIDECAR_PORT: '4999',
+      AGENTICMAIL_MEET_SIDECAR_TOKEN: 'sidecar-secret',
+      AGENTICMAIL_MEET_MEDIA_DRIVER_COMMAND: 'driver-bin',
+      AGENTICMAIL_MEET_MEDIA_DRIVER_ARGS: '["--listen-only"]',
+    });
+
+    expect(opts.port).toBe(4999);
+    expect(opts.sidecarToken).toBe('sidecar-secret');
+    expect(opts.driverCommand).toBe('driver-bin');
+    expect(opts.driverArgs).toEqual(['--listen-only']);
   });
 });
