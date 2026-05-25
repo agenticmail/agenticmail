@@ -1,12 +1,14 @@
 import { Router, type Request, type Response } from 'express';
 import {
   ConversationSessionManager,
+  GoogleMeetManager,
   MatrixApiError,
   MatrixManager,
   PhoneManager,
   TelegramApiError,
   TelegramManager,
   buildGoogleMeetSessionBriefing,
+  getGoogleMeetReadiness,
   isConversationMessageDirection,
   isRealtimeConversationChannel,
   isTelegramChatAllowed,
@@ -113,6 +115,7 @@ export function createConversationSessionRoutes(
   const telegramManager = new TelegramManager(db as any, config.masterKey);
   const matrixManager = new MatrixManager(db as any, config.masterKey);
   const phoneManager = new PhoneManager(db as any, config.masterKey);
+  const googleMeetManager = new GoogleMeetManager(db as any, config.masterKey);
 
   router.get('/conversation/sessions', (req: Request, res: Response) => {
     try {
@@ -527,10 +530,11 @@ export function createConversationSessionRoutes(
       || `Prepare for the meeting, listen, keep notes, and speak only according to behaviorMode=${behaviorMode}.`;
     const plan = planRealtimeConversationStart({
       channel: 'google_meet',
-      transportConfigured: false,
+      transportConfigured: getGoogleMeetReadiness(googleMeetManager.getConfig(agentId)).canReadArtifacts,
       userOptedIn: req.body?.userOptedIn === true,
       operatorApproved: req.body?.operatorApproved === true,
     });
+    const readiness = getGoogleMeetReadiness(googleMeetManager.getConfig(agentId));
 
     const existing = sessions.findActiveSessionByExternalRef(agentId, 'google_meet', parsed.meetingCode);
     const metadata = buildLiveSessionMetadata(req, {
@@ -538,8 +542,8 @@ export function createConversationSessionRoutes(
       meetLink: parsed.normalizedUrl,
       meetingCode: parsed.meetingCode,
       originalMeetLink: parsed.source,
-      adapterStatus: 'planned',
-      liveMediaReady: false,
+      adapterStatus: readiness.canReadArtifacts ? 'rest_ready' : 'setup_required',
+      liveMediaReady: readiness.canUseLiveMedia,
       intakeStatus: 'briefing_ready',
       liveContext: {
         behaviorMode,
@@ -579,7 +583,7 @@ export function createConversationSessionRoutes(
       metadata: {
         kind: 'google_meet_intake_briefing',
         meetingCode: parsed.meetingCode,
-        liveMediaReady: false,
+        liveMediaReady: readiness.canUseLiveMedia,
         behaviorMode,
       },
     });
@@ -593,9 +597,10 @@ export function createConversationSessionRoutes(
         meetingCode: parsed.meetingCode,
         normalizedUrl: parsed.normalizedUrl,
         behaviorMode,
-        liveMediaReady: false,
+        liveMediaReady: readiness.canUseLiveMedia,
         readyForLiveJoin: false,
       },
+      readiness,
       plan,
     });
   }

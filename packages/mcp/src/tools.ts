@@ -1517,6 +1517,130 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'meet_setup',
+    description: 'Configure Google Meet for this agent. Stores an OAuth access token encrypted, optional participant identity, allowed domains, and live-media readiness flags.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        accessToken: { type: 'string', description: 'Google OAuth access token with Meet REST scopes. Stored encrypted and never returned.' },
+        participantName: { type: 'string', description: 'Display name the meeting participant/sidecar should use.' },
+        workspaceDomain: { type: 'string', description: 'Optional Google Workspace domain.' },
+        allowedDomains: { type: 'array', items: { type: 'string' }, description: 'Domains accepted for Meet intake, e.g. ["example.com"].' },
+        defaultBehaviorMode: { type: 'string', enum: ['listen_only', 'answer_when_asked', 'operator_directed'], description: 'Default meeting behavior mode.' },
+        mediaApiDeveloperPreview: { type: 'boolean', description: 'Set true only when the Cloud project/OAuth principal/participants are enrolled for Meet Media API Developer Preview.' },
+        mediaSidecarUrl: { type: 'string', description: 'HTTP(S) endpoint for the local/hosted Meet media sidecar.' },
+        consentPolicyAccepted: { type: 'boolean', description: 'Set true only after participant consent policy is configured.' },
+        verifySpace: { type: 'string', description: 'Optional meeting code/space to verify the token with spaces.get.' },
+        verify: { type: 'boolean', description: 'Set false to skip verification.' },
+      },
+      required: ['accessToken'],
+    },
+  },
+  {
+    name: 'meet_config',
+    description: 'Show Google Meet config with secrets redacted plus readiness for spaces, artifacts, and live media.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'meet_readiness',
+    description: 'Check Google Meet readiness: REST space/artifact access and live media sidecar gates.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'meet_disable',
+    description: 'Disable the Google Meet channel for this agent without deleting the stored settings.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'meet_space_create',
+    description: 'Create a Google Meet space through the Meet REST API using the configured OAuth token.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        accessType: { type: 'string', description: 'Optional Meet accessType, e.g. OPEN, TRUSTED, RESTRICTED.' },
+        entryPointAccess: { type: 'string', description: 'Optional entryPointAccess, e.g. ALL or CREATOR_APP_ONLY.' },
+        artifactConfig: { type: 'object', description: 'Optional Meet SpaceConfig artifactConfig.' },
+      },
+    },
+  },
+  {
+    name: 'meet_space_get',
+    description: 'Get a Google Meet space by meeting code or spaces/{id}.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        spaceOrCode: { type: 'string', description: 'Meeting code such as abc-defg-hij or resource spaces/{id}.' },
+      },
+      required: ['spaceOrCode'],
+    },
+  },
+  {
+    name: 'meet_conference_records',
+    description: 'List Google Meet conference records visible to the configured OAuth token, optionally filtered by space.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        space: { type: 'string', description: 'Optional Meet space resource, e.g. spaces/{id}.' },
+        pageSize: { type: 'number', description: 'Max records to fetch.' },
+        pageToken: { type: 'string', description: 'Pagination token.' },
+      },
+    },
+  },
+  {
+    name: 'meet_transcripts',
+    description: 'List transcript resources for a Google Meet conference record.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        conferenceRecord: { type: 'string', description: 'Conference record resource, e.g. conferenceRecords/{id}.' },
+        pageSize: { type: 'number', description: 'Max transcripts to fetch.' },
+        pageToken: { type: 'string', description: 'Pagination token.' },
+      },
+      required: ['conferenceRecord'],
+    },
+  },
+  {
+    name: 'meet_artifacts_import',
+    description: 'Import Google Meet transcript entries into a google_meet conversation session. Pass either entries directly or a Meet transcript resource name.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'google_meet conversation session id.' },
+        transcript: { type: 'string', description: 'Optional resource: conferenceRecords/{id}/transcripts/{id}. If set, entries are fetched from Google Meet.' },
+        entries: { type: 'array', items: { type: 'object' }, description: 'Optional transcript entries to import directly.' },
+        pageSize: { type: 'number', description: 'When transcript is used, max entries to fetch.' },
+        pageToken: { type: 'string', description: 'When transcript is used, pagination token.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'meet_live_join',
+    description: 'Ask the configured Google Meet live media sidecar to join a google_meet conversation session.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'google_meet conversation session id.' },
+        meetingUri: { type: 'string', description: 'Optional Meet URI override. Defaults to the session Meet link.' },
+        meetingCode: { type: 'string', description: 'Optional Meet meeting code override.' },
+        participantName: { type: 'string', description: 'Optional participant display name override.' },
+        behaviorMode: { type: 'string', enum: ['listen_only', 'answer_when_asked', 'operator_directed'], description: 'Optional behavior mode override.' },
+        topic: { type: 'string', description: 'Optional topic override.' },
+        goal: { type: 'string', description: 'Optional goal override.' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
     name: 'call_phone_safe',
     description: [
       'Start a tracked outbound phone mission with a built-in safe policy preset. Prefer this for normal OpenClaw/Codex/Gemini phone tasks; use call_phone only when the operator supplied an exact raw policy JSON.',
@@ -4085,6 +4209,96 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
       const result = await apiRequest('POST', '/matrix/poll', {
         since: args.since,
         timeoutMs: args.timeoutMs,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_setup': {
+      const result = await apiRequest('POST', '/meet/setup', {
+        accessToken: args.accessToken,
+        participantName: args.participantName,
+        workspaceDomain: args.workspaceDomain,
+        allowedDomains: args.allowedDomains,
+        defaultBehaviorMode: args.defaultBehaviorMode,
+        mediaApiDeveloperPreview: args.mediaApiDeveloperPreview,
+        mediaSidecarUrl: args.mediaSidecarUrl,
+        consentPolicyAccepted: args.consentPolicyAccepted,
+        verifySpace: args.verifySpace,
+        verify: args.verify,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_config': {
+      const result = await apiRequest('GET', '/meet/config');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_readiness': {
+      const result = await apiRequest('GET', '/meet/readiness');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_disable': {
+      const result = await apiRequest('POST', '/meet/disable');
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_space_create': {
+      const result = await apiRequest('POST', '/meet/spaces/create', {
+        accessType: args.accessType,
+        entryPointAccess: args.entryPointAccess,
+        artifactConfig: args.artifactConfig,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_space_get': {
+      if (!args.spaceOrCode) throw new Error('spaceOrCode is required');
+      const result = await apiRequest('GET', `/meet/spaces/${encodeURIComponent(String(args.spaceOrCode))}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_conference_records': {
+      const query = new URLSearchParams();
+      if (args.space) query.set('space', String(args.space));
+      if (args.pageSize) query.set('pageSize', String(args.pageSize));
+      if (args.pageToken) query.set('pageToken', String(args.pageToken));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const result = await apiRequest('GET', `/meet/conference-records${suffix}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_transcripts': {
+      if (!args.conferenceRecord) throw new Error('conferenceRecord is required');
+      const query = new URLSearchParams();
+      query.set('conferenceRecord', String(args.conferenceRecord));
+      if (args.pageSize) query.set('pageSize', String(args.pageSize));
+      if (args.pageToken) query.set('pageToken', String(args.pageToken));
+      const result = await apiRequest('GET', `/meet/transcripts?${query.toString()}`);
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_artifacts_import': {
+      const result = await apiRequest('POST', '/meet/artifacts/import', {
+        sessionId: args.sessionId,
+        transcript: args.transcript,
+        entries: args.entries,
+        pageSize: args.pageSize,
+        pageToken: args.pageToken,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    case 'meet_live_join': {
+      const result = await apiRequest('POST', '/meet/live/join', {
+        sessionId: args.sessionId,
+        meetingUri: args.meetingUri,
+        meetingCode: args.meetingCode,
+        participantName: args.participantName,
+        behaviorMode: args.behaviorMode,
+        topic: args.topic,
+        goal: args.goal,
       });
       return JSON.stringify(result, null, 2);
     }

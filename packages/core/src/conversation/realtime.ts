@@ -195,7 +195,11 @@ export function planRealtimeConversationStart(
   const missing: string[] = [];
 
   if (capability.status !== 'available') {
-    missing.push(`${capability.displayName} adapter implementation`);
+    missing.push(
+      context.channel === 'google_meet'
+        ? 'Google Meet live media runtime'
+        : `${capability.displayName} adapter implementation`,
+    );
   }
 
   if (capability.requiresOptIn && !context.userOptedIn) {

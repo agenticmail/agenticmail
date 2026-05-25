@@ -194,7 +194,7 @@ describe('conversation session routes', () => {
         transport: 'google_meet',
         meetingCode: 'abc-defg-hij',
         meetLink: 'https://meet.google.com/abc-defg-hij',
-        adapterStatus: 'planned',
+        adapterStatus: 'setup_required',
         liveMediaReady: false,
         liveContext: {
           tenantId: 'tenant_at',
@@ -209,7 +209,7 @@ describe('conversation session routes', () => {
       liveMediaReady: false,
       readyForLiveJoin: false,
     });
-    expect(started.body.plan.missing).toContain('Google Meet adapter implementation');
+    expect(started.body.plan.missing).toContain('Google Meet live media runtime');
 
     const messages = await request(baseUrl, `/conversation/sessions/${started.body.session.id}/messages`);
     expect(messages.body.messages[0]).toMatchObject({

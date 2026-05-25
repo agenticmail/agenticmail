@@ -28,6 +28,7 @@ import { createSmsRoutes, createSmsWebhookRoutes } from './routes/sms.js';
 import { createPhoneRoutes, createPhoneWebhookRoutes } from './routes/phone.js';
 import { createTelegramRoutes, createTelegramWebhookRoutes } from './routes/telegram.js';
 import { createMatrixRoutes } from './routes/matrix.js';
+import { createGoogleMeetRoutes } from './routes/google-meet.js';
 import { createRealtimeConversationRoutes } from './routes/realtime-conversation.js';
 import { createConversationSessionRoutes } from './routes/conversation-sessions.js';
 import { createMediaRoutes } from './routes/media.js';
@@ -265,6 +266,7 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   app.use('/api/agenticmail', createPhoneRoutes(db, config));
   app.use('/api/agenticmail', createTelegramRoutes(db, config, gatewayManager));
   app.use('/api/agenticmail', createMatrixRoutes(db, config, gatewayManager));
+  app.use('/api/agenticmail', createGoogleMeetRoutes(db, config));
   app.use('/api/agenticmail', createRealtimeConversationRoutes(db, config));
   app.use('/api/agenticmail', createConversationSessionRoutes(db, config));
   // Media toolset — TTS, image / video / audio editing, probing,

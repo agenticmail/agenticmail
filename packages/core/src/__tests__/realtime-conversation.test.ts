@@ -84,5 +84,14 @@ describe('realtime conversation capabilities', () => {
       'WhatsApp adapter implementation',
       'WhatsApp template/session-window approval',
     ]));
+
+    const meet = planRealtimeConversationStart({
+      channel: 'google_meet',
+      transportConfigured: true,
+      userOptedIn: true,
+      operatorApproved: true,
+    });
+    expect(meet.ok).toBe(false);
+    expect(meet.missing).toContain('Google Meet live media runtime');
   });
 });

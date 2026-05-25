@@ -116,6 +116,21 @@ describe('tool catalogue ↔ tool definitions', () => {
     ]);
   });
 
+  it('meet set exposes the Google Meet channel surface', () => {
+    expect(TOOL_SETS.meet).toEqual([
+      'meet_setup',
+      'meet_config',
+      'meet_readiness',
+      'meet_disable',
+      'meet_space_create',
+      'meet_space_get',
+      'meet_conference_records',
+      'meet_transcripts',
+      'meet_artifacts_import',
+      'meet_live_join',
+    ]);
+  });
+
   it('realtime set exposes channel-neutral conversation readiness tools', () => {
     expect(TOOL_SETS.realtime).toEqual([
       'realtime_conversation_capabilities',

@@ -120,7 +120,7 @@ hard-coding one AI vendor.
 Goal: OpenClaw can say "call this place, reserve X, ask me if the alternative
 is materially different", and the call actually happens.
 
-Factory slices:
+Build steps:
 
 1. Keep PR #48 readiness doctor green and visible.
 2. Add `host_bridge` runtime mode to phone config and readiness.
@@ -195,7 +195,7 @@ Provider adapter path:
 | `360dialog` | Common EU WhatsApp Business provider path. |
 | `messagebird` / Bird | Common multi-channel provider path. |
 
-Factory slices:
+Build steps:
 
 1. Add `WhatsAppAdapter` interface: setup, readiness, webhook verify, send,
    normalize inbound, template metadata, session-window metadata.
@@ -257,26 +257,31 @@ References:
 - https://developers.google.com/workspace/meet/media-api/guides/overview
 - https://developers.google.com/workspace/meet/media-api/guides/get-started
 
-Factory slices:
+Build steps:
 
-1. `meet_setup`: OAuth scopes, workspace/project config, participant naming,
-   consent wording, allowed domains, and operator approval policy.
+1. `meet_setup`: done for API/MCP/OpenClaw. Stores OAuth access token
+   encrypted, participant naming, workspace/domain hints, allowed domains,
+   default behavior mode, consent flag, Developer Preview flag, and media
+   sidecar URL. `meet_readiness` reports REST-space/artifact access and live
+   media readiness separately.
 2. `meet_link_intake`: done for direct API/tool/CLI intake. It parses a Meet
    URL or code, normalizes it, creates/reuses a `google_meet` conversation
    session, stores the
    topic, project hint, operator instructions, and desired behavior mode
    (`listen_only`, `answer_when_asked`, `operator_directed`).
-3. `meet_session_prepare`: started. The session now records a system briefing
+3. `meet_session_prepare`: done for the first meeting handoff. The session records a system briefing
    with meeting URL/code, topic, project reference, operator instructions,
    behavior mode, and the explicit `live_media_status: not_joined` gate.
-   Deeper AgenticMail memory/project-context hydration remains a host/runtime
-   responsibility for the next slice.
-4. `meet_space_create` / `meet_space_get` / `meet_space_end`: managed spaces
-   for meetings the agent creates itself.
-5. Artifact ingestion: transcript/recording metadata and transcript entries
-   into conversation sessions.
-6. Live media sidecar: WebRTC client that joins/consumes media and streams it
-   through the same `host_bridge` protocol used by phone.
+   Deeper project-context hydration remains a host/runtime responsibility.
+4. `meet_space_create` / `meet_space_get`: done for managed spaces the agent
+   creates or inspects through the Meet REST API.
+5. Artifact discovery and ingestion: conference records, transcripts, and
+   transcript entries can be listed/imported through `meet_conference_records`,
+   `meet_transcripts`, and `meet_artifacts_import`.
+6. Live media sidecar handoff: done through `meet_live_join`. AgenticMail
+   validates the session/config gates and hands meeting context plus the
+   OAuth token to a trusted HTTPS/localhost sidecar. The sidecar owns the
+   actual WebRTC/Media API runtime.
 7. Live note stream: speaker-attributed partial/final transcript events,
    action items, decisions, questions, and source links mirrored to the
    conversation ledger.
@@ -290,17 +295,19 @@ REST alone does not make the agent "speak in a meeting". The live bot requires
 a join/media runtime. Google now has a path through the Meet Media API, but it
 must be implemented as a real media sidecar, not as a fake REST wrapper.
 
-Current MVP:
+Current implementation:
 
 1. MCP/OpenClaw/CLI intake accepts a Meet link plus project/topic instructions.
 2. AgenticMail creates a `google_meet` session and prepares a briefing.
-3. If live Media API access is unavailable, the response fails live-join closed
-   with `readyForLiveJoin: false` and the
-   exact missing Google Workspace/Developer Preview/OAuth requirements.
-4. If live Media API access is available later, the sidecar joins in listen-only mode,
-   streams transcript notes into the ledger, and posts periodic Telegram
-   summaries.
-5. Speaking is a second gate: the agent can only speak when addressed by name
+3. `meet_setup`, `meet_readiness`, `meet_space_create`, `meet_space_get`,
+   `meet_conference_records`, `meet_transcripts`, `meet_artifacts_import`,
+   `meet_live_join`, and `meet_disable` are exposed in MCP/OpenClaw.
+4. If live Media API access is unavailable, the response fails live-join closed
+   with `readyForLiveJoin: false` and exact missing requirements.
+5. If live Media API access is available, the configured sidecar receives a
+   live-join request with the meeting URI/code, behavior mode, topic, goal,
+   participant name, and session id.
+6. Speaking is a second gate: the agent can only speak when addressed by name
    or when the operator sends an explicit `say:` command.
 
 Current test hook:
@@ -320,7 +327,7 @@ Meet bot exists yet.
 
 ## Implementation Order
 
-| Order | Slice | Outcome |
+| Order | Work | Outcome |
 | --- | --- | --- |
 | 1 | Commit and keep PR #48 readiness doctor green | We can diagnose real phone readiness from OpenClaw/MCP. |
 | 2 | Phone `host_bridge` runtime contract | Done: AgenticMail no longer has to own the live AI key for OpenClaw deployments. |
@@ -330,13 +337,13 @@ Meet bot exists yet.
 | 6 | Guided phone smoke test | One command proves "this install can call and converse". |
 | 7 | WhatsApp `meta_cloud` adapter | First non-Telegram/non-Matrix external messaging channel. |
 | 8 | Google Meet link intake + briefing | Done for API/MCP/OpenClaw/CLI intake: creates a session, stores context, and produces an honest readiness result. |
-| 9 | Google Meet space + artifact adapter | Meeting setup/transcript value without pretending live AV is done. |
+| 9 | Google Meet space + artifact adapter | Done: setup/readiness, space create/get, transcript entry import. |
 | 10 | Google Meet media sidecar | Real live meeting audio path into the same host bridge. |
 | 11 | Google Meet speak-back policy | The agent can answer when addressed or operator-directed, with consent and approval gates. |
 
 ## Testing Gate
 
-Every slice needs:
+Every work item needs:
 
 - Unit tests for adapter normalization and policy/readiness gates.
 - MCP/OpenClaw tool tests for request/response shape.

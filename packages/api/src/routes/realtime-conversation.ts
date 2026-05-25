@@ -2,6 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import {
   PhoneManager,
   TelegramManager,
+  GoogleMeetManager,
+  getGoogleMeetReadiness,
   getRealtimeConversationCapability,
   isRealtimeConversationChannel,
   listRealtimeConversationCapabilities,
@@ -47,6 +49,7 @@ function createRealtimeConversationPlan(
   config: AgenticMailConfig,
   phoneManager: PhoneManager,
   telegramManager: TelegramManager,
+  googleMeetManager: GoogleMeetManager,
   channel: string,
 ) {
   const phone = phoneManager.getPhoneTransportConfig(agentId);
@@ -66,12 +69,14 @@ function createRealtimeConversationPlan(
   const telegramLinked = !!telegram?.enabled
     && !!telegram.botToken
     && (!!telegram.operatorChatId || telegram.allowedChatIds.length > 0);
+  const googleMeetReadiness = getGoogleMeetReadiness(googleMeetManager.getConfig(agentId));
 
   return planRealtimeConversationStart({
     channel,
     transportConfigured: requestBool(req, 'transportConfigured') ?? (
       channel === 'phone' ? !!phone
         : channel === 'telegram' ? !!telegram?.enabled && !!telegram.botToken
+          : channel === 'google_meet' ? googleMeetReadiness.canReadArtifacts
           : false
     ),
     realtimeMediaConfigured: requestBool(req, 'realtimeMediaConfigured')
@@ -93,6 +98,7 @@ export function createRealtimeConversationRoutes(
   const router = Router();
   const phoneManager = new PhoneManager(db as any, config.masterKey);
   const telegramManager = new TelegramManager(db as any, config.masterKey);
+  const googleMeetManager = new GoogleMeetManager(db as any, config.masterKey);
 
   router.get('/conversation/realtime/capabilities', (req: Request, res: Response) => {
     try {
@@ -101,7 +107,7 @@ export function createRealtimeConversationRoutes(
 
       const channel = channelFromRequest(req);
       if (channel) {
-        const plan = createRealtimeConversationPlan(req, agent.id, config, phoneManager, telegramManager, channel);
+        const plan = createRealtimeConversationPlan(req, agent.id, config, phoneManager, telegramManager, googleMeetManager, channel);
         res.json({
           capability: isRealtimeConversationChannel(channel)
             ? getRealtimeConversationCapability(channel)
@@ -115,7 +121,8 @@ export function createRealtimeConversationRoutes(
       const startPlans = Object.fromEntries(capabilities.map((capability) => [
         capability.channel,
         createRealtimeConversationPlan(
-          req, agent.id, config, phoneManager, telegramManager, capability.channel,
+          req, agent.id, config, phoneManager, telegramManager, googleMeetManager,
+          capability.channel,
         ),
       ]));
 
@@ -131,7 +138,7 @@ export function createRealtimeConversationRoutes(
       if (!agent) return;
 
       const channel = channelFromRequest(req);
-      const plan = createRealtimeConversationPlan(req, agent.id, config, phoneManager, telegramManager, channel);
+      const plan = createRealtimeConversationPlan(req, agent.id, config, phoneManager, telegramManager, googleMeetManager, channel);
       res.json({
         capability: isRealtimeConversationChannel(channel)
           ? getRealtimeConversationCapability(channel)

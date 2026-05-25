@@ -182,6 +182,37 @@ export type {
   MatrixMessage,
 } from './matrix/index.js';
 
+// Google Meet — per-agent setup, REST meeting-space/artifact calls, and
+// readiness gates for the separate live media runtime.
+export {
+  GOOGLE_MEET_API_BASE,
+  GOOGLE_MEET_SETTINGS_SCOPE,
+  GOOGLE_MEET_SPACE_SCOPES,
+  GoogleMeetApiError,
+  GoogleMeetManager,
+  buildGoogleMeetConfig,
+  callGoogleMeetApi,
+  createGoogleMeetSpace,
+  getGoogleMeetReadiness,
+  getGoogleMeetSpace,
+  listGoogleMeetConferenceRecords,
+  listGoogleMeetTranscriptEntries,
+  listGoogleMeetTranscripts,
+  redactGoogleMeetConfig,
+  startGoogleMeetLiveSidecar,
+} from './meet/index.js';
+export type {
+  GoogleMeetConfig,
+  GoogleMeetConferenceRecordsResponse,
+  GoogleMeetLiveJoinRequest,
+  GoogleMeetLiveJoinResponse,
+  GoogleMeetReadiness,
+  GoogleMeetSpace,
+  GoogleMeetTranscriptEntriesResponse,
+  GoogleMeetTranscriptEntry,
+  GoogleMeetTranscriptResponse,
+} from './meet/index.js';
+
 // Phone Mission Policy
 export {
   ELKS_REALTIME_AUDIO_FORMATS,

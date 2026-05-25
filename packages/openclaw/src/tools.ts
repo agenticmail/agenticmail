@@ -2978,6 +2978,195 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
     },
   });
 
+  reg('agenticmail_meet_setup', {
+    description: 'Configure Google Meet for this agent. Stores an OAuth access token encrypted, optional participant identity, allowed domains, and live-media readiness flags.',
+    parameters: {
+      accessToken: { type: 'string', required: true, description: 'Google OAuth access token with Meet REST scopes. Stored encrypted and redacted.' },
+      participantName: { type: 'string', description: 'Display name the meeting participant/sidecar should use.' },
+      workspaceDomain: { type: 'string', description: 'Optional Google Workspace domain.' },
+      allowedDomains: { type: 'array', description: 'Domains accepted for Meet intake, e.g. ["example.com"].' },
+      defaultBehaviorMode: { type: 'string', description: 'Default behavior mode: listen_only, answer_when_asked, or operator_directed.' },
+      mediaApiDeveloperPreview: { type: 'boolean', description: 'Set true only when the Cloud project/OAuth principal/participants are enrolled for Meet Media API Developer Preview.' },
+      mediaSidecarUrl: { type: 'string', description: 'HTTP(S) endpoint for the local/hosted Meet media sidecar.' },
+      consentPolicyAccepted: { type: 'boolean', description: 'Set true only after participant consent policy is configured.' },
+      verifySpace: { type: 'string', description: 'Optional meeting code/space to verify the token with spaces.get.' },
+      verify: { type: 'boolean', description: 'Set false to skip verification.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/setup', {
+          accessToken: params.accessToken,
+          participantName: params.participantName,
+          workspaceDomain: params.workspaceDomain,
+          allowedDomains: params.allowedDomains,
+          defaultBehaviorMode: params.defaultBehaviorMode,
+          mediaApiDeveloperPreview: params.mediaApiDeveloperPreview,
+          mediaSidecarUrl: params.mediaSidecarUrl,
+          consentPolicyAccepted: params.consentPolicyAccepted,
+          verifySpace: params.verifySpace,
+          verify: params.verify,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_config', {
+    description: 'Show Google Meet config with secrets redacted plus readiness for spaces, artifacts, and live media.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/meet/config');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_readiness', {
+    description: 'Check Google Meet readiness: REST space/artifact access and live media sidecar gates.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'GET', '/meet/readiness');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_disable', {
+    description: 'Disable the Google Meet channel for this agent without deleting the stored settings.',
+    parameters: {},
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/disable');
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_space_create', {
+    description: 'Create a Google Meet space through the Meet REST API using the configured OAuth token.',
+    parameters: {
+      accessType: { type: 'string', description: 'Optional Meet accessType, e.g. OPEN, TRUSTED, RESTRICTED.' },
+      entryPointAccess: { type: 'string', description: 'Optional entryPointAccess, e.g. ALL or CREATOR_APP_ONLY.' },
+      artifactConfig: { type: 'object', description: 'Optional Meet SpaceConfig artifactConfig.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/spaces/create', {
+          accessType: params.accessType,
+          entryPointAccess: params.entryPointAccess,
+          artifactConfig: params.artifactConfig,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_space_get', {
+    description: 'Get a Google Meet space by meeting code or spaces/{id}.',
+    parameters: {
+      spaceOrCode: { type: 'string', required: true, description: 'Meeting code such as abc-defg-hij or resource spaces/{id}.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.spaceOrCode) return { success: false, error: 'spaceOrCode is required' };
+        return await apiRequest(c, 'GET', `/meet/spaces/${encodeURIComponent(String(params.spaceOrCode))}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_conference_records', {
+    description: 'List Google Meet conference records visible to the configured OAuth token, optionally filtered by space.',
+    parameters: {
+      space: { type: 'string', description: 'Optional Meet space resource, e.g. spaces/{id}.' },
+      pageSize: { type: 'number', description: 'Max records to fetch.' },
+      pageToken: { type: 'string', description: 'Pagination token.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        const query = new URLSearchParams();
+        if (params.space) query.set('space', String(params.space));
+        if (params.pageSize) query.set('pageSize', String(params.pageSize));
+        if (params.pageToken) query.set('pageToken', String(params.pageToken));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await apiRequest(c, 'GET', `/meet/conference-records${suffix}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_transcripts', {
+    description: 'List transcript resources for a Google Meet conference record.',
+    parameters: {
+      conferenceRecord: { type: 'string', required: true, description: 'Conference record resource, e.g. conferenceRecords/{id}.' },
+      pageSize: { type: 'number', description: 'Max transcripts to fetch.' },
+      pageToken: { type: 'string', description: 'Pagination token.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        if (!params.conferenceRecord) return { success: false, error: 'conferenceRecord is required' };
+        const query = new URLSearchParams();
+        query.set('conferenceRecord', String(params.conferenceRecord));
+        if (params.pageSize) query.set('pageSize', String(params.pageSize));
+        if (params.pageToken) query.set('pageToken', String(params.pageToken));
+        return await apiRequest(c, 'GET', `/meet/transcripts?${query.toString()}`);
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_artifacts_import', {
+    description: 'Import Google Meet transcript entries into a google_meet conversation session. Pass either entries directly or a Meet transcript resource name.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'google_meet conversation session id.' },
+      transcript: { type: 'string', description: 'Optional resource: conferenceRecords/{id}/transcripts/{id}. If set, entries are fetched from Google Meet.' },
+      entries: { type: 'array', description: 'Optional transcript entries to import directly.' },
+      pageSize: { type: 'number', description: 'When transcript is used, max entries to fetch.' },
+      pageToken: { type: 'string', description: 'When transcript is used, pagination token.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/artifacts/import', {
+          sessionId: params.sessionId,
+          transcript: params.transcript,
+          entries: params.entries,
+          pageSize: params.pageSize,
+          pageToken: params.pageToken,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
+  reg('agenticmail_meet_live_join', {
+    description: 'Ask the configured Google Meet live media sidecar to join a google_meet conversation session.',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'google_meet conversation session id.' },
+      meetingUri: { type: 'string', description: 'Optional Meet URI override. Defaults to the session Meet link.' },
+      meetingCode: { type: 'string', description: 'Optional Meet meeting code override.' },
+      participantName: { type: 'string', description: 'Optional participant display name override.' },
+      behaviorMode: { type: 'string', description: 'Optional behavior mode: listen_only, answer_when_asked, or operator_directed.' },
+      topic: { type: 'string', description: 'Optional topic override.' },
+      goal: { type: 'string', description: 'Optional goal override.' },
+    },
+    handler: async (params: any) => {
+      try {
+        const c = await ctxForParams(ctx, params);
+        return await apiRequest(c, 'POST', '/meet/live/join', {
+          sessionId: params.sessionId,
+          meetingUri: params.meetingUri,
+          meetingCode: params.meetingCode,
+          participantName: params.participantName,
+          behaviorMode: params.behaviorMode,
+          topic: params.topic,
+          goal: params.goal,
+        });
+      } catch (err) { return { success: false, error: (err as Error).message }; }
+    },
+  });
+
   reg('agenticmail_call_phone_safe', {
     description: [
       'Start a tracked outbound phone mission with a built-in safe policy preset. Prefer this for normal OpenClaw phone tasks; use agenticmail_call_phone only when the operator supplied exact raw policy JSON.',

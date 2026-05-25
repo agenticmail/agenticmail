@@ -4,6 +4,14 @@ import {
   normalizeGoogleMeetBehaviorMode,
   parseGoogleMeetLink,
 } from '../conversation/index.js';
+import {
+  buildGoogleMeetConfig,
+  callGoogleMeetApi,
+  createGoogleMeetSpace,
+  getGoogleMeetReadiness,
+  redactGoogleMeetConfig,
+  startGoogleMeetLiveSidecar,
+} from '../meet/index.js';
 
 describe('Google Meet link intake', () => {
   it('parses and normalizes Meet URLs and bare meeting codes', () => {
@@ -41,5 +49,95 @@ describe('Google Meet link intake', () => {
     expect(briefing).toContain('behavior_mode: listen_only');
     expect(briefing).toContain('live_media_status: not_joined');
     expect(briefing).toContain('Google Meet media sidecar');
+  });
+
+  it('builds redacted config and readiness gates for REST and live media', () => {
+    const cfg = buildGoogleMeetConfig({
+      accessToken: 'ya29.test-token',
+      participantName: 'AgenticMail Assistant',
+      allowedDomains: ['example.com', 'example.com'],
+      defaultBehaviorMode: 'operator_directed',
+      mediaApiDeveloperPreview: true,
+      mediaSidecarUrl: 'http://127.0.0.1:4999/meet',
+      consentPolicyAccepted: true,
+    });
+
+    expect(cfg.allowedDomains).toEqual(['example.com']);
+    expect(cfg.defaultBehaviorMode).toBe('operator_directed');
+    expect(redactGoogleMeetConfig(cfg).accessToken).toBe('***');
+    expect(getGoogleMeetReadiness(cfg)).toMatchObject({
+      configured: true,
+      enabled: true,
+      canCreateSpaces: true,
+      canReadArtifacts: true,
+      canUseLiveMedia: true,
+      missing: [],
+    });
+  });
+
+  it('calls the Meet REST API with bearer auth for space creation', async () => {
+    const cfg = buildGoogleMeetConfig({ accessToken: 'ya29.test-token' });
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: any, init: any) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ name: 'spaces/abc', meetingUri: 'https://meet.google.com/abc-defg-hij' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const space = await createGoogleMeetSpace(cfg, { accessType: 'TRUSTED' }, {
+      baseUrl: 'https://meet.googleapis.test/v2',
+      fetchImpl,
+    });
+
+    expect(space.meetingUri).toBe('https://meet.google.com/abc-defg-hij');
+    expect(calls[0].url).toBe('https://meet.googleapis.test/v2/spaces');
+    expect(calls[0].init.method).toBe('POST');
+    expect((calls[0].init.headers as any).Authorization).toBe('Bearer ya29.test-token');
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ config: { accessType: 'TRUSTED' } });
+  });
+
+  it('surfaces Meet REST API errors with status', async () => {
+    const cfg = buildGoogleMeetConfig({ accessToken: 'ya29.test-token' });
+    const fetchImpl = (async () => new Response(JSON.stringify({
+      error: { message: 'insufficient authentication scopes' },
+    }), { status: 403 })) as typeof fetch;
+
+    await expect(callGoogleMeetApi(cfg, 'GET', 'spaces/abc-defg-hij', undefined, { fetchImpl }))
+      .rejects.toMatchObject({ status: 403, message: 'insufficient authentication scopes' });
+  });
+
+  it('starts the configured live media sidecar with meeting context', async () => {
+    const cfg = buildGoogleMeetConfig({
+      accessToken: 'ya29.test-token',
+      mediaSidecarUrl: 'http://127.0.0.1:4999',
+      participantName: 'AgenticMail Assistant',
+    });
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: any, init: any) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ success: true, status: 'joining', streamId: 'stream_1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const result = await startGoogleMeetLiveSidecar(cfg, {
+      sessionId: 'conv_1',
+      meetingUri: 'https://meet.google.com/abc-defg-hij',
+      meetingCode: 'abc-defg-hij',
+      behaviorMode: 'answer_when_asked',
+    }, { fetchImpl });
+
+    expect(result).toMatchObject({ success: true, status: 'joining', streamId: 'stream_1' });
+    expect(calls[0].url).toBe('http://127.0.0.1:4999/join');
+    expect((calls[0].init.headers as any).Authorization).toBe('Bearer ya29.test-token');
+    expect(JSON.parse(String(calls[0].init.body))).toMatchObject({
+      sessionId: 'conv_1',
+      meetingCode: 'abc-defg-hij',
+      participantName: 'AgenticMail Assistant',
+      accessToken: 'ya29.test-token',
+    });
   });
 });
