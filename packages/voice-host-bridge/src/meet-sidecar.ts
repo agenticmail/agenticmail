@@ -11,6 +11,8 @@ export interface MeetMediaSidecarJoinRequest {
   behaviorMode?: string;
   topic?: string;
   goal?: string;
+  eventCallbackUrl?: string;
+  eventCallbackToken?: string;
   accessToken: string;
   liveContext?: Record<string, unknown>;
 }
@@ -36,6 +38,7 @@ export interface MeetMediaSidecarSession {
   behaviorMode?: string;
   topic?: string;
   goal?: string;
+  eventCallbackUrl?: string;
   createdAt: string;
   updatedAt: string;
   message?: string;
@@ -182,6 +185,8 @@ function normalizeJoinRequest(raw: Record<string, unknown>): MeetMediaSidecarJoi
     behaviorMode: asString(raw.behaviorMode) || undefined,
     topic: asString(raw.topic) || undefined,
     goal: asString(raw.goal) || undefined,
+    eventCallbackUrl: asString(raw.eventCallbackUrl) || undefined,
+    eventCallbackToken: asString(raw.eventCallbackToken) || undefined,
     accessToken,
     liveContext: asRecord(raw.liveContext),
   };
@@ -316,6 +321,7 @@ export async function startMeetMediaSidecar(options: MeetMediaSidecarOptions = {
           behaviorMode: request.behaviorMode,
           topic: request.topic,
           goal: request.goal,
+          eventCallbackUrl: request.eventCallbackUrl,
           createdAt: sessions.get(request.sessionId)?.createdAt ?? now,
           updatedAt: now,
         };

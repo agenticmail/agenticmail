@@ -40,3 +40,6 @@ Configure the agent with:
 The sidecar accepts `/join`, stores non-secret session status under
 `/sessions`, and can delegate the real Google Meet Media API/WebRTC work to a
 local executable via `--driver-command` plus repeated `--driver-arg` flags.
+The join JSON passed to the driver includes `eventCallbackUrl` and
+`eventCallbackToken`; drivers should POST live status/transcript/note events
+back to that URL with the token in `x-agenticmail-meet-sidecar-token`.

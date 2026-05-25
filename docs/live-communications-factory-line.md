@@ -310,7 +310,10 @@ Current implementation:
    with `readyForLiveJoin: false` and exact missing requirements.
 5. If live Media API access is available, the configured sidecar receives a
    live-join request with the meeting URI/code, behavior mode, topic, goal,
-   participant name, and session id.
+   participant name, session id, and an authenticated event callback.
+   `/meet/live/events` accepts sidecar-token-authenticated status, transcript,
+   note, action-item, question, and error events and writes them into the
+   conversation ledger with duplicate protection.
 6. Speaking is a second gate: the agent can only speak when addressed by name
    or when the operator sends an explicit `say:` command.
 

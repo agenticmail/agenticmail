@@ -31,7 +31,9 @@ function createApp(db: ReturnType<typeof createTestDatabase>): express.Express {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as any).agent = { id: 'agent1', email: 'ralf@example.com' };
+    if (!req.headers['x-no-agent']) {
+      (req as any).agent = { id: 'agent1', email: 'ralf@example.com' };
+    }
     next();
   });
   app.use(createGoogleMeetRoutes(db, config));
@@ -241,6 +243,8 @@ describe('Google Meet routes', () => {
         participantName: 'AgenticMail Assistant',
         behaviorMode: 'answer_when_asked',
         accessToken: 'ya29.test-token',
+        eventCallbackUrl: `${baseUrl}/meet/live/events`,
+        eventCallbackToken: 'sidecar-secret',
       },
     });
     const messages = conversations.listMessages('agent1', session.id);
@@ -250,6 +254,96 @@ describe('Google Meet routes', () => {
         kind: 'google_meet_live_join',
         streamId: 'stream_1',
       },
+    });
+
+    db.close();
+  });
+
+  it('records Google Meet live events from the sidecar token into the session ledger', async () => {
+    const db = createDb();
+    const conversations = new ConversationSessionManager(db);
+    const session = conversations.createSession({
+      agentId: 'agent1',
+      channel: 'google_meet',
+      peer: 'https://meet.google.com/abc-defg-hij',
+      externalRef: 'abc-defg-hij',
+      subject: 'Project Alpha review',
+    });
+    const baseUrl = await listen(createApp(db));
+
+    await request(baseUrl, '/meet/setup', {
+      method: 'POST',
+      body: JSON.stringify({
+        accessToken: 'ya29.test-token',
+        mediaApiDeveloperPreview: true,
+        mediaSidecarUrl: 'http://127.0.0.1:4999',
+        mediaSidecarToken: 'sidecar-secret',
+        consentPolicyAccepted: true,
+        verify: false,
+      }),
+    });
+
+    const rejected = await request(baseUrl, '/meet/live/events', {
+      method: 'POST',
+      headers: { 'x-no-agent': '1', 'x-agenticmail-meet-sidecar-token': 'wrong' },
+      body: JSON.stringify({
+        sessionId: session.id,
+        type: 'status',
+        status: 'joining',
+      }),
+    });
+    expect(rejected.status).toBe(401);
+
+    const recorded = await request(baseUrl, '/meet/live/events', {
+      method: 'POST',
+      headers: { 'x-no-agent': '1', 'x-agenticmail-meet-sidecar-token': 'sidecar-secret' },
+      body: JSON.stringify({
+        sessionId: session.id,
+        events: [
+          {
+            eventId: 'meet-event-1',
+            type: 'transcript.final',
+            speaker: 'Ada',
+            text: 'The pricing change is approved.',
+            languageCode: 'en-US',
+            startTime: '2026-05-25T16:00:00Z',
+          },
+          {
+            eventId: 'meet-event-1',
+            type: 'transcript.final',
+            speaker: 'Ada',
+            text: 'duplicate',
+          },
+          {
+            eventId: 'partial-1',
+            type: 'transcript.partial',
+            speaker: 'Ada',
+            text: 'partial text',
+          },
+          {
+            eventId: 'meet-status-1',
+            type: 'status',
+            status: 'joined',
+            streamId: 'stream_1',
+          },
+        ],
+      }),
+    });
+
+    expect(recorded.status).toBe(200);
+    expect(recorded.body.recordedCount).toBe(2);
+    expect(recorded.body.skipped).toBe(2);
+    const messages = conversations.listMessages('agent1', session.id);
+    expect(messages.map((message) => [message.direction, message.text])).toEqual([
+      ['inbound', 'The pricing change is approved.'],
+      ['system', 'Google Meet live status: joined'],
+    ]);
+    expect(messages[0].metadata).toMatchObject({
+      kind: 'google_meet_live_event',
+      eventType: 'transcript.final',
+      speaker: 'Ada',
+      languageCode: 'en-US',
+      final: true,
     });
 
     db.close();

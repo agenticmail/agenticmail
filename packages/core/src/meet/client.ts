@@ -40,6 +40,8 @@ export interface GoogleMeetLiveJoinRequest {
   behaviorMode?: string;
   topic?: string;
   goal?: string;
+  eventCallbackUrl?: string;
+  eventCallbackToken?: string;
   accessToken: string;
   liveContext?: Record<string, unknown>;
 }
