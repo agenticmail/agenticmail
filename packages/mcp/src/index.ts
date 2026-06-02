@@ -6,7 +6,10 @@ import { toolDefinitions, handleToolCall } from './tools.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { setTelemetryVersion } from '@agenticmail/core';
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join as joinPath } from 'node:path';
 import { z, type ZodTypeAny } from 'zod';
 import { coerceToArray, coerceToObject, coerceToNumber, coerceToBoolean } from './coerce.js';
 
@@ -299,12 +302,85 @@ function createMcpServer(): McpServer {
 const args = process.argv.slice(2);
 const httpFlag = args.includes('--http');
 const portArg = args.find(a => a.startsWith('--port='));
+const hostArg = args.find(a => a.startsWith('--host='));
+const tokenArg = args.find(a => a.startsWith('--token='));
+const insecureFlag = args.includes('--insecure');
 const httpPort = portArg ? parseInt(portArg.split('=')[1], 10) : (parseInt(process.env.MCP_PORT || '', 10) || 8014);
+// Default-bind to loopback. Override with --host=0.0.0.0 or MCP_HTTP_HOST
+// to expose on other interfaces. Historical behavior (pre-fix for
+// GHSA-63gr-g7jc-v8rg) was to bind all interfaces, which exposed the
+// admin-tool surface to the LAN.
+const httpHost = hostArg ? hostArg.split('=')[1] : (process.env.MCP_HTTP_HOST || '127.0.0.1');
+
+/**
+ * Resolve the bearer token required to call /mcp in HTTP mode.
+ *
+ * Resolution order:
+ *   1. --token=<value> CLI flag
+ *   2. MCP_HTTP_TOKEN env var
+ *   3. Persistent file at ~/.agenticmail/mcp-http-token (auto-minted on
+ *      first run, chmod 600). Survives restarts so a user can wire the
+ *      token into their MCP client config once and forget it.
+ *
+ * Returns null only when --insecure is passed. That flag is the explicit
+ * opt-out and prints a loud warning at startup so it can't happen by
+ * accident.
+ */
+function resolveHttpToken(): string | null {
+  if (insecureFlag) return null;
+  if (tokenArg) return tokenArg.split('=').slice(1).join('=');
+  if (process.env.MCP_HTTP_TOKEN) return process.env.MCP_HTTP_TOKEN;
+  const dir = joinPath(homedir(), '.agenticmail');
+  const file = joinPath(dir, 'mcp-http-token');
+  if (existsSync(file)) {
+    try {
+      const t = readFileSync(file, 'utf8').trim();
+      if (t) return t;
+    } catch { /* fall through to mint */ }
+  }
+  const minted = 'mcphttp_' + randomUUID().replace(/-/g, '');
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, minted + '\n', { mode: 0o600 });
+    chmodSync(file, 0o600);
+  } catch (err) {
+    console.error('[agenticmail-mcp] WARN: could not persist auth token to', file, '—', (err as Error).message);
+  }
+  return minted;
+}
+
+/**
+ * Constant-time bearer-token check. Returns true iff the request carries
+ * `Authorization: Bearer ***`. Length-safe so an attacker can't
+ * distinguish "wrong token" from "wrong length" via timing.
+ */
+function checkAuth(req: import('node:http').IncomingMessage, expected: string): boolean {
+  const header = req.headers['authorization'];
+  if (typeof header !== 'string') return false;
+  const m = header.match(/^Bearer\s+(.+)$/i);
+  if (!m) return false;
+  const got = Buffer.from(m[1]);
+  const want = Buffer.from(expected);
+  if (got.length !== want.length) return false;
+  return timingSafeEqual(got, want);
+}
 
 if (httpFlag || process.env.MCP_HTTP === '1') {
   // ─── HTTP/Streamable HTTP Transport ───────────────────────────────
   // Supports both SSE streaming and direct JSON responses per MCP spec.
-  // Usage: agenticmail-mcp --http [--port=8014]
+  // Usage: agenticmail-mcp --http [--port=8014] [--host=127.0.0.1]
+  //        [--token=<bearer>] [--insecure]
+  //
+  // Security model (post-GHSA-63gr-g7jc-v8rg):
+  //   - Binds to 127.0.0.1 by default so the admin-tool surface is not
+  //     reachable from other hosts on the network.
+  //   - Requires `Authorization: Bearer ***` on every /mcp request.
+  //     Token is auto-minted on first run and stored at
+  //     ~/.agenticmail/mcp-http-token (chmod 600). Override with
+  //     MCP_HTTP_TOKEN or --token=.
+  //   - --insecure disables both bind-restriction warnings and the auth
+  //     check. Reserved for sandboxed test environments only.
+  const authToken = resolveHttpToken();
   const server = createMcpServer();
 
   // Map of session ID -> transport for stateful connections
@@ -325,6 +401,21 @@ if (httpFlag || process.env.MCP_HTTP === '1') {
     if (path !== '/mcp') {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Not found. MCP endpoint is POST /mcp' }));
+      return;
+    }
+
+    // Authentication gate — every /mcp request (POST/GET/DELETE) must
+    // present the bearer token. Skipped only when --insecure was passed
+    // (authToken === null), which is logged loudly at startup.
+    if (authToken !== null && !checkAuth(req, authToken)) {
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': 'Bearer realm="agenticmail-mcp"',
+      });
+      res.end(JSON.stringify({
+        error: 'Unauthorized. Send Authorization: Bearer <token>. ' +
+               'Token is at ~/.agenticmail/mcp-http-token or in MCP_HTTP_TOKEN.',
+      }));
       return;
     }
 
@@ -392,11 +483,29 @@ if (httpFlag || process.env.MCP_HTTP === '1') {
     res.end(JSON.stringify({ error: 'Method not allowed. Use POST /mcp for JSON-RPC, GET /mcp for SSE stream.' }));
   });
 
-  httpServer.listen(httpPort, () => {
+  httpServer.listen(httpPort, httpHost, () => {
+    const displayHost = httpHost === '0.0.0.0' || httpHost === '::' ? 'localhost' : httpHost;
     console.log(`🎀 AgenticMail MCP Server (Streamable HTTP)`);
-    console.log(`   Endpoint: http://localhost:${httpPort}/mcp`);
-    console.log(`   Health:   http://localhost:${httpPort}/health`);
+    console.log(`   Endpoint: http://${displayHost}:${httpPort}/mcp`);
+    console.log(`   Health:   http://${displayHost}:${httpPort}/health`);
+    console.log(`   Bind:     ${httpHost}`);
     console.log(`   Transport: Streamable HTTP (SSE + JSON responses)`);
+    if (authToken === null) {
+      console.log('');
+      console.log('   ⚠️  --insecure: bearer-token auth DISABLED on /mcp.');
+      console.log('   ⚠️  Anyone who can reach the port can call master-key tools.');
+      console.log('   ⚠️  Do not run this mode on untrusted networks.');
+    } else {
+      console.log(`   Auth:     Bearer token required on /mcp`);
+      console.log('');
+      console.log('   Connect an MCP client with:');
+      console.log(`     Authorization: Bearer <token>`);
+      if (httpHost !== '127.0.0.1' && httpHost !== 'localhost' && httpHost !== '::1') {
+        console.log('');
+        console.log(`   ⚠️  Bound to ${httpHost} — endpoint is reachable from the network.`);
+        console.log('   ⚠️  Make sure the bearer token above is treated as a secret.');
+      }
+    }
   });
 
   // Graceful shutdown

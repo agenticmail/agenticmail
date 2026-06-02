@@ -51,6 +51,45 @@ npm install -g @agenticmail/mcp
 
 **Requirements:** Node.js 22+, AgenticMail API server running
 
+## 🔒 Security — HTTP Transport Authentication (v0.9.27)
+
+> **GHSA-63gr-g7jc-v8rg** — Versions before 0.9.27 exposed the `/mcp`
+> HTTP endpoint without authentication when started with `--http` or
+> `MCP_HTTP=1`. Any LAN client could initialize a session and invoke
+> master-key-only tools using the server's own credentials.
+
+As of **0.9.27**, the HTTP transport enforces bearer-token authentication:
+
+- **Bind restriction:** Defaults to `127.0.0.1` (not `0.0.0.0`). Override
+  with `--host=0.0.0.0` or `MCP_HTTP_HOST=0.0.0.0`.
+- **Token required:** Every `/mcp` request must include
+  `Authorization: Bearer <token>`. Missing or invalid tokens return 401.
+- **Token resolution order:**
+  1. `--token=<value>` CLI flag
+  2. `MCP_HTTP_TOKEN` env var
+  3. Auto-minted persistent file at `~/.agenticmail/mcp-http-token` (chmod 600)
+- **Opt-out:** `--insecure` disables authentication (sandboxed test
+  environments only — prints a loud warning at startup).
+- `/health` remains open (returns session count only).
+- Stdio mode (the default) was never affected.
+
+**Example — authenticated HTTP setup:**
+```json
+{
+  "mcpServers": {
+    "agenticmail": {
+      "command": "agenticmail-mcp",
+      "args": ["--http", "--port=8014"],
+      "env": {
+        "MCP_HTTP_TOKEN": "your-secret-token",
+        "AGENTICMAIL_API_URL": "http://127.0.0.1:3829",
+        "AGENTICMAIL_API_KEY": "ak_your_agent_key"
+      }
+    }
+  }
+}
+```
+
 ---
 
 ## What This Package Does
