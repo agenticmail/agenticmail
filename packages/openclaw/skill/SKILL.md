@@ -1,13 +1,13 @@
 ---
 name: agenticmail
-description: 🎀 AgenticMail — Full email, SMS, storage & multi-agent coordination for AI agents. 63 tools.
+description: 🎀 AgenticMail — Full email, SMS, phone call-control, Telegram, media, memory, storage & multi-agent coordination for AI agents. 89 tools.
 homepage: https://github.com/agenticmail/agenticmail
 metadata: { "openclaw": { "emoji": "🎀", "primaryEnv": "AGENTICMAIL_API_KEY", "requires": { "bins": ["docker"], "config": ["plugins.entries.openclaw.config.apiKey"] } } }
 ---
 
 # 🎀 AgenticMail
 
-Email, SMS, database storage & multi-agent coordination for AI agents. Gives your agent a real mailbox, phone number, and persistent storage — 63 tools covering email, SMS, database management, and inter-agent task delegation. Includes outbound security guard, spam filtering, human-in-the-loop approval, and automatic follow-up scheduling.
+Email, SMS, phone call-control, Telegram, media, memory, database storage & multi-agent coordination for AI agents. Gives your agent a real mailbox, phone number, operator channel, durable context, and persistent storage — 89 tools covering email, SMS, calls, media, database management, memory, and inter-agent task delegation. Includes outbound security guard, spam filtering, human-in-the-loop approval, and automatic follow-up scheduling.
 
 ## Quick Setup
 
@@ -74,9 +74,10 @@ That's it. The command sets up the mail server, creates an agent account, config
 | `agenticmail_pending_emails` | Check status of emails blocked by outbound security guard |
 | `agenticmail_cleanup` | List or remove inactive non-persistent agent accounts |
 
-### Inter-Agent Communication (3 tools)
+### Inter-Agent Communication (4 tools)
 | Tool | Description |
 |------|-------------|
+| `agenticmail_list_agents` | List all AI agents with emails and roles |
 | `agenticmail_message_agent` | Send a message to another AI agent by name (rate-limited) |
 | `agenticmail_check_messages` | Check for new unread messages from other agents |
 | `agenticmail_wait_for_email` | Wait for a new email using push notifications (SSE) |
@@ -90,12 +91,11 @@ That's it. The command sets up the mail server, creates an agent account, config
 | `agenticmail_submit_result` | Submit result for a claimed task |
 | `agenticmail_complete_task` | Claim + submit in one call (for light-mode tasks) |
 
-### Account Management (6 tools)
+### Account Management (5 tools)
 | Tool | Description |
 |------|-------------|
 | `agenticmail_whoami` | Get current agent info (name, email, role, metadata) |
 | `agenticmail_update_metadata` | Update agent metadata |
-| `agenticmail_list_agents` | List all AI agents with emails and roles |
 | `agenticmail_create_account` | Create a new agent email account (requires master key) |
 | `agenticmail_delete_agent` | Delete an agent (archives emails, generates deletion report) |
 | `agenticmail_deletion_reports` | List or view past agent deletion reports |
@@ -124,6 +124,48 @@ That's it. The command sets up the mail server, creates an agent account, config
 | `agenticmail_sms_record` | Record an SMS from any source into the database |
 | `agenticmail_sms_parse_email` | Parse SMS from forwarded Google Voice email |
 | `agenticmail_sms_config` | Get current SMS/phone configuration |
+
+### Phone Call-Control (8 tools)
+| Tool | Description |
+|------|-------------|
+| `agenticmail_phone_transport_setup` | Configure 46elks or Twilio credentials, caller number, webhooks, capabilities, and supported regions |
+| `agenticmail_phone_capabilities` | Show configured phone provider, caller number, supported regions, and realtime-media support |
+| `agenticmail_call_phone` | Start a policy-gated outbound phone mission |
+| `agenticmail_call_status` | Get one call mission or list recent missions |
+| `agenticmail_call_transcript` | Read transcript entries for a mission |
+| `agenticmail_call_cancel` | Cancel a tracked mission |
+| `agenticmail_call_open_queries` | List operator queries waiting on an answer during a live mission |
+| `agenticmail_call_answer_query` | Submit an operator answer back into a live mission |
+
+### Telegram Operator Channel (5 tools)
+| Tool | Description |
+|------|-------------|
+| `agenticmail_telegram_setup` | Configure bot token, operator chat, allow-list, and poll or webhook delivery |
+| `agenticmail_telegram_config` | Show Telegram channel status and redacted configuration |
+| `agenticmail_telegram_send` | Send Telegram messages from the agent bot |
+| `agenticmail_telegram_messages` | List stored Telegram messages |
+| `agenticmail_telegram_poll` | Pull poll-mode Telegram updates and operator replies |
+
+### Media (9 tools)
+| Tool | Description |
+|------|-------------|
+| `agenticmail_media_capabilities` | Show available media providers and feature flags |
+| `agenticmail_media_tts` | Generate speech from text |
+| `agenticmail_media_tts_voices` | List TTS voices |
+| `agenticmail_media_image_edit` | Edit or generate images |
+| `agenticmail_media_video_edit` | Edit videos |
+| `agenticmail_media_audio_edit` | Edit audio |
+| `agenticmail_media_info` | Probe media metadata |
+| `agenticmail_media_video_understand` | Analyze video content |
+| `agenticmail_media_voice_clone` | Create a voice clone when configured and policy allows |
+
+### Memory (4 tools)
+| Tool | Description |
+|------|-------------|
+| `agenticmail_memory` | Set, search, get, and delete durable memory |
+| `agenticmail_memory_reflect` | Store reflective memory after an interaction |
+| `agenticmail_memory_context` | Retrieve relevant context for a task or call |
+| `agenticmail_memory_stats` | Inspect memory-store usage and status |
 
 ### Database Storage (1 tool, 28 actions)
 | Tool | Description |
@@ -157,6 +199,14 @@ Tables sandboxed per-agent (`agt_` prefix) or shared (`shared_` prefix). Works o
 - **Waiting for a reply?** → `agenticmail_wait_for_email` (push, not polling)
 - **Finding agents?** → `agenticmail_list_agents`
 - **Quick throwaway sub-agent?** → `sessions_spawn` is fine (only use case where it's still ok)
+
+## Phone Mission Rules
+
+- Check `agenticmail_phone_capabilities` before saying you can place calls.
+- If no phone provider is configured, use `agenticmail_phone_transport_setup` with 46elks or Twilio credentials, an owned E.164 caller number, a public HTTPS webhook base URL, and a long webhook secret.
+- Start calls with `agenticmail_call_phone`, not SMS tools. The call must include a strict `policy` object with duration, region, cost, attempts, transcript, recording, confirmation, and alternative-time limits.
+- Never provide payment details or make contractual commitments unless the call policy explicitly permits it. If policy says `needs_operator`, stop and ask the operator through the configured channel.
+- For live conversation, the AgenticMail API owns the realtime bridge and provider webhooks. Use call status and transcript tools for monitoring and audit instead of trying to control provider audio directly.
 
 ### Why 🎀 AgenticMail Is Better
 
@@ -211,10 +261,10 @@ Set in your OpenClaw config under `plugins.entries`:
 {
   "plugins": {
     "entries": {
-      "agenticmail": {
+      "openclaw": {
         "enabled": true,
         "config": {
-          "apiUrl": "http://127.0.0.1:3100",
+          "apiUrl": "http://127.0.0.1:3829",
           "apiKey": "ak_your_agent_key",
           "masterKey": "mk_your_master_key"
         }

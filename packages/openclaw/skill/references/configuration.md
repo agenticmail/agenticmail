@@ -9,7 +9,7 @@ Run `agenticmail openclaw` to configure everything automatically.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENTICMAIL_MASTER_KEY` | (generated) | Master API key |
-| `AGENTICMAIL_API_PORT` | `3100` | API server port |
+| `AGENTICMAIL_API_PORT` | `3829` | API server port |
 | `AGENTICMAIL_API_HOST` | `127.0.0.1` | API bind address |
 | `AGENTICMAIL_DATA_DIR` | `~/.agenticmail` | Data directory |
 
@@ -27,10 +27,10 @@ In `~/.openclaw/openclaw.json`:
 {
   "plugins": {
     "entries": {
-      "agenticmail": {
+      "openclaw": {
         "enabled": true,
         "config": {
-          "apiUrl": "http://127.0.0.1:3100",
+          "apiUrl": "http://127.0.0.1:3829",
           "apiKey": "ak_...",
           "masterKey": "mk_..."
         }
@@ -54,7 +54,7 @@ In `.mcp.json` (for MCP clients like Cursor, Windsurf, etc.):
       "command": "npx",
       "args": ["@agenticmail/mcp"],
       "env": {
-        "AGENTICMAIL_API_URL": "http://127.0.0.1:3100",
+        "AGENTICMAIL_API_URL": "http://127.0.0.1:3829",
         "AGENTICMAIL_API_KEY": "ak_..."
       }
     }
@@ -70,4 +70,4 @@ In `.mcp.json` (for MCP clients like Cursor, Windsurf, etc.):
 | 587 | SMTP Submission (STARTTLS) |
 | 143 | IMAP |
 | 25 | SMTP |
-| 3100 | AgenticMail API |
+| 3829 | AgenticMail API |

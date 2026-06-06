@@ -4,15 +4,17 @@
 
 <h1 align="center">@agenticmail/openclaw</h1>
 
-[OpenClaw](https://github.com/openclaw/openclaw) plugin for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives any OpenClaw agent full email and SMS capabilities, phone number access, inter-agent messaging, task coordination, and outbound security.
+[OpenClaw](https://github.com/openclaw/openclaw) plugin for [AgenticMail](https://github.com/agenticmail/agenticmail) — gives any OpenClaw agent full email, SMS, phone call-control, Telegram operator channel, media, memory, inter-agent messaging, task coordination, and outbound security.
 
-This plugin provides 63 tools, a complete email channel integration, automatic sub-agent provisioning, inter-agent message rate limiting, and a built-in follow-up system for blocked emails. It also includes a skill definition with system prompt guidelines that teach agents how to handle email professionally and securely.
+This plugin provides 89 tools, a complete email channel integration, automatic sub-agent provisioning, inter-agent message rate limiting, and a built-in follow-up system for blocked emails. It also includes a skill definition with system prompt guidelines that teach agents how to handle email, phone missions, Telegram operator escalation, memory, and media operations professionally and securely.
 
-## ✨ What's new in 0.5.60
+## What's current in 0.5.70
 
-- **`wait_for_email` filters** — block on a specific reply, not just "any new event". New params: `from`, `subject`, `inReplyTo`, `participants`, `includeTasks`. Pair with a kickoff email to wake on the exact reply you're expecting.
-
-The wake / thread-close / `check_activity` features in the main repo are Claude Code dispatcher behaviour; they don't currently apply to OpenClaw, which has its own runtime. The `wait_for_email` filter upgrade above is the OpenClaw-side win.
+- **Phone call-control tools** — OpenClaw can configure 46elks or Twilio, inspect capabilities, start policy-gated outbound call missions, read call status/transcripts, and cancel tracked missions.
+- **Realtime voice handoff** — phone missions can use transports that report `realtime_media`; the AgenticMail API owns the live OpenAI Realtime bridge, operator escalation, transcripts, skills, and provider webhooks.
+- **Telegram operator channel** — OpenClaw can configure Telegram, send operator messages, poll inbound updates, and route `ask_operator` replies back into live calls.
+- **Media and memory tools** — OpenClaw exposes TTS/voice/media helpers and persistent memory/context tools that the voice runtime can also use.
+- **Manifest guardrail** — the OpenClaw plugin manifest now tracks the npm package version in tests so plugin lists do not drift from the published package again.
 
 ## Install
 
@@ -29,13 +31,18 @@ Add to `~/.openclaw/openclaw.json`:
 ```json
 {
   "plugins": {
-    "agenticmail": {
-      "enabled": true,
-      "config": {
-        "apiUrl": "http://127.0.0.1:3829",
-        "apiKey": "ak_your_agent_key",
-        "masterKey": "mk_your_master_key"
+    "entries": {
+      "openclaw": {
+        "enabled": true,
+        "config": {
+          "apiUrl": "http://127.0.0.1:3829",
+          "apiKey": "ak_your_agent_key",
+          "masterKey": "mk_your_master_key"
+        }
       }
+    },
+    "load": {
+      "paths": ["/path/to/@agenticmail/openclaw"]
     }
   }
 }
@@ -56,6 +63,10 @@ But it goes further than just tools. The plugin also:
 - **Rate-limits inter-agent messaging** — prevents agents from flooding each other with unanswered messages (warns after 3, blocks after 5 unanswered, with a 5-minute window and 2-minute cooldown)
 - **Follows up on blocked emails** — when the outbound security guard blocks an email, the plugin automatically reminds the agent at escalating intervals to ask the human owner about approval
 - **Injects security guidelines** — the skill definition teaches agents about outbound safety (never leak API keys, passwords, PII) and inbound safety (recognize phishing, prompt injection, disguised executables)
+- **Starts guarded phone missions** — OpenClaw can call `agenticmail_call_phone` with a strict mission policy; AgenticMail handles provider webhooks, call status, transcripts, and realtime voice when the transport supports it
+- **Escalates through Telegram** — Telegram is available as a first-class operator channel for live approvals, clarifications, and call summaries
+- **Keeps durable agent context** — memory tools let agents store user preferences, call constraints, and recurring context without burying it in prompt text
+- **Exposes media primitives** — text-to-speech, voice listing, media editing/probing, video understanding, and voice cloning are available through opt-in API-backed tools
 
 ---
 
@@ -104,6 +115,24 @@ The plugin registers email as an OpenClaw channel, which means:
 - **Threading** is preserved using `In-Reply-To` and `References` headers
 - **Monitoring** uses SSE (Server-Sent Events) for instant push notifications, with a polling fallback that uses exponential backoff (2s → 4s → 8s → 16s → 30s max)
 
+### Phone Mission Flow
+
+OpenClaw does not run the live audio bridge itself. It starts and monitors phone missions through AgenticMail:
+
+```
+OpenClaw Agent → agenticmail_call_phone → AgenticMail API → phone provider webhooks → realtime voice bridge
+```
+
+The OpenClaw-side contract is:
+
+1. Check `agenticmail_phone_capabilities` before claiming calling is available.
+2. Configure the provider with `agenticmail_phone_transport_setup` if no transport is active.
+3. Start calls with `agenticmail_call_phone` and an explicit policy object that encodes duration, cost, region, recording, transcript, approval, and alternative-time limits.
+4. Use `agenticmail_call_status` and `agenticmail_call_transcript` for progress and audit.
+5. Use Telegram or email for operator clarification when the policy says `needs_operator`.
+
+The AgenticMail API owns realtime details such as OpenAI Realtime sessions, `ask_operator`, web search, memory recall, skill loading, call extension, callback scheduling, and `end_call`. OpenClaw agents should express the mission and policy, not reach around the API into provider-specific audio internals.
+
 ---
 
 ## Configuration
@@ -119,7 +148,7 @@ Plugin configuration lives in `~/.openclaw/openclaw.json` (user config), not in 
 
 ---
 
-## Tools (63 total)
+## Tools (89 total)
 
 ### Core Email (8 tools)
 
@@ -201,7 +230,7 @@ Plugin configuration lives in `~/.openclaw/openclaw.json` (user config), not in 
 | `agenticmail_submit_result` | Submit result for a claimed task |
 | `agenticmail_complete_task` | Claim and submit a task result in one call |
 
-### Account Management (6 tools)
+### Account Management (5 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -210,7 +239,6 @@ Plugin configuration lives in `~/.openclaw/openclaw.json` (user config), not in 
 | `agenticmail_create_account` | Create a new agent (master key required) |
 | `agenticmail_delete_agent` | Delete an agent with email archival (master key required) |
 | `agenticmail_deletion_reports` | View past deletion reports (master key required) |
-| `agenticmail_list_agents` | Also used for account discovery |
 
 ### Gateway & Setup (9 tools)
 
@@ -297,6 +325,52 @@ Self-messaging is also prevented — an agent cannot send a message to itself.
 | `agenticmail_sms_parse_email` | Parse SMS from forwarded Google Voice email (fallback) |
 | `agenticmail_sms_config` | Get current SMS configuration |
 
+### Phone Call-Control (8 tools)
+
+| Tool | Description |
+|------|-------------|
+| `agenticmail_phone_transport_setup` | Configure 46elks or Twilio credentials, caller number, webhook base URL, webhook secret, capabilities, and supported regions |
+| `agenticmail_phone_capabilities` | Show configured phone provider, caller number, supported regions, and realtime media availability |
+| `agenticmail_call_phone` | Start a policy-gated outbound phone mission with target number, objective, region/cost/duration limits, transcript/recording flags, and operator-confirm rules |
+| `agenticmail_call_status` | Get one mission by ID or list recent phone missions |
+| `agenticmail_call_transcript` | Read transcript entries recorded for a mission |
+| `agenticmail_call_cancel` | Cancel a tracked mission in AgenticMail |
+| `agenticmail_call_open_queries` | List operator queries waiting on an answer during a live mission |
+| `agenticmail_call_answer_query` | Submit an operator answer back into a live mission |
+
+### Telegram Operator Channel (5 tools)
+
+| Tool | Description |
+|------|-------------|
+| `agenticmail_telegram_setup` | Configure a Telegram bot token, operator chat, allow-list, and poll or webhook delivery |
+| `agenticmail_telegram_config` | Show Telegram channel status and redacted configuration |
+| `agenticmail_telegram_send` | Send a Telegram message from the agent bot |
+| `agenticmail_telegram_messages` | List stored inbound and outbound Telegram messages |
+| `agenticmail_telegram_poll` | Pull Telegram updates in poll mode and ingest operator replies |
+
+### Media (9 tools)
+
+| Tool | Description |
+|------|-------------|
+| `agenticmail_media_capabilities` | Show available media providers and feature flags |
+| `agenticmail_media_tts` | Generate speech audio from text |
+| `agenticmail_media_tts_voices` | List available TTS voices |
+| `agenticmail_media_image_edit` | Edit or generate images through configured media providers |
+| `agenticmail_media_video_edit` | Edit video assets through configured media providers |
+| `agenticmail_media_audio_edit` | Edit audio assets through configured media providers |
+| `agenticmail_media_info` | Probe media metadata such as duration, dimensions, codecs, and streams |
+| `agenticmail_media_video_understand` | Analyze video content where provider support is configured |
+| `agenticmail_media_voice_clone` | Create a voice clone where provider support and policy allow it |
+
+### Memory (4 tools)
+
+| Tool | Description |
+|------|-------------|
+| `agenticmail_memory` | Set, search, get, and delete durable memory entries |
+| `agenticmail_memory_reflect` | Store reflective memory from a finished interaction |
+| `agenticmail_memory_context` | Retrieve relevant memory context for a task or call |
+| `agenticmail_memory_stats` | Inspect memory-store usage and status |
+
 ### Database Storage (1 tool)
 
 | Tool | Description |
@@ -344,8 +418,8 @@ The `openclaw.plugin.json` file registers the plugin with OpenClaw:
   "id": "openclaw",
   "name": "agenticmail",
   "displayName": "AgenticMail",
-  "version": "0.5.61",
-  "description": "Full email channel + tools for AI agents",
+  "version": "0.5.70",
+  "description": "AgenticMail — 89 tools for email, SMS, phone, Telegram, media, storage, memory & multi-agent coordination",
   "configSchema": {
     "apiUrl": { "type": "string", "default": "http://127.0.0.1:3829" },
     "apiKey": { "type": "string", "required": true },
@@ -407,7 +481,7 @@ The plugin registers three OpenClaw lifecycle hooks:
 ### Plugin ID mismatch warning
 
 ```
-plugins.entries.agenticmail: plugin agenticmail: plugin id mismatch
+plugin id mismatch
 (manifest uses "agenticmail", entry hints "openclaw")
 ```
 

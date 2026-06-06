@@ -689,7 +689,7 @@ If you see this warning when starting the OpenClaw gateway:
 plugin id mismatch (manifest uses "agenticmail", entry hints "openclaw")
 ```
 
-This is harmless. OpenClaw infers the plugin ID from the npm package name (`@agenticmail/openclaw`) but the manifest declares `"id": "agenticmail"`. The plugin loads and works correctly.
+This warning is from older plugin installs where the manifest ID did not match the OpenClaw entry hint. Current releases use `"id": "openclaw"` and `"name": "agenticmail"`. If the warning still appears after upgrading, OpenClaw is probably loading an older global package path; run `agenticmail openclaw` or update the `plugins.load.paths` entry.
 
 ### OpenClaw plugin path not found
 
@@ -704,7 +704,7 @@ Update the path in `~/.openclaw/openclaw.json` accordingly.
 
 ### Verifying OpenClaw plugin registration
 
-`openclaw plugins inspect agenticmail` returning `Plugin not found: agenticmail` means the plugin entry hasn't been added to your `~/.openclaw/openclaw.json`. Run `agenticmail openclaw` to register it; running plain `agenticmail setup` does NOT touch your OpenClaw config — that step only fires through the explicit `openclaw` subcommand. To verify by hand: open `~/.openclaw/openclaw.json` and check that `plugins.entries` includes an entry with `"id": "agenticmail"` plus a `"path"` pointing at `<npm prefix>/lib/node_modules/@agenticmail/openclaw`.
+`openclaw plugins inspect openclaw` returning `Plugin not found: openclaw` means the plugin entry hasn't been added to your `~/.openclaw/openclaw.json`. Run `agenticmail openclaw` to register it; running plain `agenticmail setup` does NOT touch your OpenClaw config — that step only fires through the explicit `openclaw` subcommand. To verify by hand: open `~/.openclaw/openclaw.json` and check that `plugins.entries.openclaw` is enabled and `plugins.load.paths` points at `<npm prefix>/lib/node_modules/@agenticmail/openclaw`.
 
 ### `cloudflared` shows up after a localhost-only install
 

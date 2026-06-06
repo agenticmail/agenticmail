@@ -1,6 +1,6 @@
 # AgenticMail API Reference
 
-Base URL: `http://127.0.0.1:3100/api/agenticmail`
+Base URL: `http://127.0.0.1:3829/api/agenticmail`
 
 ## Authentication
 

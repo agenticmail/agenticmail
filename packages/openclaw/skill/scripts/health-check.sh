@@ -9,7 +9,7 @@ fi
 
 # Check API
 API_OK=false
-if curl -sf http://127.0.0.1:3100/api/agenticmail/health > /dev/null 2>&1; then
+if curl -sf http://127.0.0.1:3829/api/agenticmail/health > /dev/null 2>&1; then
   API_OK=true
 fi
 

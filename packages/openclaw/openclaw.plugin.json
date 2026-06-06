@@ -1,7 +1,7 @@
 {
   "id": "openclaw",
   "name": "agenticmail",
-  "version": "0.5.68",
+  "version": "0.5.70",
   "displayName": "🎀 AgenticMail",
   "description": "🎀 AgenticMail — 89 tools for email, SMS, phone, Telegram, media, storage, memory & multi-agent coordination",
   "author": "agenticmail",
@@ -15,7 +15,7 @@
       "apiUrl": {
         "type": "string",
         "description": "AgenticMail API URL",
-        "default": "http://127.0.0.1:3100"
+        "default": "http://127.0.0.1:3829"
       },
       "apiKey": {
         "type": "string",
