@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts src/cli.ts src/bin-claudecode.ts src/bin-codex.ts --format esm --dts --clean --external @agenticmail/claudecode --external @agenticmail/codex && npm run copy-public",
-    "copy-public": "mkdir -p dist/public && cp -R ../packages/api/public/. dist/public/",
+    "copy-public": "node scripts/copy-public.mjs",
     "test": "vitest run --passWithNoTests",
     "preuninstall": "node scripts/uninstall.mjs",
     "postinstall": "node scripts/ensure-pm2-startup.cjs --quiet || true",

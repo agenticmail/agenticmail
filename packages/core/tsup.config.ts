@@ -49,5 +49,5 @@ export default defineConfig({
   // `built-in/` directory into `dist/skills/built-in/` after every
   // build so the registry finds them in both source-runs and
   // installed npm packages.
-  onSuccess: 'mkdir -p dist/skills/built-in && cp -R src/skills/built-in/. dist/skills/built-in/',
+  onSuccess: 'node scripts/copy-skills.mjs',
 });
