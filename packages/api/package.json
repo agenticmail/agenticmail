@@ -34,7 +34,7 @@
     "express": "^4.22.2",
     "express-rate-limit": "^7.5.0",
     "uuid": "^11.1.0",
-    "ws": "^8.18.0"
+    "ws": "^8.21.0"
   },
   "optionalDependencies": {
     "@agenticmail/claudecode": "^0.2.26"
