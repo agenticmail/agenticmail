@@ -29,7 +29,7 @@
   "dependencies": {
     "imapflow": "^1.0.170",
     "mailparser": "^3.7.2",
-    "nodemailer": "^8.0.1",
+    "nodemailer": "^8.0.9",
     "uuid": "^11.1.0",
     "ws": "^8.18.0"
   },
