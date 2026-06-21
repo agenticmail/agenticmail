@@ -27,9 +27,9 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "imapflow": "^1.0.170",
-    "mailparser": "^3.7.2",
-    "nodemailer": "^8.0.1",
+    "imapflow": "^1.4.2",
+    "mailparser": "^3.9.11",
+    "nodemailer": "^9.0.1",
     "uuid": "^11.1.0",
     "ws": "^8.18.0"
   },
