@@ -8,6 +8,7 @@ import {
   type GatewayManager,
 } from '@agenticmail/core';
 import { requireAgent } from '../middleware/auth.js';
+import { validateRuleRegex, safeRegexTest } from '../rule-regex.js';
 import { getAgentPassword, normalizeWakeList, wakeHeaders, pushLocalRecipientWakes, deriveDefaultWakeList } from './mail.js';
 
 /**
@@ -641,6 +642,13 @@ export function createFeatureRoutes(
     try {
       const { name, conditions, actions, priority, enabled } = req.body || {};
       if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+      const conditionError = validateRuleConditions(conditions);
+      if (conditionError) { res.status(400).json({ error: conditionError }); return; }
+      const existing = db.prepare('SELECT COUNT(*) AS n FROM email_rules WHERE agent_id = ?').get(req.agent!.id) as { n: number };
+      if (existing.n >= MAX_RULES_PER_AGENT) {
+        res.status(400).json({ error: `At most ${MAX_RULES_PER_AGENT} rules per agent` });
+        return;
+      }
       const id = uuidv4();
       db.prepare(
         'INSERT INTO email_rules (id, agent_id, name, priority, enabled, conditions, actions) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -660,6 +668,38 @@ export function createFeatureRoutes(
   return router;
 }
 
+const MAX_RULES_PER_AGENT = 200;
+const MAX_RULE_STRING_LENGTH = 500;
+const RULE_STRING_CONDITIONS = ['from_contains', 'from_exact', 'subject_contains', 'to_contains'] as const;
+
+/** Returns an error message, or null when `conditions` is acceptable. */
+export function validateRuleConditions(conditions: unknown): string | null {
+  if (conditions === undefined || conditions === null) return null;
+  if (typeof conditions !== 'object' || Array.isArray(conditions)) return 'conditions must be an object';
+  const cond = conditions as Record<string, unknown>;
+  for (const key of RULE_STRING_CONDITIONS) {
+    const v = cond[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string') return `${key} must be a string`;
+    if (v.length > MAX_RULE_STRING_LENGTH) return `${key} must be at most ${MAX_RULE_STRING_LENGTH} characters`;
+  }
+  if (cond.has_attachment !== undefined && typeof cond.has_attachment !== 'boolean') {
+    return 'has_attachment must be a boolean';
+  }
+  if (cond.subject_regex !== undefined && cond.subject_regex !== null && cond.subject_regex !== '') {
+    const check = validateRuleRegex(cond.subject_regex);
+    if (!check.ok) return check.error;
+  }
+  return null;
+}
+
+/** Rules whose regex hit the match timeout — skipped (no match) from then on. */
+const trippedRegexRules = new Set<string>();
+
+function condString(v: unknown): string {
+  return typeof v === 'string' ? v.toLowerCase() : '';
+}
+
 /**
  * Evaluate email rules for an agent against a parsed email.
  * Returns the first matching rule's actions, or null if no match.
@@ -667,19 +707,31 @@ export function createFeatureRoutes(
 export function evaluateRules(db: Database, agentId: string, email: { from?: { address?: string }[]; to?: { address?: string }[]; subject?: string; text?: string; attachments?: any[] }): { ruleId: string; actions: any } | null {
   const rules = db.prepare('SELECT * FROM email_rules WHERE agent_id = ? AND enabled = 1 ORDER BY priority DESC').all(agentId) as any[];
   for (const rule of rules) {
-    const cond = JSON.parse(rule.conditions);
+    let cond: Record<string, unknown>;
+    try { cond = JSON.parse(rule.conditions) ?? {}; } catch { continue; }
     let match = true;
-    const fromAddr = (email.from?.[0]?.address ?? '').toLowerCase();
-    const toAddr = (email.to?.[0]?.address ?? '').toLowerCase();
-    const subject = (email.subject ?? '').toLowerCase();
+    const fromAddr = String(email.from?.[0]?.address ?? '').toLowerCase();
+    const toAddr = String(email.to?.[0]?.address ?? '').toLowerCase();
+    const subject = String(email.subject ?? '').toLowerCase();
 
-    if (cond.from_contains && !fromAddr.includes(cond.from_contains.toLowerCase())) match = false;
-    if (cond.from_exact && fromAddr !== cond.from_exact.toLowerCase()) match = false;
-    if (cond.subject_contains && !subject.includes(cond.subject_contains.toLowerCase())) match = false;
-    if (cond.subject_regex) {
-      try { if (!new RegExp(cond.subject_regex, 'i').test(email.subject ?? '')) match = false; } catch { match = false; }
+    if (cond.from_contains && !fromAddr.includes(condString(cond.from_contains))) match = false;
+    if (cond.from_exact && fromAddr !== condString(cond.from_exact)) match = false;
+    if (cond.subject_contains && !subject.includes(condString(cond.subject_contains))) match = false;
+    if (match && cond.subject_regex) {
+      // Validated, length-capped and time-boxed (GHSA-3jw6-982f-pp9w).
+      // Rules stored before validation existed are re-checked here.
+      if (trippedRegexRules.has(rule.id) || typeof cond.subject_regex !== 'string') {
+        match = false;
+      } else {
+        const result = safeRegexTest(cond.subject_regex, String(email.subject ?? ''));
+        if (result === 'timeout') {
+          trippedRegexRules.add(rule.id);
+          console.warn(`[rules] subject_regex of rule ${rule.id} exceeded its time budget; rule disabled for this process`);
+        }
+        if (result !== true) match = false;
+      }
     }
-    if (cond.to_contains && !toAddr.includes(cond.to_contains.toLowerCase())) match = false;
+    if (cond.to_contains && !toAddr.includes(condString(cond.to_contains))) match = false;
     if (cond.has_attachment === true && (!email.attachments || email.attachments.length === 0)) match = false;
 
     if (match) return { ruleId: rule.id, actions: JSON.parse(rule.actions) };

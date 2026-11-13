@@ -663,7 +663,7 @@ X-Accel-Buffering: no
 | Function | Purpose |
 |----------|---------|
 | `pushEventToAgent(agentId, event)` | Push event to specific agent's SSE connections |
-| `broadcastEvent(event)` | Push event to ALL active SSE connections |
+| `pushOrQueueEventForAgent(agentId, event)` | Push to the agent's SSE connections, or queue it (10 min TTL) for that agent's next connection. There is no broadcast: an agent's events never reach another agent's stream |
 | `closeAllWatchers()` | Stop all watchers, clear all connections (shutdown) |
 
 ---
@@ -797,7 +797,7 @@ Uses `COALESCE(last_activity_at, created_at)` so new agents aren't flagged.
 
 **Notification cascade:**
 1. SSE push to assignee via `pushEventToAgent()`
-2. Broadcast to all SSE if no direct watcher
+2. If the assignee has no SSE connection, queued for its next one (never broadcast to other agents)
 3. Email notification (fire-and-forget)
 
 **Response (201):**
@@ -1219,7 +1219,7 @@ Replaces `{{ variableName }}` in subject and body with provided values.
 }
 ```
 
-**Rule evaluation:** Runs on every new email (via SSE event handler). Rules checked by priority (highest first). First match wins. Conditions are case-insensitive. `subject_regex` uses JavaScript RegExp.
+**Rule evaluation:** Runs on every new email (via SSE event handler). Rules checked by priority (highest first). First match wins. Conditions are case-insensitive. `subject_regex` uses JavaScript RegExp, restricted for safety: at most 200 characters, no backreferences or lookarounds, no repeated group containing a quantifier or alternation (e.g. `(a+)+`), at most 20 quantifiers; rejected patterns return 400. At match time the subject is truncated to 1024 characters and each match is time-boxed to 50 ms. At most 200 rules per agent.
 
 ---
 
