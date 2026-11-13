@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.2.x   | Yes       |
-| < 0.2   | No        |
+| Latest release of each `@agenticmail/*` package | Yes |
+| Older releases | No — upgrade with `npm install -g @agenticmail/cli@latest` |
 
 ## Reporting a Vulnerability
 

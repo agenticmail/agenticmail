@@ -7,12 +7,12 @@
     "source": "github",
     "subfolder": "packages/mcp"
   },
-  "version": "0.5.59",
+  "version": "0.9.30",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@agenticmail/mcp",
-      "version": "0.5.59",
+      "version": "0.9.30",
       "transport": {
         "type": "stdio"
       },
