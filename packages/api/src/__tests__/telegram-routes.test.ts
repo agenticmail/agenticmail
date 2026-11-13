@@ -49,7 +49,11 @@ function okResponse(result: unknown): Response {
 }
 
 function isTelegramUrl(url: unknown): boolean {
-  return String(url).includes('api.telegram.org');
+  try {
+    return new URL(String(url)).hostname === 'api.telegram.org';
+  } catch {
+    return false;
+  }
 }
 
 /** A fetch mock that answers Telegram Bot API calls by method name. */

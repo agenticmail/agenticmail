@@ -6,6 +6,16 @@ import { once } from 'node:events';
 import { createTestDatabase, PhoneManager, type AgenticMailConfig } from '@agenticmail/core';
 import { createPhoneRoutes, createPhoneWebhookRoutes } from '../routes/phone.js';
 
+/** Host check for the 46elks API — a parsed hostname, never a substring match. */
+function is46elksUrl(url: unknown): boolean {
+  try {
+    const host = new URL(String(url)).hostname;
+    return host === '46elks.com' || host.endsWith('.46elks.com');
+  } catch {
+    return false;
+  }
+}
+
 // Webhook secret must clear the 24-char entropy floor (#43-H8).
 const WEBHOOK_SECRET = 'hook-secret-abcdefghijklmnop';
 
@@ -285,7 +295,7 @@ describe('phone routes', () => {
     // stub routes 46elks calls to a fake and passes everything else through.
     const realFetch = globalThis.fetch;
     const fetchMock = vi.fn(async (url: any, init: any) => (
-      String(url).includes('46elks.com')
+      is46elksUrl(url)
         ? new Response(JSON.stringify({ id: 'callback-call' }), { status: 200 })
         : realFetch(url, init)
     ));
@@ -300,7 +310,7 @@ describe('phone routes', () => {
     expect(answer.status).toBe(200);
     expect(answer.body.callback.triggered).toBe(true);
     expect(answer.body.callback.missionId).toBeTruthy();
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('46elks.com'))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => is46elksUrl(url))).toBe(true);
 
     db.close();
   });

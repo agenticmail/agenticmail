@@ -525,7 +525,12 @@ async function startBridge(params: StartBridgeParams): Promise<RealtimeVoiceBrid
   const openaiWs = new WebSocket(runtime.url, {
     headers: { Authorization: `Bearer ${runtime.apiKey}` },
   });
-  console.log(`[realtime-voice] mission=${mission.id} voice-runtime=${runtime.providerId} model=${runtime.model} voice=${runtime.voice} (${runtime.voiceSource}) key=${runtime.apiKeySource}`);
+  // Log only WHERE the key came from (env vs config), never key material.
+  // The provider id is logged alongside, which pins the env var name.
+  const keyOrigin = runtime.apiKeySource.startsWith('env ')
+    ? 'env'
+    : runtime.apiKeySource.startsWith('config') ? 'config' : 'other';
+  console.log(`[realtime-voice] mission=${mission.id} voice-runtime=${runtime.providerId} model=${runtime.model} voice=${runtime.voice} (${runtime.voiceSource}) key-from=${keyOrigin}`);
 
   const bridge = new RealtimeVoiceBridge({
     carrier: portFor(carrierWs),
