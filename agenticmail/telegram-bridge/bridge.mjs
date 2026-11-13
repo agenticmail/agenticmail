@@ -23,7 +23,7 @@
  *   AGENTICMAIL_BRIDGE_WEBHOOK_PORT            — port for webhook HTTP server (default: 8787)
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { createLogger } from './lib/log.mjs';
@@ -49,6 +49,13 @@ import { SessionMap } from './lib/sessions.mjs';
 import { runClaude, loadAnthropicToken } from './lib/claude-runner.mjs';
 import { classifyClaudeChildError } from './lib/error-classifier.mjs';
 import { loadBridgePersona } from './lib/persona-loader.mjs';
+import {
+  ALLOW_ALL_TOKEN,
+  createWebhookRequestHandler,
+  isSenderAllowed,
+  parseAllowedIds,
+  resolveWebhookSecret,
+} from './lib/webhook-auth.mjs';
 
 /**
  * Generate (or refresh) the MCP config the spawned `claude -p` turn loads.
@@ -142,11 +149,13 @@ function loadAllowedIds() {
     log.warn(`No allow-list at ${TELEGRAM_ALLOWED_IDS_FILE} — bot will ignore ALL messages`);
     return new Set();
   }
-  const ids = readFileSync(TELEGRAM_ALLOWED_IDS_FILE, 'utf8')
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l && !l.startsWith('#'));
-  return new Set(ids);
+  const ids = parseAllowedIds(readFileSync(TELEGRAM_ALLOWED_IDS_FILE, 'utf8'));
+  if (ids.size === 0) {
+    log.warn(`Allow-list ${TELEGRAM_ALLOWED_IDS_FILE} is empty — bot will ignore ALL messages`);
+  } else if (ids.has(ALLOW_ALL_TOKEN)) {
+    log.warn(`Allow-list contains "${ALLOW_ALL_TOKEN}" — bot will accept messages from ANY Telegram user`);
+  }
+  return ids;
 }
 
 function loadOffset() {
@@ -386,8 +395,8 @@ async function handleMessage(msg, state) {
   const userId = String(msg.from?.id || '');
   const chatId = String(msg.chat?.id || '');
 
-  // Allow-list gate
-  if (state.allowedIds.size > 0 && !state.allowedIds.has(userId)) {
+  // Allow-list gate — fails closed: an empty allow-list admits nobody.
+  if (!isSenderAllowed(state.allowedIds, userId)) {
     return; // silent — don't even log, to avoid flooding logs with unauthorized noise
   }
 
@@ -696,56 +705,65 @@ async function runWebhookServer(state, webhookCfg) {
   const port = Number(process.env.AGENTICMAIL_BRIDGE_WEBHOOK_PORT || webhookCfg.port || 8787);
   const path = webhookCfg.path || `/agenticmail-telegram-webhook`;
   const url = webhookCfg.url; // public URL: e.g. https://your-domain.example + path
-  const secret = webhookCfg.secret;
 
   if (!url) {
     log.error(`webhook mode requires "url" in ${TELEGRAM_WEBHOOK_CONFIG_FILE}`);
     process.exit(1);
   }
 
+  // The secret is mandatory: without it anyone who can reach the port
+  // could POST a forged update. Generate + persist one when absent; it is
+  // registered with Telegram below so deliveries carry it.
+  let secret;
+  try {
+    const resolved = resolveWebhookSecret(webhookCfg);
+    secret = resolved.secret;
+    if (resolved.generated) {
+      writeFileSync(
+        TELEGRAM_WEBHOOK_CONFIG_FILE,
+        JSON.stringify({ ...webhookCfg, secret }, null, 2),
+        { mode: 0o600 },
+      );
+      try { chmodSync(TELEGRAM_WEBHOOK_CONFIG_FILE, 0o600); } catch { /* best effort */ }
+      log.warn(`no webhook "secret" configured — generated one and saved it to ${TELEGRAM_WEBHOOK_CONFIG_FILE}`);
+    }
+  } catch (err) {
+    log.error(`${err.message} (${TELEGRAM_WEBHOOK_CONFIG_FILE})`);
+    process.exit(1);
+  }
+
+  if (state.allowedIds.size === 0) {
+    log.warn('allow-list is empty — every webhook message will be refused until a Telegram user id is added');
+  }
+
   log.info(`webhook mode, listening on :${port}${path}, public URL = ${url}`);
-  const fullPath = path.endsWith(url.split('/').pop() || '') ? path : path;
 
-  const server = createServer(async (req, res) => {
-    // Only POST /<path> with matching secret
-    if (req.method !== 'POST' || req.url !== fullPath) {
-      res.writeHead(404).end('not found');
-      return;
-    }
-    if (secret && req.headers['x-telegram-bot-api-secret-token'] !== secret) {
-      res.writeHead(403).end('bad secret');
-      return;
-    }
-
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk;
-    });
-    req.on('end', async () => {
-      res.writeHead(200).end('ok'); // Ack first, process async
-      try {
-        const update = JSON.parse(body);
-        if (update.message) {
-          handleMessage(update.message, state).catch(err =>
-            log.error(`webhook handler: ${err.message}`),
-          );
-        }
-      } catch (err) {
-        log.error(`webhook parse: ${err.message}`);
+  const server = createServer(createWebhookRequestHandler({
+    path,
+    secret,
+    onUpdate: update => {
+      if (update?.message) {
+        handleMessage(update.message, state).catch(err =>
+          log.error(`webhook handler: ${err.message}`),
+        );
       }
-    });
-  });
+    },
+    onError: err => log.error(`webhook parse: ${err.message}`),
+  }));
 
   server.listen(port, () => {
     log.info(`webhook HTTP server ready on port ${port}`);
   });
 
-  // Register the webhook with Telegram
+  // Register the webhook with Telegram. The secret is always sent so
+  // Telegram echoes it on every delivery; without a successful
+  // registration Telegram's requests would be refused (403), never
+  // admitted unauthenticated.
   try {
     await setWebhook(state.token, url, { secretToken: secret });
     log.info(`webhook registered with Telegram → ${url}`);
   } catch (err) {
-    log.error(`setWebhook failed: ${err.message}`);
+    log.error(`setWebhook failed — deliveries will be refused until it succeeds: ${err.message}`);
   }
 
   // Block until shutdown
@@ -783,7 +801,7 @@ async function main() {
     process.exit(1);
   }
   log.info(`connected as @${me.username} (${me.first_name})`);
-  log.info(`allow-list: ${allowedIds.size === 0 ? 'EMPTY' : [...allowedIds].join(',')}`);
+  log.info(`allow-list: ${allowedIds.size === 0 ? 'EMPTY (all messages refused)' : [...allowedIds].join(',')}`);
   log.info(`existing sessions: ${sessions.list().length}`);
   log.info(`mcp config: ${mcpConfig || '(none)'}`);
 
