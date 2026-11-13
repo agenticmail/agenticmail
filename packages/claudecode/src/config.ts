@@ -70,6 +70,24 @@ function defaultMcpInvocation(): { command: string; args: string[] } {
   return { command: 'npx', args: ['-y', '@agenticmail/mcp'] };
 }
 
+/**
+ * True when `apiUrl` points at the configured AgenticMail API or at a
+ * loopback address. Anything unparsable is treated as foreign.
+ */
+export function isConfiguredOrLoopbackApi(apiUrl: string, configuredApiUrl: string): boolean {
+  let u: URL;
+  try { u = new URL(apiUrl); } catch { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  if (u.username || u.password) return false;
+  try {
+    const c = new URL(configuredApiUrl);
+    if (u.protocol === c.protocol && u.host.toLowerCase() === c.host.toLowerCase()) return true;
+  } catch { /* fall through to the loopback test */ }
+  const host = u.hostname.toLowerCase();
+  if (host === 'localhost' || host === '[::1]' || host === '::1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
 export function resolveConfig(opts: ResolveConfigOptions = {}): ClaudeCodeIntegrationConfig {
   const amConfigPath = opts.agenticmailConfigPath ?? AGENTICMAIL_CONFIG_PATH;
   const onDisk = readAgenticMailConfig(amConfigPath);
@@ -83,10 +101,17 @@ export function resolveConfig(opts: ResolveConfigOptions = {}): ClaudeCodeIntegr
 
   const defaultInvocation = defaultMcpInvocation();
 
-  const masterKey = opts.masterKey ?? onDisk.masterKey ?? '';
+  const apiUrl = opts.apiUrl ?? defaultApiUrl;
+  // The on-disk master key is only ever paired with the configured local
+  // API (or a loopback URL). A caller-chosen remote apiUrl must bring its
+  // own key — otherwise anything that can influence apiUrl could make us
+  // send our master key to a host it controls as a Bearer token.
+  const masterKey = opts.masterKey
+    ?? (isConfiguredOrLoopbackApi(apiUrl, defaultApiUrl) ? onDisk.masterKey : undefined)
+    ?? '';
 
   return {
-    apiUrl: opts.apiUrl ?? defaultApiUrl,
+    apiUrl,
     masterKey,
     claudeConfigPath: opts.claudeConfigPath ?? join(homedir(), '.claude.json'),
     claudeSettingsPath: opts.claudeSettingsPath ?? join(homedir(), '.claude', 'settings.json'),

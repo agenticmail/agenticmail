@@ -571,7 +571,7 @@ agenticmail claudecode --remove    # uninstall
   `mcp__agenticmail__create_account({ name: "worker-7" })` — the new agent's API key is resolved on-demand by the MCP server, and the dispatcher picks it up within ~1 minute. No restart required.
 
 - **Headless HTTP install endpoint** at `POST /api/agenticmail/integrations/claudecode/install`.
-  Lets an agent (or any script) wire itself in with a single curl. No master key needed for the install endpoint — see security model in the [package README](https://www.npmjs.com/package/@agenticmail/claudecode).
+  Lets an agent (or any script) wire itself in with a single curl. No master key needed when called from the same machine (tunnelled, proxied, browser and remote calls need it) — see security model in the [package README](https://www.npmjs.com/package/@agenticmail/claudecode).
 
 ### The "Claude Code is the brain" architecture
 

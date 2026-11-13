@@ -162,7 +162,7 @@ agenticmail-claudecode uninstall [--purge-bridge]
 
 ### 3. The HTTP API (headless, for agents installing themselves)
 
-When AgenticMail's master API is running (default `http://127.0.0.1:3829`), it exposes three endpoints for the integration. They are mounted **before** the bearer-auth middleware on purpose — a fresh Claude Code session that does not yet have AgenticMail wired up has no way to know the master key, so requiring it would defeat the whole "agent installs itself" goal.
+When AgenticMail's master API is running (default `http://127.0.0.1:3829`), it exposes three endpoints for the integration. A local process can call them without the master key; anything else must send `Authorization: Bearer <master key>`.
 
 ```http
 GET  /api/agenticmail/integrations/claudecode/status
@@ -186,7 +186,7 @@ That single call:
 
 The bridge agent's API key is **redacted** in the HTTP response — it's already been written to `~/.claude.json` server-side, so returning it over HTTP would be a needless second copy.
 
-**Security model:** the master API binds to `127.0.0.1` by default. Anything that can reach the install endpoint can already read `~/.agenticmail/config.json` (same file ownership), so leaving these endpoints unauthenticated does not widen the attack surface. **If you bind the master API to a non-loopback interface you MUST put your own auth / firewall in front of it** — same caveat as every other unauthenticated route on this server (e.g. `/health`).
+**Security model:** A request is accepted only with `Authorization: Bearer <master key>`, or as a genuine local bootstrap: a loopback TCP peer, a `localhost` / `127.0.0.1` / `[::1]` Host header (blocks DNS rebinding), no browser `Origin` header (blocks CSRF), and no proxy or tunnel headers such as `X-Forwarded-For` or `CF-Connecting-IP` (a Cloudflare quick-tunnel connects from loopback, so these requests need the master key). The body can never choose the API URL or master key, so the on-disk key is only sent to the configured local API; `mcpCommand`/`mcpArgs` must be `npx -y @agenticmail/mcp` or `agenticmail-mcp`; config-path overrides need the master key.
 
 ---
 

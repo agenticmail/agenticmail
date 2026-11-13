@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -14,6 +13,8 @@ import {
   type AgenticMailConfig,
 } from '@agenticmail/core';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { createIntegrationGuard } from './middleware/integration-guard.js';
+import { createCorsPolicy, parseCorsOrigins } from './middleware/cors-policy.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createAccountRoutes } from './routes/accounts.js';
@@ -47,7 +48,7 @@ import { createAgentMemoryRoutes } from './routes/agent-memory.js';
  * If the package isn't installed (offline / partial mirror), this resolves
  * to null and createApp just skips the mount.
  */
-type IntegrationRouteFactory = () => express.Router;
+type IntegrationRouteFactory = (opts?: { masterKey?: string }) => express.Router;
 const integrationRouteFactoryPromise: Promise<IntegrationRouteFactory | null> = (async () => {
   try {
     const mod = await import('@agenticmail/claudecode/http-routes');
@@ -145,7 +146,10 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
     res.setHeader('X-Powered-By', 'AgenticMail');
     next();
   });
-  app.use(cors());
+  // No open CORS: the bundled web UI is same-origin, so cross-origin
+  // browser access is denied unless the operator lists exact origins in
+  // AGENTICMAIL_CORS_ORIGINS. See middleware/cors-policy.ts.
+  app.use(createCorsPolicy(parseCorsOrigins(process.env.AGENTICMAIL_CORS_ORIGINS)));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   // Cast: express-rate-limit v7 ships Express 5 types; we're on
@@ -227,13 +231,14 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   // X-Telegram-Bot-Api-Secret-Token header, before bearer auth)
   app.use('/api/agenticmail', createTelegramWebhookRoutes(db, config, gatewayManager));
 
-  // Integration bootstrap routes — mounted BEFORE bearer auth so a fresh
-  // AI agent (Claude Code, etc.) can self-install without having to first
-  // know the master key. The factory was resolved at module load (see
-  // integrationRouteFactoryPromise above). If the package isn't installed
-  // the factory is null and we simply skip mounting.
-  // Security note: API binds to 127.0.0.1 by default, so unauthenticated
-  // here is no broader than reading ~/.agenticmail/config.json.
+  // Integration bootstrap routes (Claude Code self-install). They sit
+  // before the general auth middleware because a fresh local agent may not
+  // know the master key yet — but they are NOT unauthenticated:
+  // createIntegrationGuard admits only a master-key bearer or a genuine
+  // local bootstrap (loopback peer + localhost Host + no browser Origin +
+  // no proxy/tunnel headers), strips any caller-supplied apiUrl/masterKey,
+  // and pins the MCP command to the known AgenticMail invocations. The
+  // integration router re-applies the same guard itself.
   //
   // We use Promise.resolve().then sync-ish: if the promise has already
   // settled (which it has by the time index.ts calls createApp after
@@ -243,8 +248,9 @@ export function createApp(configOverrides?: Partial<AgenticMailConfig>): {
   // function returns. So we instead peek synchronously by exposing the
   // factory through a sync getter.
   const integrationFactory = readResolvedFactory(integrationRouteFactoryPromise);
+  app.use('/api/agenticmail/integrations', createIntegrationGuard(config.masterKey));
   if (integrationFactory) {
-    app.use('/api/agenticmail', integrationFactory());
+    app.use('/api/agenticmail', integrationFactory({ masterKey: config.masterKey }));
   }
 
   // Auth middleware for all other API routes

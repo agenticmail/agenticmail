@@ -84,9 +84,10 @@ describe('POST /integrations/claudecode/install', () => {
     const blob = JSON.stringify(res.body);
     expect(blob).not.toMatch(/ak_FOLA_SECRET|ak_WRITER_SECRET|ak_BRIDGE_SECRET/);
     expect(res.body.changed).toBe(true);
-    // Sanitisation: only known string fields are forwarded.
+    // Sanitisation: only allowlisted fields are forwarded — never a
+    // caller-chosen apiUrl (GHSA-4x3j-9wxx-863h).
     const call = ops.install.mock.calls[0][0];
-    expect(call.apiUrl).toBe('http://test');
+    expect(call).not.toHaveProperty('apiUrl');
     expect(call).not.toHaveProperty('purgeBridgeAgent');
     expect(call).not.toHaveProperty('extraKey');
   });

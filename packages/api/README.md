@@ -65,7 +65,7 @@ POST /api/agenticmail/integrations/claudecode/install
 POST /api/agenticmail/integrations/claudecode/uninstall
 ```
 
-These are mounted **before** the master-key auth middleware on purpose — a fresh Claude Code session that doesn't yet have AgenticMail wired up has no way to know the master key, so requiring it would defeat the "agent installs itself" use case. The API binds to `127.0.0.1` by default, so anything that can reach these endpoints can already read `~/.agenticmail/config.json` — the unauthenticated install endpoint doesn't widen the attack surface beyond that. **If you bind the API to a non-loopback interface, put auth or a firewall in front of it** (same caveat as every other unauthenticated route on the server, e.g. `/health`).
+A fresh local Claude Code session can call these without the master key, but they are not open: A request is accepted only with `Authorization: Bearer <master key>`, or as a genuine local bootstrap: a loopback TCP peer, a `localhost` / `127.0.0.1` / `[::1]` Host header (blocks DNS rebinding), no browser `Origin` header (blocks CSRF), and no proxy or tunnel headers such as `X-Forwarded-For` or `CF-Connecting-IP` (a Cloudflare quick-tunnel connects from loopback, so these requests need the master key). The body can never choose the API URL or master key, so the on-disk key is only sent to the configured local API; `mcpCommand`/`mcpArgs` must be `npx -y @agenticmail/mcp` or `agenticmail-mcp`; config-path overrides need the master key.
 
 ---
 
