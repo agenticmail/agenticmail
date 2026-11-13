@@ -50,7 +50,6 @@
     "@types/nodemailer": "^7.0.10"
   },
   "overrides": {
-    "nodemailer": "8.0.11",
     "esbuild": "0.28.1"
   },
   "version": "0.0.2"
