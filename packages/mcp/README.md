@@ -84,7 +84,7 @@ Add to your MCP client configuration (e.g., `.mcp.json` or project settings):
   "mcpServers": {
     "agenticmail": {
       "command": "npx",
-      "args": ["agenticmail-mcp"],
+      "args": ["-y", "@agenticmail/mcp"],
       "env": {
         "AGENTICMAIL_API_URL": "http://127.0.0.1:3829",
         "AGENTICMAIL_API_KEY": "ak_your_agent_key"
@@ -105,7 +105,7 @@ For desktop AI applications, add to your MCP configuration file. Example paths:
   "mcpServers": {
     "agenticmail": {
       "command": "npx",
-      "args": ["agenticmail-mcp"],
+      "args": ["-y", "@agenticmail/mcp"],
       "env": {
         "AGENTICMAIL_API_URL": "http://127.0.0.1:3829",
         "AGENTICMAIL_API_KEY": "ak_your_agent_key"
