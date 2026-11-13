@@ -10,6 +10,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import type { AccountManager, AgenticMailConfig } from '@agenticmail/core';
+import { analyzeRawSql, isForbiddenName, validateSqlExpression } from '../lib/sql-guard.js';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -59,6 +60,17 @@ function requireIdentifier(value: unknown, label = 'identifier'): string {
   return value;
 }
 
+// Table names are built by safeTableName (prefix + up to 64 chars, plus an
+// optional `__archived` suffix), so they can be longer than IDENTIFIER_RE allows.
+const TABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,199}$/;
+
+function requireTableName(value: unknown): string {
+  if (typeof value !== 'string' || !TABLE_NAME_RE.test(value)) {
+    throw new StorageRouteError('table name contains invalid characters');
+  }
+  return value;
+}
+
 function requireIdentifierList(values: string[], label: string): string[] {
   return values.map((value) => requireIdentifier(value, label));
 }
@@ -77,7 +89,13 @@ function mapColumnType(col: ColumnDef, dialect: string): string {
   return (typeMap[dialect] || typeMap.sqlite)[col.type] || 'TEXT';
 }
 
-function buildColumnDDL(col: ColumnDef, dialect: string): string {
+const ON_DELETE_ACTIONS = new Set(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION', 'SET DEFAULT']);
+
+/**
+ * @param tableColumns every column of the table this column belongs to
+ *   (including itself) — the only identifiers a CHECK expression may name.
+ */
+function buildColumnDDL(col: ColumnDef, dialect: string, tableColumns: string[] = []): string {
   const columnName = requireIdentifier(col.name, 'column name');
   let ddl = `${columnName} ${mapColumnType(col, dialect)}`;
   if (col.primaryKey) ddl += ' PRIMARY KEY';
@@ -110,16 +128,37 @@ function buildColumnDDL(col: ColumnDef, dialect: string): string {
       const trimmed = col.default.slice(0, 500).trim();
       const isSqlExpr = /\(.*\)/.test(trimmed)
         || /^CURRENT_(?:TIMESTAMP|DATE|TIME)$/i.test(trimmed);
-      val = isSqlExpr ? `(${trimmed})` : `'${escapeSqlString(col.default)}'`;
-    } else {
+      // Security — the expression path used to embed `trimmed` raw, which
+      // carried stacked statements into exec() (GHSA-m52q-h5cf-mj6c). It is
+      // now held to the strict expression whitelist: literals, operators
+      // and a small scalar-function allowlist, no column references.
+      val = isSqlExpr
+        ? `(${validateSqlExpression(trimmed, { label: 'column default', dialect })})`
+        : `'${escapeSqlString(col.default)}'`;
+    } else if (typeof col.default === 'number') {
+      if (!Number.isFinite(col.default)) throw new StorageRouteError('column default must be a finite number');
       val = col.default;
+    } else if (typeof col.default === 'boolean') {
+      val = col.default;
+    } else if (col.default === null) {
+      val = 'NULL';
+    } else {
+      // Arrays/objects stringify into arbitrary SQL text — refuse them.
+      throw new StorageRouteError('column default must be a string, number, boolean or null');
     }
     ddl += ` DEFAULT ${val}`;
   }
-  if (col.check) ddl += ` CHECK (${col.check})`;
+  if (col.check !== undefined && col.check !== null && col.check !== '') {
+    const columns = tableColumns.length ? tableColumns : [columnName];
+    ddl += ` CHECK (${validateSqlExpression(col.check, { label: 'check constraint', columns, dialect })})`;
+  }
   if (col.references) {
     ddl += ` REFERENCES ${requireIdentifier(col.references.table, 'reference table')}(${requireIdentifier(col.references.column, 'reference column')})`;
-    if (col.references.onDelete) ddl += ` ON DELETE ${col.references.onDelete}`;
+    if (col.references.onDelete) {
+      const action = typeof col.references.onDelete === 'string' ? col.references.onDelete.trim().toUpperCase() : '';
+      if (!ON_DELETE_ACTIONS.has(action)) throw new StorageRouteError('references.onDelete must be CASCADE, SET NULL, RESTRICT, NO ACTION or SET DEFAULT');
+      ddl += ` ON DELETE ${action}`;
+    }
   }
   return ddl;
 }
@@ -132,7 +171,7 @@ function safeTableName(agentId: string, name: string, shared: boolean): string {
 }
 
 function resolveTable(agentId: string, name: string): string {
-  if (name.startsWith('agt_') || name.startsWith('shared_')) return name;
+  if (name.startsWith('agt_') || name.startsWith('shared_')) return requireTableName(name);
   return safeTableName(agentId, name, false);
 }
 
@@ -205,44 +244,19 @@ function buildGroupBy(groupBy: string): string {
   return requireIdentifierList(groupBy.split(',').map((part) => part.trim()), 'groupBy column').join(', ');
 }
 
-function extractTableRefs(sql: string): string[] {
-  const refs = new Set<string>();
-  const refPattern = /\b(?:FROM|INTO|UPDATE|TABLE|JOIN)\s+["`[]?([A-Za-z_][A-Za-z0-9_]{0,63})["`\]]?/gi;
-  for (const match of sql.matchAll(refPattern)) refs.add(match[1]);
-  // Hardening — the FROM/JOIN-anchored scan above misses tables in a
-  // comma-join list (`FROM agt_mine, agt_victim` only captures the
-  // first). Catch EVERY storage-table-shaped token anywhere in the
-  // query as a backstop: any agt_*/shared_*/metadata token must be
-  // ownership-checked by verifySqlAccess, comma-join or not.
-  const storageTokenPattern = /\b(agt_[A-Za-z0-9_]+|shared_[A-Za-z0-9_]+|agenticmail_storage_meta)\b/gi;
-  for (const match of sql.matchAll(storageTokenPattern)) refs.add(match[1]);
-  return [...refs];
+/** Column names recorded in a table's storage metadata. */
+function metaColumnNames(meta: any): string[] {
+  try {
+    const cols = typeof meta?.columns === 'string' ? JSON.parse(meta.columns) : meta?.columns;
+    return Array.isArray(cols) ? cols.map((c: any) => c?.name).filter((c: any) => typeof c === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
-/**
- * Hardening — `having` was the one query clause still interpolated raw
- * into SQL after the #GHSA storage patch validated `groupBy`/`orderBy`.
- * HAVING legitimately needs aggregate expressions (`COUNT(*) > 5`), so
- * it can't be identifier-validated like the others. Instead: bound the
- * length and reject statement-breaking constructs (stacked statements,
- * comment markers) and any DDL/DML keyword. The caller already owns the
- * table and is authenticated, so a HAVING expression that can't escape
- * the SELECT or run DDL/DML has no meaningful blast radius.
- */
-function sanitizeHavingClause(having: string): string {
-  if (typeof having !== 'string') {
-    throw new StorageRouteError('having must be a string');
-  }
-  if (having.length > 200) {
-    throw new StorageRouteError('having clause is too long (max 200 chars)');
-  }
-  if (/;|--|\/\*|\*\//.test(having)) {
-    throw new StorageRouteError('having clause contains a forbidden token');
-  }
-  if (/\b(DROP|DELETE|INSERT|UPDATE|UNION|ATTACH|DETACH|PRAGMA|CREATE|ALTER|REPLACE|EXEC|VACUUM)\b/i.test(having)) {
-    throw new StorageRouteError('having clause contains a forbidden keyword');
-  }
-  return having;
+/** Quote an identifier that came from the database itself. */
+function quoteIdent(name: string): string {
+  return `"${String(name).replace(/"/g, '""')}"`;
 }
 
 function nowExpr(dialect: string): string {
@@ -263,10 +277,9 @@ function nowExpr(dialect: string): string {
  *  try/catch) escapes Express's default async handler — leaving
  *  the request hanging until the client times out.
  *
- *  <p>The adapter lazily prepares each statement, falls back to
- *  {@code exec} for parameter-less DDL (CREATE TABLE / CREATE
- *  INDEX / PRAGMA — node:sqlite's {@code prepare} can't bind these
- *  either, same constraint), and returns plain (non-Promise) values;
+ *  <p>The adapter prepares each statement (one statement per call —
+ *  never {@code exec}, see the security note below), and returns
+ *  plain (non-Promise) values;
  *  the awaits in the route handlers are no-ops on plain values, so
  *  no further changes were needed at the call sites. */
 function adaptBetterSqlite(raw: any): StorageDB {
@@ -279,36 +292,40 @@ function adaptBetterSqlite(raw: any): StorageDB {
     return raw as StorageDB;
   }
   // Otherwise wrap the sync-style SQLite instance (node:sqlite DatabaseSync today).
-  const exec = (sql: string, params?: any[]): void => {
-    if (!params || params.length === 0) {
-      // exec handles multi-statement DDL + statements that have
-      // tokens node:sqlite's prepare can't bind (PRAGMA, etc.).
-      raw.exec(sql);
-      return;
+  //
+  // Security — this adapter used to send parameter-less statements to
+  // `raw.exec()`, which runs EVERY statement in the string. Any fragment an
+  // agent could get into a DDL string (index WHERE, CHECK, DEFAULT) then
+  // became arbitrary stacked SQL (GHSA-vj36-c6cj-8qmh, GHSA-fgq6-mm4x-93qq,
+  // GHSA-m52q-h5cf-mj6c). Everything now goes through `prepare()`, which
+  // compiles exactly one statement (node:sqlite prepares DDL and PRAGMA
+  // fine), and `prepareSingle` refuses any text left over after that
+  // statement instead of letting the driver silently ignore it.
+  const prepareSingle = (sql: string): any => {
+    const stmt = raw.prepare(sql);
+    const source = typeof stmt?.sourceSQL === 'string' ? stmt.sourceSQL
+      : typeof stmt?.source === 'string' ? stmt.source
+        : null;
+    if (source !== null) {
+      const strip = (text: string) => text.replace(/[\s;]+$/, '').trim();
+      if (strip(source).length < strip(sql).length) {
+        throw new StorageRouteError('Only a single SQL statement is allowed');
+      }
     }
-    raw.prepare(sql).run(...params);
+    return stmt;
   };
   return {
     run(sql: string, params?: any[]): void {
-      // CREATE / ALTER / DROP / INSERT-without-params land in exec;
-      // INSERT / UPDATE / DELETE with params land in prepare+run.
-      const trimmed = sql.trim().toUpperCase();
-      const isDDL = trimmed.startsWith('CREATE')
-        || trimmed.startsWith('ALTER')
-        || trimmed.startsWith('DROP')
-        || trimmed.startsWith('PRAGMA');
-      if (isDDL && (!params || params.length === 0)) {
-        raw.exec(sql);
-        return;
-      }
-      exec(sql, params);
+      const stmt = prepareSingle(sql);
+      if (params && params.length > 0) stmt.run(...params);
+      else stmt.run();
     },
     get(sql: string, params?: any[]): any {
-      const stmt = raw.prepare(sql);
+      const stmt = prepareSingle(sql);
       return params && params.length > 0 ? stmt.get(...params) : stmt.get();
     },
     all(sql: string, params?: any[]): any[] {
-      const stmt = raw.prepare(sql);
+      const stmt = prepareSingle(sql);
       const rows = params && params.length > 0
         ? stmt.all(...params)
         : stmt.all();
@@ -340,23 +357,106 @@ export function createStorageRoutes(
     return meta;
   }
 
-  async function verifySqlAccess(agent: { id: string }, sql: string): Promise<void> {
-    const tableRefs = extractTableRefs(sql);
-    for (const tbl of tableRefs) {
-      if (tbl === 'agenticmail_storage_meta') {
-        throw new StorageRouteError('Direct SQL access to storage metadata is not allowed', 403);
-      }
-      if (!isSafeTable(tbl)) {
-        throw new StorageRouteError(`Cannot operate on table "${tbl}". Only agt_* and shared_* tables are allowed.`, 403);
-      }
-      const meta = await db.get('SELECT * FROM agenticmail_storage_meta WHERE table_name = ?', [tbl]);
-      if (!meta) {
-        throw new StorageRouteError(`Table "${tbl}" is not registered in storage metadata`, 404);
-      }
-      if (meta.agent_id !== agent.id && !meta.shared) {
-        throw new StorageRouteError(`Access denied for table "${tbl}"`, 403);
-      }
+  /** Every table / view / index / trigger in the database, keyed by
+   *  lower-cased name, with the table each one belongs to. */
+  async function loadSchemaObjects(): Promise<Map<string, { name: string; table: string }>> {
+    let rows: any[];
+    if (dialect === 'postgres') {
+      rows = await db.all(
+        `SELECT table_name AS name, table_name AS tbl_name FROM information_schema.tables
+         UNION ALL SELECT indexname AS name, tablename AS tbl_name FROM pg_indexes`,
+      );
+    } else if (dialect === 'mysql') {
+      rows = await db.all(
+        `SELECT table_name AS name, table_name AS tbl_name FROM information_schema.tables
+         UNION ALL SELECT index_name AS name, table_name AS tbl_name FROM information_schema.statistics`,
+      );
+    } else {
+      rows = await db.all(
+        `SELECT name, tbl_name FROM sqlite_master
+         UNION ALL SELECT name, tbl_name FROM sqlite_temp_master`,
+      );
     }
+    const objects = new Map<string, { name: string; table: string }>();
+    for (const row of rows) {
+      const name = row?.name ?? row?.NAME;
+      const table = row?.tbl_name ?? row?.TBL_NAME ?? name;
+      if (typeof name === 'string') objects.set(name.toLowerCase(), { name, table: String(table) });
+    }
+    return objects;
+  }
+
+  /**
+   * Security — ownership check for raw agent SQL (GHSA-vj36-c6cj-8qmh,
+   * GHSA-fgq6-mm4x-93qq). The old check pulled table names out with a regex
+   * anchored on `FROM\s+`, so `FROM/**\/agents` was invisible to it, and a
+   * statement it found no tables in was allowed. Now:
+   *
+   *   - the statement is lexed (sql-guard), so comments, quoting and
+   *     whitespace cannot hide a token; comments and stacked statements are
+   *     refused outright, as are ATTACH/DETACH/PRAGMA/VACUUM and friends,
+   *     and anything but SELECT/WITH/VALUES/INSERT/REPLACE/UPDATE/DELETE/
+   *     EXPLAIN;
+   *   - deny by default: EVERY identifier in the statement, and every string
+   *     literal (SQLite accepts `FROM 'agents'`), is resolved against the
+   *     live schema. Any that names a table, view, index or trigger which is
+   *     not an agt_* / shared_* table this agent may use is refused, wherever
+   *     in the statement it appears. A column that happens to share a core
+   *     table's name is therefore refused too; the structured routes (or a
+   *     bound parameter, for a value) are the way around that.
+   */
+  async function verifySqlAccess(agent: { id: string }, sql: unknown): Promise<ReturnType<typeof analyzeRawSql>> {
+    const analysis = analyzeRawSql(sql, dialect);
+
+    let schema: Map<string, { name: string; table: string }>;
+    try {
+      schema = await loadSchemaObjects();
+    } catch {
+      throw new StorageRouteError('Unable to verify table access for this statement', 403);
+    }
+
+    const verdicts = new Map<string, Promise<void>>();
+    const checkTable = (tableName: string): Promise<void> => {
+      const key = tableName.toLowerCase();
+      let verdict = verdicts.get(key);
+      if (!verdict) {
+        verdict = (async () => {
+          if (key === 'agenticmail_storage_meta') {
+            throw new StorageRouteError('Direct SQL access to storage metadata is not allowed', 403);
+          }
+          if (!isSafeTable(tableName)) {
+            throw new StorageRouteError(`Cannot operate on table "${tableName}". Only agt_* and shared_* tables are allowed.`, 403);
+          }
+          const meta = await db.get('SELECT * FROM agenticmail_storage_meta WHERE table_name = ?', [tableName]);
+          if (!meta) {
+            throw new StorageRouteError(`Table "${tableName}" is not registered in storage metadata`, 404);
+          }
+          if (meta.agent_id !== agent.id && !meta.shared) {
+            throw new StorageRouteError(`Access denied for table "${tableName}"`, 403);
+          }
+        })();
+        verdicts.set(key, verdict);
+      }
+      return verdict;
+    };
+
+    const checkName = async (name: string, isIdentifier: boolean): Promise<void> => {
+      if (isForbiddenName(name)) {
+        if (name.toLowerCase() === 'agenticmail_storage_meta') {
+          throw new StorageRouteError('Direct SQL access to storage metadata is not allowed', 403);
+        }
+        throw new StorageRouteError(`Access to "${name}" is not allowed`, 403);
+      }
+      const object = schema.get(name.toLowerCase());
+      if (object) return checkTable(object.table);
+      // Not an existing object. An agt_*/shared_* identifier must still be a
+      // registered table (keeps the old comma-join backstop's behaviour).
+      if (isIdentifier && /^(?:agt|shared)_/i.test(name)) return checkTable(name);
+    };
+
+    for (const ident of analysis.identifiers) await checkName(ident, true);
+    for (const str of analysis.strings) await checkName(str, false);
+    return analysis;
   }
 
   // ─── Metadata tracking table ────────────────────────
@@ -425,7 +525,16 @@ export function createStorageRoutes(
       const existing = await db.get('SELECT table_name FROM agenticmail_storage_meta WHERE table_name = ?', [tableName]);
       if (existing) return res.status(409).json({ error: `Table "${name}" already exists`, table: tableName });
 
-      const colDefs = allCols.map(c => buildColumnDDL(c, dialect)).join(',\n  ');
+      const allColNames = allCols.map(c => requireIdentifier(c.name, 'column name'));
+      const colDefs = allCols.map(c => buildColumnDDL(c, dialect, allColNames)).join(',\n  ');
+      // Validate every index up front so a bad one cannot leave a
+      // half-created, unregistered table behind.
+      for (const idx of indexes ?? []) {
+        if (!Array.isArray(idx?.columns) || !idx.columns.length) throw new StorageRouteError('index columns are required');
+        requireIdentifierList(idx.columns, 'index column');
+        if (idx.name) requireIdentifier(idx.name, 'index name');
+        if (idx.where) validateSqlExpression(idx.where, { label: 'index where clause', columns: allColNames, dialect });
+      }
       await db.run(`CREATE TABLE IF NOT EXISTS ${tableName} (\n  ${colDefs}\n)`);
 
       // Create indexes
@@ -438,7 +547,8 @@ export function createStorageRoutes(
           const unique = idx.unique ? 'UNIQUE ' : '';
           let idxSql = `CREATE ${unique}INDEX IF NOT EXISTS ${idxName} ON ${tableName}(${idxColumns.join(', ')})`;
           if (idx.where && (dialect === 'sqlite' || dialect === 'postgres' || dialect === 'turso')) {
-            idxSql += ` WHERE ${idx.where}`;
+            // Security — was interpolated raw (GHSA-fgq6-mm4x-93qq, GHSA-m52q-h5cf-mj6c).
+            idxSql += ` WHERE ${validateSqlExpression(idx.where, { label: 'index where clause', columns: allColNames, dialect })}`;
           }
           await db.run(idxSql);
           idxMeta.push({ name: idxName, columns: idxColumns, unique: !!idx.unique, where: idx.where });
@@ -561,7 +671,8 @@ export function createStorageRoutes(
       const meta = await verifyAccess(agent, tableName, res, true);
       if (!meta) return;
 
-      await db.run(`ALTER TABLE ${tableName} ADD COLUMN ${buildColumnDDL(column, dialect)}`);
+      const tableColumns = [...metaColumnNames(meta), requireIdentifier(column.name, 'column name')];
+      await db.run(`ALTER TABLE ${tableName} ADD COLUMN ${buildColumnDDL(column, dialect, tableColumns)}`);
 
       const cols = typeof meta.columns === 'string' ? JSON.parse(meta.columns) : meta.columns;
       cols.push(column);
@@ -580,7 +691,7 @@ export function createStorageRoutes(
 
     try {
       const tableName = resolveTable(agent.id, req.params.name);
-      const colName = req.params.col;
+      const colName = requireIdentifier(req.params.col, 'column name');
       const meta = await verifyAccess(agent, tableName, res, true);
       if (!meta) return;
 
@@ -633,6 +744,8 @@ export function createStorageRoutes(
     try {
       const { oldName, newName } = req.body as { oldName: string; newName: string };
       if (!oldName || !newName) return res.status(400).json({ error: 'oldName and newName are required' });
+      requireIdentifier(oldName, 'column name');
+      requireIdentifier(newName, 'column name');
 
       const tableName = resolveTable(agent.id, req.params.name);
       const meta = await verifyAccess(agent, tableName, res, true);
@@ -723,16 +836,24 @@ export function createStorageRoutes(
       const meta = await verifyAccess(agent, tableName, res, true);
       if (!meta) return;
 
-      const finalName = idxName || `idx_${tableName}_${columns.join('_')}`;
-      let sql = `CREATE ${unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${finalName} ON ${tableName}(${columns.join(', ')})`;
+      // Security (GHSA-vj36-c6cj-8qmh, GHSA-fgq6-mm4x-93qq) — name, columns
+      // and where were all interpolated raw and then run through exec(), so
+      // a stacked statement in `where` could read or rewrite any table. Every
+      // fragment is now validated: identifiers by IDENTIFIER_RE, the WHERE by
+      // the strict expression whitelist, which only admits this table's own
+      // columns — so the statement can reference no other table at all.
+      if (!Array.isArray(columns)) return res.status(400).json({ error: 'columns must be an array' });
+      const safeColumns = requireIdentifierList(columns, 'index column');
+      const finalName = idxName ? requireIdentifier(idxName, 'index name') : `idx_${tableName}_${safeColumns.join('_')}`;
+      let sql = `CREATE ${unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${finalName} ON ${tableName}(${safeColumns.join(', ')})`;
       if (whereClause && (dialect === 'sqlite' || dialect === 'postgres' || dialect === 'turso')) {
-        sql += ` WHERE ${whereClause}`;
+        sql += ` WHERE ${validateSqlExpression(whereClause, { label: 'index where clause', columns: metaColumnNames(meta), dialect })}`;
       }
       await db.run(sql);
 
       // Update metadata
       const indexes = typeof meta.indexes === 'string' ? JSON.parse(meta.indexes) : (meta.indexes || []);
-      indexes.push({ name: finalName, columns, unique: !!unique, where: whereClause });
+      indexes.push({ name: finalName, columns: safeColumns, unique: !!unique, where: whereClause });
       await db.run(`UPDATE agenticmail_storage_meta SET indexes = ?, updated_at = ${nowExpr(dialect)} WHERE table_name = ?`, [JSON.stringify(indexes), tableName]);
 
       res.json({ ok: true, index: finalName });
@@ -755,7 +876,7 @@ export function createStorageRoutes(
       if (dialect === 'sqlite' || dialect === 'turso') {
         const idxList = await db.all(`PRAGMA index_list(${tableName})`);
         for (const idx of idxList) {
-          const info = await db.all(`PRAGMA index_info(${idx.name})`);
+          const info = await db.all(`PRAGMA index_info(${quoteIdent(idx.name)})`);
           dbIndexes.push({ name: idx.name, unique: !!idx.unique, columns: info.map((i: any) => i.name) });
         }
       } else if (dialect === 'postgres') {
@@ -777,9 +898,21 @@ export function createStorageRoutes(
 
     try {
       const tableName = resolveTable(agent.id, req.params.name);
-      const idxName = req.params.idx;
+      const idxName = requireIdentifier(req.params.idx, 'index name');
       const meta = await verifyAccess(agent, tableName, res, true);
       if (!meta) return;
+
+      // The index must belong to THIS table — otherwise owning any table
+      // was enough to drop any index in the database.
+      let belongs: boolean;
+      if (dialect === 'sqlite' || dialect === 'turso') {
+        belongs = !!(await db.get("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ? AND tbl_name = ?", [idxName, tableName]));
+      } else if (dialect === 'postgres') {
+        belongs = !!(await db.get('SELECT indexname FROM pg_indexes WHERE indexname = ? AND tablename = ?', [idxName, tableName]));
+      } else {
+        belongs = true; // MySQL's DROP INDEX is already scoped with ON <table>.
+      }
+      if (!belongs) return res.status(404).json({ error: 'Index not found on this table' });
 
       if (dialect === 'mysql') {
         await db.run(`DROP INDEX ${idxName} ON ${tableName}`);
@@ -933,7 +1066,13 @@ export function createStorageRoutes(
       }
 
       if (groupBy) sql += ` GROUP BY ${buildGroupBy(groupBy)}`;
-      if (having) sql += ` HAVING ${sanitizeHavingClause(having)}`;
+      // Security — the old keyword blocklist let `(SELECT … FROM agents)`
+      // through, a boolean oracle on any table. Same whitelist as DDL.
+      if (having) {
+        sql += ` HAVING ${validateSqlExpression(having, {
+          label: 'having clause', columns: metaColumnNames(meta), dialect, maxLength: 200, allowAggregates: true,
+        })}`;
+      }
       if (orderBy) sql += ` ORDER BY ${buildOrderBy(orderBy)}`;
       if (limit) { sql += ' LIMIT ?'; params.push(limit); }
       if (offset) { sql += ' OFFSET ?'; params.push(offset); }
@@ -1100,7 +1239,9 @@ export function createStorageRoutes(
     await ensureMetaTable();
 
     try {
-      const archivedName = req.params.name.endsWith('__archived') ? req.params.name : `${resolveTable(agent.id, req.params.name)}__archived`;
+      const archivedName = requireTableName(
+        req.params.name.endsWith('__archived') ? req.params.name : `${resolveTable(agent.id, req.params.name)}__archived`,
+      );
       const meta = await db.get('SELECT * FROM agenticmail_storage_meta WHERE table_name = ?', [archivedName]);
       if (!meta) return res.status(404).json({ error: 'Archived table not found' });
       if (meta.agent_id !== agent.id) return res.status(403).json({ error: 'Only the owner can unarchive' });
@@ -1236,21 +1377,17 @@ export function createStorageRoutes(
     try {
       const { sql, params } = req.body as { sql: string; params?: any[] };
       if (!sql) return res.status(400).json({ error: 'sql is required' });
+      if (params !== undefined && !Array.isArray(params)) return res.status(400).json({ error: 'params must be an array' });
 
-      // Safety: only allow operations on agent-owned or shared tables
-      const upper = sql.trim().toUpperCase();
-      const dangerousPatterns = ['DROP DATABASE', 'DROP SCHEMA', 'GRANT ', 'REVOKE ', 'CREATE USER', 'ALTER USER'];
-      for (const p of dangerousPatterns) {
-        if (upper.includes(p)) return res.status(403).json({ error: `Operation not allowed: ${p}` });
-      }
+      // Single statement, allowed type, every referenced object owned or
+      // shared — see verifySqlAccess. Execute the analysed text, not `sql`.
+      const statement = await verifySqlAccess(agent, sql);
 
-      await verifySqlAccess(agent, sql);
-
-      if (upper.startsWith('SELECT') || upper.startsWith('WITH') || upper.startsWith('EXPLAIN') || upper.startsWith('PRAGMA')) {
-        const rows = await db.all(sql, params);
+      if (statement.kind === 'read') {
+        const rows = await db.all(statement.sql, params);
         return res.json({ rows, count: rows.length });
       } else {
-        await db.run(sql, params);
+        await db.run(statement.sql, params);
         return res.json({ ok: true });
       }
     } catch (err: any) { sendStorageError(res, err); }
@@ -1352,15 +1489,17 @@ export function createStorageRoutes(
     try {
       const { sql, params } = req.body as { sql: string; params?: any[] };
       if (!sql) return res.status(400).json({ error: 'sql is required' });
-      await verifySqlAccess(agent, sql);
+      if (params !== undefined && !Array.isArray(params)) return res.status(400).json({ error: 'params must be an array' });
+      const statement = await verifySqlAccess(agent, sql);
+      if (statement.firstKeyword === 'EXPLAIN') return res.status(400).json({ error: 'Pass the statement itself, without EXPLAIN' });
 
       let explainSql: string;
       if (dialect === 'postgres') {
-        explainSql = `EXPLAIN (ANALYZE false, FORMAT JSON) ${sql}`;
+        explainSql = `EXPLAIN (ANALYZE false, FORMAT JSON) ${statement.sql}`;
       } else if (dialect === 'mysql') {
-        explainSql = `EXPLAIN FORMAT=JSON ${sql}`;
+        explainSql = `EXPLAIN FORMAT=JSON ${statement.sql}`;
       } else {
-        explainSql = `EXPLAIN QUERY PLAN ${sql}`;
+        explainSql = `EXPLAIN QUERY PLAN ${statement.sql}`;
       }
 
       const plan = await db.all(explainSql, params);
