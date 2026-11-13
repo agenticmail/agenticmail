@@ -35,20 +35,58 @@ export function pushEventToAgent(agentId: string, event: Record<string, unknown>
 }
 
 /**
- * Broadcast an event to ALL active SSE connections.
- * Used as a fallback when the targeted push finds no watchers for the
- * assignee — common when OpenClaw sub-agents act on behalf of a target
- * agent under a different identity.
+ * Events for agents with no open SSE stream, held until that agent
+ * connects. There is deliberately NO "send to everyone" fallback: an
+ * event addressed to one agent (task text, RPC payloads) must never be
+ * written to another agent's stream (GHSA-p76v-w436-9wjh). The task
+ * itself is also persisted in agent_tasks and announced by email, so a
+ * dropped or expired queue entry loses no work.
  */
-export function broadcastEvent(event: Record<string, unknown>): number {
-  const data = `data: ${JSON.stringify(event)}\n\n`;
-  let count = 0;
-  for (const [, watchers] of activeWatchers) {
-    for (const entry of watchers) {
-      try { entry.res.write(data); count++; } catch { /* ignore */ }
-    }
+const PENDING_EVENT_TTL_MS = 10 * 60_000;
+const MAX_PENDING_EVENTS_PER_AGENT = 50;
+const MAX_PENDING_AGENTS = 1_000;
+const pendingEvents = new Map<string, Array<{ event: Record<string, unknown>; expiresAt: number }>>();
+
+function prunePending(agentId: string, now = Date.now()): void {
+  const queue = pendingEvents.get(agentId);
+  if (!queue) return;
+  const live = queue.filter((e) => e.expiresAt > now);
+  if (live.length === 0) pendingEvents.delete(agentId);
+  else if (live.length !== queue.length) pendingEvents.set(agentId, live);
+}
+
+/** Queue an event for ONE agent's next SSE connection (bounded, expiring). */
+export function queueEventForAgent(agentId: string, event: Record<string, unknown>): void {
+  if (!agentId) return;
+  const now = Date.now();
+  prunePending(agentId, now);
+  if (!pendingEvents.has(agentId) && pendingEvents.size >= MAX_PENDING_AGENTS) {
+    // Evict the oldest agent's queue rather than grow without bound.
+    const oldest = pendingEvents.keys().next().value;
+    if (oldest !== undefined) pendingEvents.delete(oldest);
   }
-  return count;
+  const queue = pendingEvents.get(agentId) ?? [];
+  queue.push({ event, expiresAt: now + PENDING_EVENT_TTL_MS });
+  if (queue.length > MAX_PENDING_EVENTS_PER_AGENT) queue.splice(0, queue.length - MAX_PENDING_EVENTS_PER_AGENT);
+  pendingEvents.set(agentId, queue);
+}
+
+/** Remove and return the still-live events queued for `agentId`. */
+export function takePendingEvents(agentId: string): Record<string, unknown>[] {
+  prunePending(agentId);
+  const queue = pendingEvents.get(agentId) ?? [];
+  pendingEvents.delete(agentId);
+  return queue.map((e) => e.event);
+}
+
+/**
+ * Deliver to the agent's live streams, or queue for that same agent if
+ * it has none. Never reaches any other agent.
+ */
+export function pushOrQueueEventForAgent(agentId: string, event: Record<string, unknown>): boolean {
+  if (pushEventToAgent(agentId, event)) return true;
+  queueEventForAgent(agentId, event);
+  return false;
 }
 
 /** Cleanup all active SSE watchers (called on shutdown) */
@@ -60,6 +98,7 @@ export async function closeAllWatchers(): Promise<void> {
     }
   }
   activeWatchers.clear();
+  pendingEvents.clear();
 }
 
 export function createEventRoutes(accountManager: AccountManager, config: AgenticMailConfig, db?: import('@agenticmail/core').Database): Router {
@@ -117,6 +156,11 @@ export function createEventRoutes(accountManager: AccountManager, config: Agenti
       };
 
       safeWrite(`data: ${JSON.stringify({ type: 'connected', agentId: agent.id })}\n\n`);
+
+      // Deliver anything addressed to THIS agent while it had no stream.
+      for (const pending of takePendingEvents(agent.id)) {
+        safeWrite(`data: ${JSON.stringify(pending)}\n\n`);
+      }
 
       // Helper: every new-mail event MUST land in two places —
       //   (a) the per-agent /events SSE (this connection's `safeWrite`),

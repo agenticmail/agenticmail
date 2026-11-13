@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { MailSender, type AccountManager, type AgenticMailConfig, type Database } from '@agenticmail/core';
 import { requireAgent, requireAuth, touchActivity } from '../middleware/auth.js';
-import { pushEventToAgent, broadcastEvent } from './events.js';
+import { pushOrQueueEventForAgent } from './events.js';
 import { getAgentPassword } from './mail.js';
 import { validate as validateSchema, type Schema } from '../lib/schema-validator.js';
 
@@ -79,9 +79,9 @@ export function createTaskRoutes(db: Database, accountManager: AccountManager, c
         task: `You have a pending task (ID: ${id}). Check your pending tasks, claim it, process it, and submit the result.\n\nType: ${taskType || 'generic'}\nTask: ${taskDescription}${schemaSection}`,
         assignee: target.name, from: req.agent?.name ?? 'system',
       };
-      if (!pushEventToAgent(target.id, spawnEvent)) {
-        broadcastEvent(spawnEvent);
-      }
+      // Assignee only — queued for its next stream if it has none, never
+      // broadcast to other agents (GHSA-p76v-w436-9wjh).
+      pushOrQueueEventForAgent(target.id, spawnEvent);
 
       // Fire-and-forget email notification as fallback (in case SSE isn't connected).
       if (req.agent) {
@@ -304,14 +304,14 @@ export function createTaskRoutes(db: Database, accountManager: AccountManager, c
         'INSERT INTO agent_tasks (id, assigner_id, assignee_id, task_type, payload) VALUES (?, ?, ?, ?, ?)'
       ).run(taskId, assignerId, targetAgent.id, 'rpc', JSON.stringify({ task, ...(payload || {}) }));
 
-      // Push task event to target agent's SSE stream. Broadcast if no direct watcher.
+      // Push task event to target agent's SSE stream (queued if it has no watcher).
       const rpcEvent = {
         type: 'task', taskId, taskType: 'rpc', task,
         assignee: targetAgent.name, from: req.agent?.name ?? 'system',
       };
-      if (!pushEventToAgent(targetAgent.id, rpcEvent)) {
-        broadcastEvent(rpcEvent);
-      }
+      // Assignee only — queued for its next stream if it has none, never
+      // broadcast to other agents (GHSA-p76v-w436-9wjh).
+      pushOrQueueEventForAgent(targetAgent.id, rpcEvent);
 
       // Fire-and-forget email notification as fallback (in case SSE isn't connected).
       // CRITICAL: Do NOT await — SMTP can hang/be slow, which would block the
