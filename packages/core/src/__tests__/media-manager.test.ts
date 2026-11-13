@@ -314,3 +314,64 @@ describe('tts / voice-clone dispatch', () => {
     expect(call!.args[2]).toMatch(/voiceclone-params/);
   });
 });
+
+describe('security — input confinement and interpreter allow-list', () => {
+  it('rejects an input path outside every allowed media root', async () => {
+    await expect(newManager().imageEdit({ input: '/etc/passwd', action: 'grayscale' }))
+      .rejects.toThrow(/outside the allowed media directories/);
+    expect(execFileCalls.find((c) => c.cmd === 'magick')).toBeUndefined();
+  });
+
+  it('rejects ../ traversal that escapes the temp dir', async () => {
+    await expect(newManager().mediaInfo('/tmp/../etc/hosts'))
+      .rejects.toThrow(/outside the allowed media directories/);
+  });
+
+  it('rejects hidden top-level entries under the home directory', async () => {
+    const { homedir } = await import('node:os');
+    const { join } = await import('node:path');
+    await expect(newManager().mediaInfo(join(homedir(), '.ssh', 'id_rsa')))
+      .rejects.toThrow(/outside the allowed media directories/);
+  });
+
+  it('accepts a normal file under the home directory', async () => {
+    const { homedir } = await import('node:os');
+    const { join } = await import('node:path');
+    presentBins = new Set(['ffmpeg', 'ffprobe', 'magick']);
+    clearMediaCapabilityCache();
+    const input = join(homedir(), 'Videos', 'clip.mp4');
+    await newManager().mediaInfo(input);
+    const call = execFileCalls.find((c) => c.cmd === 'ffprobe');
+    expect(call!.args).toContain(input);
+  });
+
+  it('confines every file of a merge, not just the first', async () => {
+    await expect(newManager().audioEdit({
+      action: 'merge', files: ['/tmp/a.mp3', '/etc/shadow'],
+    })).rejects.toThrow(/files\[1\] file path is outside/);
+  });
+
+  it('confines a caller-supplied whisper model path', async () => {
+    presentBins = new Set(['ffmpeg', 'ffprobe', 'whisper-cli']);
+    clearMediaCapabilityCache();
+    await expect(newManager().videoUnderstand({ input: '/tmp/in.mp4', whisperModel: '/etc/passwd' }))
+      .rejects.toThrow(/whisperModel file path is outside/);
+  });
+
+  it('voice_clone refuses a pythonBin that is not a Python interpreter', async () => {
+    await expect(newManager().voiceClone({
+      text: 'hi', refAudio: '/tmp/ref.wav', refText: 'ref', pythonBin: '/bin/sh',
+    })).rejects.toThrow(/Invalid pythonBin/);
+    await expect(newManager().voiceClone({
+      text: 'hi', refAudio: '/tmp/ref.wav', refText: 'ref', pythonBin: 'python3',
+    })).rejects.toThrow(/absolute path/);
+    expect(execFileCalls.find((c) => c.cmd === '/bin/sh')).toBeUndefined();
+  });
+
+  it('voice_clone accepts a venv python interpreter path', async () => {
+    await newManager().voiceClone({
+      text: 'hi', refAudio: '/tmp/ref.wav', refText: 'ref', pythonBin: '/tmp/venv/bin/python3.12',
+    });
+    expect(execFileCalls.find((c) => c.cmd === '/tmp/venv/bin/python3.12')).toBeTruthy();
+  });
+});

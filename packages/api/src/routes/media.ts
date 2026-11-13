@@ -32,12 +32,22 @@ function requestString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** True when a media error message describes bad caller input (→ 400). */
+export function isInputValidationMessage(msg: string): boolean {
+  // Messages can echo caller input, so: bounded length, and no
+  // `.*`-style pattern that backtracks quadratically (CodeQL
+  // js/polynomial-redos). "Unknown … action" is two independent tests.
+  const head = msg.slice(0, 1000);
+  if (/required|not found|Invalid|may not start|outside the allowed/i.test(head)) return true;
+  return /\bUnknown\b/i.test(head) && /\baction\b/i.test(head);
+}
+
 /**
  * Centralised media error responder.
  *   - "binary missing" → 503, so an agent learns the capability is
  *     opt-in / not installed (the message carries the install hint).
  *   - input-validation phrasing ("required", "not found", "Invalid",
- *     "Unknown … action") → 400.
+ *     "Unknown … action", "outside the allowed …") → 400.
  *   - everything else → 500.
  */
 function sendMediaError(res: Response, err: unknown): void {
@@ -46,7 +56,7 @@ function sendMediaError(res: Response, err: unknown): void {
     res.status(503).json({ error: msg, capabilityMissing: true });
     return;
   }
-  if (/required|not found|Invalid|Unknown .*action|may not start/i.test(msg)) {
+  if (isInputValidationMessage(msg)) {
     res.status(400).json({ error: msg });
     return;
   }
@@ -248,7 +258,9 @@ export function createMediaRoutes(config: AgenticMailConfig): Router {
         text: req.body?.text,
         refAudio: req.body?.refAudio,
         refText: req.body?.refText,
-        pythonBin: req.body?.pythonBin,
+        // pythonBin is intentionally NOT taken from the request: it names a
+        // binary the server executes. Operators pick the interpreter with
+        // AGENTICMAIL_PYTHON_BIN (or PATH); agents cannot.
         device: req.body?.device,
       });
       res.json(result);

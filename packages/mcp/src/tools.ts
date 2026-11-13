@@ -1662,7 +1662,6 @@ export const toolDefinitions = [
         text: { type: 'string', description: 'Text to speak in the cloned voice. Keep it short (~15 words) for best quality.' },
         refAudio: { type: 'string', description: 'Absolute path to the reference audio sample (required).' },
         refText: { type: 'string', description: 'Transcript of the reference audio (required).' },
-        pythonBin: { type: 'string', description: 'Optional absolute path to a Python interpreter with F5-TTS installed.' },
         device: { type: 'string', description: 'Compute device for F5-TTS: cpu, cuda, mps. Default: cpu.' },
       },
       required: ['text', 'refAudio', 'refText'],
@@ -3970,7 +3969,6 @@ async function dispatchToolCall(name: string, args: Record<string, unknown>, use
         text: args.text,
         refAudio: args.refAudio,
         refText: args.refText,
-        pythonBin: args.pythonBin,
         device: args.device,
       });
       return JSON.stringify(result, null, 2);

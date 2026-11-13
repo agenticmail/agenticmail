@@ -233,7 +233,11 @@ export interface VoiceCloneOptions {
   refAudio: string;
   /** Transcript of the reference audio (required). */
   refText: string;
-  /** Optional path to the Python interpreter with F5-TTS installed. */
+  /**
+   * Optional absolute path to the Python interpreter with F5-TTS installed.
+   * Library callers only — the HTTP route never forwards it. Must be named
+   * like a Python interpreter. Falls back to AGENTICMAIL_PYTHON_BIN, then PATH.
+   */
   pythonBin?: string;
   /** Compute device passed to F5-TTS (default 'cpu'). */
   device?: string;

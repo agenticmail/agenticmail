@@ -58,7 +58,7 @@ import { homedir, tmpdir } from 'node:os';
  * helper in codex-config-toml.ts for the full rationale (CodeQL
  * `js/path-injection` boundary check).
  */
-function assertSafeHooksPath(path: string): void {
+function safeHooksPath(path: string): string {
   if (!path || typeof path !== 'string') {
     throw new Error('codex hooks path is required');
   }
@@ -73,6 +73,9 @@ function assertSafeHooksPath(path: string): void {
   if (!insideHome && !insideTmp) {
     throw new Error(`refusing codex hooks write outside of HOME or tmp: ${path}`);
   }
+  // Callers must use the RESOLVED path from here on, never the raw input —
+  // that is what the containment check above actually vouched for.
+  return resolved;
 }
 
 /**
@@ -166,8 +169,8 @@ type HookEvent =
   | typeof HOOK_EVENTS_TO_REGISTER[number]
   | typeof HOOK_EVENTS_TO_REMOVE[number];
 
-function readHooks(path: string): CodexHooksShape {
-  assertSafeHooksPath(path);
+function readHooks(rawPath: string): CodexHooksShape {
+  const path = safeHooksPath(rawPath);
   if (!existsSync(path)) return {};
   const raw = readFileSync(path, 'utf-8');
   if (!raw.trim()) return {};
@@ -183,8 +186,8 @@ function readHooks(path: string): CodexHooksShape {
   }
 }
 
-function writeHooks(path: string, settings: CodexHooksShape): void {
-  assertSafeHooksPath(path);
+function writeHooks(rawPath: string, settings: CodexHooksShape): void {
+  const path = safeHooksPath(rawPath);
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const text = JSON.stringify(settings, null, 2) + '\n';
@@ -280,7 +283,8 @@ function upsertOneEvent(
  *
  * Returns `true` if the file changed.
  */
-export function removeMailHook(path: string): boolean {
+export function removeMailHook(rawPath: string): boolean {
+  const path = safeHooksPath(rawPath);
   if (!existsSync(path)) return false;
   const settings = readHooks(path);
   if (!settings.hooks) return false;
@@ -449,7 +453,8 @@ export function upsertOpenCraterHook(path: string): boolean {
 }
 
 /** Remove the OpenCrater sponsor hook (only our rules). Returns true if changed. */
-export function removeOpenCraterHook(path: string): boolean {
+export function removeOpenCraterHook(rawPath: string): boolean {
+  const path = safeHooksPath(rawPath);
   if (!existsSync(path)) return false;
   const settings = readHooks(path);
   if (!settings.hooks) return false;

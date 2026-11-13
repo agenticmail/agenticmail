@@ -3050,7 +3050,6 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
       text: { type: 'string', required: true, description: 'Text to speak in the cloned voice. Keep it short (~15 words) for best quality.' },
       refAudio: { type: 'string', required: true, description: 'Absolute path to the reference audio sample.' },
       refText: { type: 'string', required: true, description: 'Transcript of the reference audio.' },
-      pythonBin: { type: 'string', description: 'Optional absolute path to a Python interpreter with F5-TTS installed.' },
       device: { type: 'string', description: 'Compute device for F5-TTS: cpu, cuda, mps. Default: cpu.' },
     },
     handler: async (params: any) => {
@@ -3060,7 +3059,6 @@ WHERE filters support operators: {column: value} for equality, {column: {$gt: 5,
           text: params.text,
           refAudio: params.refAudio,
           refText: params.refText,
-          pythonBin: params.pythonBin,
           device: params.device,
         });
       } catch (err) { return { success: false, error: (err as Error).message }; }

@@ -88,7 +88,7 @@ describe('codex bootstrap routes', () => {
     expect(ops.install).toHaveBeenCalledTimes(1);
   });
 
-  it('honour codexHome only with the master key', async () => {
+  it('never honours codexHome over HTTP', async () => {
     await request(makeApp()).post(INSTALL).send({ codexHome: '/tmp/evil' });
     expect(ops.install.mock.calls[0][0]).not.toHaveProperty('codexHome');
   });

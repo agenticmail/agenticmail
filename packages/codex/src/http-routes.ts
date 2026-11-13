@@ -32,9 +32,16 @@ interface UninstallBody extends UninstallOptions {
   // No additional fields.
 }
 
-const PATH_FIELDS = ['codexHome', 'agentsDir'] as const;
+/**
+ * Filesystem locations (`codexHome`, `agentsDir`) and the MCP launch
+ * command are never accepted over HTTP, authenticated or not: they decide
+ * which files the server writes and which binary Codex later executes, so
+ * they stay CLI/env-only. `apiUrl`/`masterKey` are never forwarded either
+ * (see sanitizeBootstrapBody).
+ */
+const PATH_FIELDS = [] as const;
 
-function sanitizeInstallBody(body: unknown, authenticated: boolean): InstallBody {
+export function sanitizeInstallBody(body: unknown, authenticated = false): InstallBody {
   return sanitizeBootstrapBody(body, { authenticated, pathFields: PATH_FIELDS }) as InstallBody;
 }
 

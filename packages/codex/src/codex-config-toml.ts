@@ -48,7 +48,7 @@ import TOML from '@iarna/toml';
  * If you genuinely need to write outside HOME/tmp (we never do today),
  * extend the allow-list explicitly rather than removing this check.
  */
-function assertSafeConfigPath(path: string): void {
+function safeConfigPath(path: string): string {
   if (!path || typeof path !== 'string') {
     throw new Error('codex config path is required');
   }
@@ -63,6 +63,7 @@ function assertSafeConfigPath(path: string): void {
   if (!insideHome && !insideTmp) {
     throw new Error(`refusing codex config write outside of HOME or tmp: ${path}`);
   }
+  return resolved;
 }
 
 /** Shape of a single MCP server registration in Codex's config.toml. */
@@ -119,8 +120,8 @@ export interface CodexConfigShape {
   [key: string]: unknown;
 }
 
-export function readCodexConfig(path: string): CodexConfigShape {
-  assertSafeConfigPath(path);
+export function readCodexConfig(rawPath: string): CodexConfigShape {
+  const path = safeConfigPath(rawPath);
   if (!existsSync(path)) return {};
   const raw = readFileSync(path, 'utf-8');
   if (!raw.trim()) return {};
@@ -141,8 +142,8 @@ export function readCodexConfig(path: string): CodexConfigShape {
  * rename pair so a process kill mid-write can never leave a truncated
  * file — a partial config.toml prevents Codex CLI from starting at all.
  */
-export function writeCodexConfig(path: string, config: CodexConfigShape): void {
-  assertSafeConfigPath(path);
+export function writeCodexConfig(rawPath: string, config: CodexConfigShape): void {
+  const path = safeConfigPath(rawPath);
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   // @iarna/toml's `stringify` accepts any JS object. We've already validated
@@ -171,7 +172,8 @@ export function upsertMcpServer(
 }
 
 /** Remove a single MCP server entry. Returns true if the file changed. */
-export function removeMcpServer(path: string, serverName: string): boolean {
+export function removeMcpServer(rawPath: string, serverName: string): boolean {
+  const path = safeConfigPath(rawPath);
   if (!existsSync(path)) return false;
   const config = readCodexConfig(path);
   if (!config.mcp_servers || !(serverName in config.mcp_servers)) return false;

@@ -179,3 +179,20 @@ describe('ensureOpenCraterHooks (passive self-heal)', () => {
     expect(readFileSync(hooksPath, 'utf-8')).toBe('{not json'); // untouched
   });
 });
+
+describe('hooks path containment', () => {
+  it('refuses to read or write a hooks file outside HOME and the temp dir', () => {
+    expect(() => upsertMailHook('/etc/codex/hooks.json', 'agenticmail-codex-mail-hook'))
+      .toThrow(/outside of HOME or tmp/);
+    expect(() => removeMailHook('/etc/codex/hooks.json')).toThrow(/outside of HOME or tmp/);
+  });
+
+  it('refuses ../ traversal out of an allowed directory', () => {
+    expect(() => upsertMailHook(join(tmpdir(), '..', '..', 'etc', 'hooks.json'), 'x'))
+      .toThrow(/outside of HOME or tmp/);
+  });
+
+  it('refuses a relative hooks path', () => {
+    expect(() => upsertMailHook('hooks.json', 'x')).toThrow(/relative/);
+  });
+});
