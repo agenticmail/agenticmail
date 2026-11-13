@@ -1233,6 +1233,35 @@ npm prefix -g
 
 Use `npx agenticmail` for one-off usage, or install globally with `npm install -g @agenticmail/cli`.
 
+## Contributors
+
+Thank you to everyone who has made AgenticMail better.
+
+### Code
+
+- [@ope-olatunji](https://github.com/ope-olatunji): creator and maintainer
+- [@benediktkraus](https://github.com/benediktkraus)
+- [@adityachaudhary99](https://github.com/adityachaudhary99)
+- [@marcelomar21](https://github.com/marcelomar21)
+- Armand ([orbitalreach.space](https://orbitalreach.space))
+
+### Security researchers
+
+These people reported vulnerabilities privately so they could be fixed before disclosure. See the [security advisories](https://github.com/agenticmail/agenticmail/security/advisories).
+
+- [@benediktkraus](https://github.com/benediktkraus): GHSA-wjjv-3mj2-39hf
+- [@SecurePatchOps](https://github.com/SecurePatchOps): GHSA-63gr-g7jc-v8rg
+- [@YHalo-wyh](https://github.com/YHalo-wyh): GHSA-hjwc-26pj-v3pm
+- [@matte1782](https://github.com/matte1782): GHSA-fq4x-789w-jg5h
+- [@manus-pi](https://github.com/manus-pi) and [@manus-use](https://github.com/manus-use): GHSA-h3h3-4g48-gxq9, GHSA-cpgx-gj4r-pf3w, GHSA-4x3j-9wxx-863h
+- [@avishaigonen-pluto](https://github.com/avishaigonen-pluto) and [@yotampe-pluto](https://github.com/yotampe-pluto): GHSA-fgq6-mm4x-93qq, GHSA-vm2m-87j8-8w9m
+- [@adelzaitri](https://github.com/adelzaitri): GHSA-vj36-c6cj-8qmh
+- [@EQSTLab](https://github.com/EQSTLab): GHSA-m52q-h5cf-mj6c
+- [@arpitjain099](https://github.com/arpitjain099): GHSA-3jw6-982f-pp9w
+- [@mappygrid](https://github.com/mappygrid): GHSA-p76v-w436-9wjh
+- [@presendapp](https://github.com/presendapp): GHSA-3gff-66q4-7m3q
+- [@wlassalle724](https://github.com/wlassalle724): GHSA-7mcc-72p6-m7p4
+
 ## License
 
 [MIT](./LICENSE) - Ope Olatunji ([@ope-olatunji](https://github.com/agenticmail/agenticmail))
