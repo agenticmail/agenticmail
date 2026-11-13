@@ -56,6 +56,45 @@ export function redactBotToken(text: string, token?: string): string {
   return out.replace(/\d{6,}:[A-Za-z0-9_-]{30,}/g, 'bot***');
 }
 
+/**
+ * Bot tokens are `<numeric bot id>:<url-safe secret>`. Anything else is
+ * refused before a request is built: the token is spliced into the URL
+ * path, so a value carrying `/`, `?`, `#`, `%`, `.` or whitespace could
+ * otherwise re-route the request to a different Bot API path (or, with a
+ * future base change, a different host). Lenient on length so test and
+ * historic tokens still pass; strict on the character set.
+ */
+const BOT_TOKEN_SHAPE = /^\d{1,20}:[A-Za-z0-9_-]{1,200}$/;
+
+/** Bot API method names are plain identifiers (`sendMessage`, `getMe`, …). */
+const METHOD_SHAPE = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+
+/** True when `token` has the shape of a Telegram bot token. */
+export function isValidBotTokenShape(token: unknown): token is string {
+  return typeof token === 'string' && BOT_TOKEN_SHAPE.test(token);
+}
+
+/**
+ * Build the Bot API URL for a method. Host and scheme are fixed to
+ * {@link TELEGRAM_API_BASE}; token and method are shape-checked and the
+ * result is re-verified after parsing, so no caller value can change
+ * where the request goes.
+ */
+export function telegramMethodUrl(token: string, method: string): string {
+  if (!isValidBotTokenShape(token)) {
+    throw new TelegramApiError(method, 'malformed bot token (expected <bot id>:<secret> from @BotFather)');
+  }
+  if (!METHOD_SHAPE.test(method)) {
+    throw new TelegramApiError(String(method).slice(0, 64), 'invalid Bot API method name');
+  }
+  const base = new URL(TELEGRAM_API_BASE);
+  const url = new URL(`/bot${token}/${method}`, base);
+  if (url.origin !== base.origin) {
+    throw new TelegramApiError(method, 'refusing a Bot API URL outside api.telegram.org');
+  }
+  return url.toString();
+}
+
 export interface TelegramApiOptions {
   /**
    * Long-poll requests (`getUpdates` with a non-zero `timeout`) need an
@@ -85,6 +124,7 @@ export async function callTelegramApi<T = unknown>(
   if (!token || typeof token !== 'string') {
     throw new TelegramApiError(method, 'bot token is required');
   }
+  const url = telegramMethodUrl(token, method);
 
   const pollTimeout = typeof body?.timeout === 'number' ? body.timeout : 0;
   const timeoutMs = options.longPoll && pollTimeout > 0 ? (pollTimeout + 15) * 1000 : 30_000;
@@ -99,7 +139,7 @@ export async function callTelegramApi<T = unknown>(
 
   let response: Response;
   try {
-    response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/${method}`, {
+    response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,

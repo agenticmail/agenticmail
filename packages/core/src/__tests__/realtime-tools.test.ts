@@ -15,6 +15,7 @@ import {
   operatorQuerySubject,
   parseOperatorQueryReply,
   extractEmailAddress,
+  stripHtml,
   isOperatorReplySender,
   WEB_SEARCH_UNTRUSTED_PREFIX,
   type MemoryRecaller,
@@ -324,5 +325,33 @@ describe('isOperatorReplySender', () => {
   it('fails closed on a missing / empty From', () => {
     expect(isOperatorReplySender(undefined, 'ope@example.com')).toBe(false);
     expect(isOperatorReplySender('', 'ope@example.com')).toBe(false);
+  });
+});
+
+describe('stripHtml (web search result text)', () => {
+  it('decodes entities in a single pass (no double-unescaping)', () => {
+    expect(stripHtml('a &amp;lt;b&amp;gt; c')).toBe('a &lt;b&gt; c');
+    expect(stripHtml('Tom &amp; Jerry &quot;hi&quot; it&#x27;s')).toBe('Tom & Jerry "hi" it\'s');
+  });
+
+  it('removes tags repeatedly so split fragments cannot reassemble', () => {
+    expect(stripHtml('<scr<b>ipt>alert(1)</scr</b>ipt>')).toBe('alert(1)');
+    expect(stripHtml('<b>bold</b> <i>text</i>')).toBe('bold text');
+  });
+});
+
+describe('extractEmailAddress (linear scan)', () => {
+  it('matches the first non-empty angle-bracket group', () => {
+    expect(extractEmailAddress('"Op" <Op@Example.com>')).toBe('op@example.com');
+    expect(extractEmailAddress('<> x <a@b.c>')).toBe('a@b.c');
+    expect(extractEmailAddress(' plain@host.io ')).toBe('plain@host.io');
+    expect(extractEmailAddress('<unclosed@host')).toBe('<unclosed@host');
+  });
+
+  it('is fast on a long run of "<"', () => {
+    const evil = '<'.repeat(100_000) + '=';
+    const t0 = Date.now();
+    extractEmailAddress(evil);
+    expect(Date.now() - t0).toBeLessThan(200);
   });
 });

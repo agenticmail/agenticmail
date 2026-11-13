@@ -108,7 +108,10 @@ export function parseTelegramOperatorReply(input: { text: string; replyToText?: 
   const quotedQueryId = quotedTag?.[1];
 
   // /answer <queryId> <text>
-  const answerCmd = /^\/answer(?:@\w+)?\s+(oq_[A-Za-z0-9-]+)\s+([\s\S]+)$/i.exec(text);
+  // One `\s` after the id, then the rest verbatim (trimmed below). A
+  // `\s+([\s\S]+)` pair here is ambiguous over runs of whitespace and
+  // backtracks polynomially (CodeQL js/polynomial-redos).
+  const answerCmd = /^\/answer(?:@\w+)?\s+(oq_[A-Za-z0-9-]+)\s([\s\S]+)$/i.exec(text);
   if (answerCmd) {
     return { queryId: answerCmd[1], answer: answerCmd[2].trim(), kind: 'answer' };
   }

@@ -804,17 +804,32 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
   return `${WEB_SEARCH_UNTRUSTED_PREFIX}\n\n${body}`;
 }
 
-/** Decode HTML entities + strip tags from a fragment of DuckDuckGo HTML. */
-function stripHtml(fragment: string): string {
-  return fragment
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
+/** HTML entities DuckDuckGo emits in result titles/snippets. */
+const HTML_ENTITIES: Record<string, string> = {
+  '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"',
+  '&#x27;': "'", '&#39;': "'", '&nbsp;': ' ',
+};
+
+/**
+ * Strip tags from, then decode entities in, a fragment of DuckDuckGo
+ * HTML. The result is PLAIN TEXT for the voice model, never re-rendered
+ * as HTML.
+ *
+ *   - Tag removal repeats until nothing changes, so nested/overlapping
+ *     fragments such as `<scr<b>ipt>` cannot reassemble into a tag.
+ *   - Entities are decoded in ONE pass, so `&amp;lt;` becomes the literal
+ *     text `&lt;` instead of being double-unescaped into `<`.
+ */
+export function stripHtml(fragment: string): string {
+  let text = fragment;
+  // Terminates: every productive pass makes the string strictly shorter.
+  for (;;) {
+    const next = text.replace(/<[^<>]*>/g, '');
+    if (next === text) break;
+    text = next;
+  }
+  return text
+    .replace(/&(?:amp|lt|gt|quot|nbsp|#x27|#39);/g, (entity) => HTML_ENTITIES[entity] ?? entity)
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -971,8 +986,19 @@ export function parseOperatorQueryReply(
  */
 export function extractEmailAddress(value: string | null | undefined): string {
   if (typeof value !== 'string') return '';
-  const angle = /<([^>]+)>/.exec(value);
-  return (angle ? angle[1] : value).trim().toLowerCase();
+  // Same result as `/<([^>]+)>/` (first non-empty `<…>` group), found with
+  // indexOf scans: the regex backtracks quadratically on long `<<<<…`
+  // input, and this value is a sender-controlled header (js/polynomial-redos).
+  let from = 0;
+  while (from < value.length) {
+    const lt = value.indexOf('<', from);
+    if (lt === -1) break;
+    const gt = value.indexOf('>', lt + 1);
+    if (gt === -1) break;
+    if (gt > lt + 1) return value.slice(lt + 1, gt).trim().toLowerCase();
+    from = lt + 1;
+  }
+  return value.trim().toLowerCase();
 }
 
 /**

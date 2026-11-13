@@ -104,7 +104,14 @@ export const TELEGRAM_STOP_WORDS: ReadonlySet<string> = new Set([
 /** True when `text` is a bare stop command. */
 export function isTelegramStopCommand(text: string): boolean {
   if (!text) return false;
-  const cleaned = text.trim().toLowerCase().replace(/[!.?]+$/, '');
+  let cleaned = text.trim().toLowerCase();
+  // Stop words are a handful of characters; anything long is a message.
+  if (cleaned.length > 64) return false;
+  // Strip trailing punctuation with a linear scan — a `/[!.?]+$/` regex
+  // backtracks quadratically on long `!!!!…x` input (js/polynomial-redos).
+  let end = cleaned.length;
+  while (end > 0 && '!.?'.includes(cleaned[end - 1])) end--;
+  cleaned = cleaned.slice(0, end);
   return TELEGRAM_STOP_WORDS.has(cleaned);
 }
 

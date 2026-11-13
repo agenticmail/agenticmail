@@ -5,6 +5,8 @@ import {
   splitTelegramMessage,
   redactBotToken,
   callTelegramApi,
+  telegramMethodUrl,
+  isValidBotTokenShape,
   sendTelegramMessage,
   getTelegramMe,
   TelegramApiError,
@@ -453,5 +455,58 @@ describe('TelegramPoller', () => {
     await poller.start();
     await new Promise((r) => setTimeout(r, 30));
     expect(poller.isRunning).toBe(false);
+  });
+});
+
+describe('Bot API URL hardening', () => {
+  it('builds the method URL on api.telegram.org', () => {
+    const url = new URL(telegramMethodUrl(TOKEN, 'getMe'));
+    expect(url.origin).toBe('https://api.telegram.org');
+    expect(url.pathname).toBe(`/bot${TOKEN}/getMe`);
+  });
+
+  it('rejects tokens that could re-route the request path', () => {
+    for (const bad of ['123:abc/../../x', '123:abc?x=1', '123:abc#frag', '123:a b', 'not-a-token', '123:abc%2F..', '']) {
+      expect(isValidBotTokenShape(bad)).toBe(false);
+      expect(() => telegramMethodUrl(bad, 'getMe')).toThrow(TelegramApiError);
+    }
+  });
+
+  it('rejects a method name that is not a plain identifier', () => {
+    expect(() => telegramMethodUrl(TOKEN, '../getMe')).toThrow(/invalid Bot API method/);
+  });
+
+  it('callTelegramApi refuses a malformed token without calling fetch', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(callTelegramApi('123:abc/../../evil', 'getMe')).rejects.toThrow(/malformed bot token/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReDoS-safe parsers', () => {
+  it('isTelegramStopCommand still strips trailing punctuation', () => {
+    expect(isTelegramStopCommand('STOP!!!')).toBe(true);
+    expect(isTelegramStopCommand('  cancel?. ')).toBe(true);
+    expect(isTelegramStopCommand('stop it')).toBe(false);
+  });
+
+  it('isTelegramStopCommand is fast on a long punctuation run', () => {
+    const evil = '!'.repeat(200_000) + 'x';
+    const t0 = Date.now();
+    expect(isTelegramStopCommand(evil)).toBe(false);
+    expect(Date.now() - t0).toBeLessThan(200);
+  });
+
+  it('parseTelegramOperatorReply /answer keeps the full answer text', () => {
+    const parsed = parseTelegramOperatorReply({ text: '/answer oq_abc-123   yes,  go ahead ' });
+    expect(parsed).toEqual({ queryId: 'oq_abc-123', answer: 'yes,  go ahead', kind: 'answer' });
+  });
+
+  it('parseTelegramOperatorReply is fast on long whitespace runs', () => {
+    const evil = '/answer\toq_-\t' + '\t\t'.repeat(50_000);
+    const t0 = Date.now();
+    parseTelegramOperatorReply({ text: evil });
+    expect(Date.now() - t0).toBeLessThan(200);
   });
 });

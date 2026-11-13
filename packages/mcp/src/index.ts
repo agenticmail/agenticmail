@@ -357,9 +357,12 @@ function resolveHttpToken(): string | null {
 function checkAuth(req: import('node:http').IncomingMessage, expected: string): boolean {
   const header = req.headers['authorization'];
   if (typeof header !== 'string') return false;
-  const m = header.match(/^Bearer\s+(.+)$/i);
-  if (!m) return false;
-  const got = Buffer.from(m[1]);
+  // Prefix test + slice instead of `/^Bearer\s+(.+)$/` — that pattern
+  // backtracks polynomially on long whitespace runs (js/polynomial-redos).
+  if (header.length > 8192 || !/^bearer\s/i.test(header)) return false;
+  const token = header.slice('bearer'.length).trim();
+  if (!token) return false;
+  const got = Buffer.from(token);
   const want = Buffer.from(expected);
   if (got.length !== want.length) return false;
   return timingSafeEqual(got, want);

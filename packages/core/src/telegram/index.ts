@@ -14,6 +14,8 @@ export {
   TELEGRAM_CHUNK_SIZE,
   TelegramApiError,
   redactBotToken,
+  isValidBotTokenShape,
+  telegramMethodUrl,
   callTelegramApi,
   stripTelegramMarkdown,
   splitTelegramMessage,
